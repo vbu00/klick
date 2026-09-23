@@ -1,4 +1,21 @@
+/// Дата сборки для «О приложении» — без зависимостей, по дням от 1970 года
+/// (алгоритм Хиннанта для григорианского календаря).
+fn build_date() -> String {
+    let days = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() / 86400).unwrap_or(0) as i64;
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}.{m:02}.{d:02}")
+}
+
 fn main() {
+    println!("cargo:rustc-env=KLICK_BUILD_DATE={}", build_date());
     // mihomo в режиме TUN поднимает виртуальный адаптер и маршруты, а
     // kill-switch пишет правила брандмауэра — и то и другое требует прав
     // администратора. Манифест вшивается в exe.

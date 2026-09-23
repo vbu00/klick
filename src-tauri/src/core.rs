@@ -198,7 +198,7 @@ fn parse_line(line: &str) -> Option<LogEntry> {
 
 // ─────────── Пути ───────────
 
-fn bin(app: &AppHandle, name: &str) -> PathBuf {
+pub fn bin_path(app: &AppHandle, name: &str) -> PathBuf {
     if let Ok(dir) = app.path().resource_dir() {
         let p = dir.join("bin").join(name);
         if p.exists() {
@@ -209,7 +209,7 @@ fn bin(app: &AppHandle, name: &str) -> PathBuf {
 }
 
 pub fn mihomo_exe(app: &AppHandle) -> PathBuf {
-    bin(app, "mihomo.exe")
+    bin_path(app, "mihomo.exe")
 }
 
 /// Домашняя папка mihomo: конфиг, кэш, GeoIP-база.
@@ -217,16 +217,7 @@ pub fn home(app: &AppHandle) -> PathBuf {
     let h = app.state::<AppState>().dir.join("core");
     let _ = std::fs::create_dir_all(&h);
     // База GeoIP лежит рядом с программой; mihomo ищет её у себя дома.
-    let db = h.join("Country.mmdb");
-    let src = bin(app, "Country.mmdb");
-    let stale = match (std::fs::metadata(&db), std::fs::metadata(&src)) {
-        (Ok(a), Ok(b)) => a.len() != b.len(),
-        (Err(_), Ok(_)) => true,
-        _ => false,
-    };
-    if stale {
-        let _ = std::fs::copy(&src, &db);
-    }
+    crate::geo::ensure(app, &h);
     h
 }
 
@@ -354,7 +345,7 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
 
     // Kill Switch снимаем до старта: в TUN трафик защищённых программ
     // пойдёт через туннель, а правило блокировало бы и его.
-    ks_apply(app, false, &settings.ks_apps);
+    ks_apply(app, false, &settings.ks_apps, &settings.ks_sites);
     let mut warning = None;
 
     *LOG_FILE.lock().unwrap() = std::fs::File::create(state.dir.join("mihomo.log")).ok();
@@ -475,11 +466,11 @@ fn kill_child() {
 fn after_down(app: &AppHandle) {
     *API.lock().unwrap() = None;
     let state = app.state::<AppState>();
-    let (ks, apps, port) = {
+    let (ks, apps, sites, port) = {
         let s = state.settings.lock().unwrap();
-        (s.kill_switch, s.ks_apps.clone(), s.proxy_port)
+        (s.kill_switch, s.ks_apps.clone(), s.ks_sites.clone(), s.proxy_port)
     };
-    if let Some(w) = ks_apply(app, ks, &apps) {
+    if let Some(w) = ks_apply(app, ks, &apps, &sites) {
         note("WARN", &w);
     }
     crate::sysproxy::disable(&state.dir, port);
@@ -487,9 +478,9 @@ fn after_down(app: &AppHandle) {
 
 /// Kill Switch с отчётом окну: проблема появилась или ушла — событие
 /// «killswitch» (строка или null).
-pub fn ks_apply(app: &AppHandle, engage: bool, apps: &[crate::state::KsApp]) -> Option<String> {
+pub fn ks_apply(app: &AppHandle, engage: bool, apps: &[crate::state::KsApp], sites: &[crate::state::KsSite]) -> Option<String> {
     let before = crate::killswitch::issue();
-    let w = crate::killswitch::apply(engage, apps);
+    let w = crate::killswitch::apply(engage, apps, sites);
     if w != before {
         let _ = app.emit("killswitch", w.clone());
     }
@@ -711,6 +702,20 @@ pub fn start_monitor(app: AppHandle) {
             if is_on() && last_health.elapsed() > Duration::from_secs(60) {
                 last_health = Instant::now();
                 spawn_health(app.clone(), GEN.load(Ordering::SeqCst));
+            }
+            // Сайты Kill Switch: пока VPN выключен, их адреса резолвим заново.
+            if !is_on() && crate::killswitch::resolve_due() {
+                let (ks, apps, sites) = {
+                    let s = app.state::<AppState>().settings.lock().unwrap().clone();
+                    (s.kill_switch, s.ks_apps, s.ks_sites)
+                };
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let _op = OP.lock().unwrap();
+                    if !is_on() {
+                        ks_apply(&app, ks, &apps, &sites);
+                    }
+                });
             }
         }
     });

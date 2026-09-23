@@ -74,6 +74,14 @@ pub struct KsApp {
     pub on: bool,
 }
 
+/// Сайт под защитой Kill Switch: пока VPN выключен, его адреса закрыты
+/// для всех программ.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct KsSite {
+    pub pattern: String,
+    pub on: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Presets {
@@ -103,6 +111,7 @@ pub struct Settings {
     pub apps: Vec<AppRule>,
     pub kill_switch: bool,
     pub ks_apps: Vec<KsApp>,
+    pub ks_sites: Vec<KsSite>,
     pub auto_update: bool,
     pub notify_drops: bool,
     /// Подключаться сразу после запуска (в том числе при входе в Windows).
@@ -121,6 +130,7 @@ impl Default for Settings {
             apps: vec![],
             kill_switch: false,
             ks_apps: vec![],
+            ks_sites: vec![],
             auto_update: true,
             notify_drops: true,
             connect_on_launch: false,

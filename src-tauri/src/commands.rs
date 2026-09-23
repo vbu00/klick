@@ -382,14 +382,21 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
         s.pattern = links::normalize_site(&s.pattern);
     }
     next.sites.retain(|s| !s.pattern.is_empty());
+    let mut seen = std::collections::HashSet::new();
+    next.ks_sites = next
+        .ks_sites
+        .into_iter()
+        .filter_map(|s| killswitch::normalize_domain(&s.pattern).map(|pattern| crate::state::KsSite { pattern, on: s.on }))
+        .filter(|s| seen.insert(s.pattern.clone()))
+        .collect();
     *state.settings.lock().unwrap() = next.clone();
     state.save_settings();
 
     // Проблемы Kill Switch окно узнаёт событием «killswitch» — здесь не дублируем.
     let warning = None;
     let on = core::is_on();
-    if before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps {
-        core::ks_apply(&app, next.kill_switch && !on, &next.ks_apps);
+    if before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites {
+        core::ks_apply(&app, next.kill_switch && !on, &next.ks_apps, &next.ks_sites);
     }
     if on {
         if before.mode != next.mode || (before.proxy_port != next.proxy_port && next.mode != Mode::Tun) {
@@ -412,12 +419,12 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
 /// «Повторить» на экране Kill Switch.
 #[tauri::command(async)]
 pub fn retry_kill_switch(app: AppHandle, state: State<AppState>) -> Option<String> {
-    let (ks, apps) = {
+    let (ks, apps, sites) = {
         let s = state.settings.lock().unwrap();
-        (s.kill_switch, s.ks_apps.clone())
+        (s.kill_switch, s.ks_apps.clone(), s.ks_sites.clone())
     };
     let before = killswitch::issue();
-    let w = killswitch::retry(ks && !core::is_on(), &apps);
+    let w = killswitch::retry(ks && !core::is_on(), &apps, &sites);
     if w != before {
         let _ = app.emit("killswitch", w.clone());
     }
@@ -520,4 +527,124 @@ pub fn window_close(window: tauri::WebviewWindow) {
 pub fn quit_app(app: AppHandle) {
     core::shutdown(&app);
     app.exit(0);
+}
+
+// ─────────── Иконки, «О приложении», GeoIP ───────────
+
+/// Иконка сайта как data:-URI (см. favicon.rs). None — у сайта её нет.
+#[tauri::command(async)]
+pub fn favicon(app: AppHandle, host: String) -> Option<String> {
+    crate::favicon::get(&app, &host).ok().flatten()
+}
+
+pub const REPO: &str = "https://github.com/vbu00/klick";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    version: String,
+    build: &'static str,
+    mihomo: Option<String>,
+    system: String,
+    data_dir: String,
+    geo: crate::geo::GeoInfo,
+    repo: &'static str,
+}
+
+/// «Windows 11 · x64»: номер сборки из реестра — версию 10/11 по нему и
+/// отличают (GetVersionEx без манифеста совместимости врёт).
+fn system_name() -> String {
+    let out = crate::sys::run("reg.exe", &["query", r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "/v", "CurrentBuildNumber"]);
+    let build: Option<u32> = out.split_whitespace().last().and_then(|v| v.parse().ok());
+    let name = match build {
+        Some(b) if b >= 22000 => "Windows 11",
+        Some(_) => "Windows 10",
+        None => "Windows",
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "ARM64",
+        a => a,
+    };
+    format!("{name} · {arch}")
+}
+
+#[tauri::command(async)]
+pub fn app_info(app: AppHandle, state: State<AppState>) -> AppInfo {
+    let dir = state.dir.display().to_string();
+    let data_dir = match std::env::var("LOCALAPPDATA") {
+        Ok(base) if !base.is_empty() && dir.to_lowercase().starts_with(&base.to_lowercase()) => format!("%LOCALAPPDATA%{}", &dir[base.len()..]),
+        _ => dir,
+    };
+    AppInfo {
+        version: app.package_info().version.to_string(),
+        build: env!("KLICK_BUILD_DATE"),
+        mihomo: MIHOMO_VERSION.get_or_init(|| core::mihomo_version(&app)).clone(),
+        system: system_name(),
+        data_dir,
+        geo: crate::geo::info(&app),
+        repo: REPO,
+    }
+}
+
+#[tauri::command(async)]
+pub fn update_geo(app: AppHandle) -> Result<crate::geo::GeoInfo, String> {
+    crate::geo::update(&app)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheck {
+    current: String,
+    latest: String,
+    newer: bool,
+    url: String,
+}
+
+fn semver(v: &str) -> (u32, u32, u32) {
+    let mut it = v.trim().trim_start_matches('v').split(['.', '-']).map(|x| x.parse().unwrap_or(0));
+    (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
+}
+
+/// Последний релиз на GitHub. Ничего не скачивает и не ставит — только
+/// сравнивает версии; установщик человек берёт со страницы релиза сам.
+#[tauri::command(async)]
+pub fn check_update(app: AppHandle) -> Result<UpdateCheck, String> {
+    let out = crate::sys::command("curl.exe")
+        .args(["-sS", "-L", "--fail", "--max-time", "15", "--proto", "=https", "-A", "klick", "-H", "Accept: application/vnd.github+json"])
+        .arg("https://api.github.com/repos/vbu00/klick/releases/latest")
+        .output()
+        .map_err(|e| format!("не удалось запустить curl: {e}"))?;
+    if !out.status.success() {
+        let err = crate::sys::decode_console(&out.stderr);
+        return Err(format!("GitHub не ответил: {}", err.trim().trim_start_matches("curl: ")));
+    }
+    let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| "GitHub ответил непонятно.".to_string())?;
+    let latest = v.get("tag_name").and_then(Value::as_str).ok_or("На GitHub пока нет релизов.")?.to_string();
+    let current = app.package_info().version.to_string();
+    let url = v.get("html_url").and_then(Value::as_str).filter(|u| u.starts_with(REPO)).unwrap_or(REPO).to_string();
+    Ok(UpdateCheck { newer: semver(&latest) > semver(&current), latest: latest.trim_start_matches('v').to_string(), current, url })
+}
+
+/// Открыть страницу проекта в браузере. Только адреса самого репозитория:
+/// окно не должно уметь открывать что угодно. Через explorer.exe — он
+/// передаёт адрес уже запущенной оболочке, и браузер стартует с обычными
+/// правами, а не с нашими администраторскими.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let ok = url == REPO || url.starts_with(&format!("{REPO}/"));
+    if !ok || url.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err("Эту ссылку открыть нельзя.".into());
+    }
+    std::process::Command::new(crate::sys::system_exe("explorer.exe")).arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Тексты лицензий — вшиты в программу, показываются без сети.
+#[tauri::command]
+pub fn licenses() -> String {
+    format!(
+        "{}\n\n────────────────────────────────────────\n\n{}",
+        include_str!("../../LICENSE").trim(),
+        include_str!("../../THIRD_PARTY_NOTICES.md").trim()
+    )
 }

@@ -21,6 +21,7 @@
     sites: [{ pattern: 'gosuslugi.ru', action: 'direct' }, { pattern: 'youtube.com', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }],
     apps: [{ name: 'Telegram', exe: 'Telegram.exe', action: 'proxy' }, { name: 'Steam', exe: 'steam.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }],
     killSwitch: true,
+    ksSites: [{ pattern: 'sberbank.ru', on: true }, { pattern: 'mail.google.com', on: true }, { pattern: 'github.com', on: false }],
     ksApps: [{ name: 'qBittorrent', exe: 'qbittorrent.exe', path: 'C:\\x', on: true }, { name: 'Telegram', exe: 'Telegram.exe', path: 'C:\\x', on: true }, { name: 'Discord', exe: 'Discord.exe', path: 'C:\\x', on: true }, { name: 'Firefox', exe: 'firefox.exe', path: 'C:\\x', on: false }],
     autoUpdate: true, notifyDrops: true, connectOnLaunch: true,
   };
@@ -39,7 +40,7 @@
   window.__mock = { scenario: location.hash.slice(1) };
 
   window.kl = {
-    overview: async () => ({ status, traffic: { up: 0, down: 0, upTotal: tot.up, downTotal: tot.down }, settings: clone(settings), profiles: window.__mock.scenario === 'empty' ? [] : clone(profiles), activeProfile: settings.activeProfile, autostart, appVersion: '0.1.0', mihomoVersion: 'v1.19.31', killSwitchIssue: window.__mock.ksIssue || null }),
+    overview: async () => ({ status, traffic: { up: 0, down: 0, upTotal: tot.up, downTotal: tot.down }, settings: clone(settings), profiles: window.__mock.scenario === 'empty' ? [] : clone(profiles), activeProfile: settings.activeProfile, autostart, appVersion: '0.2.0', mihomoVersion: 'v1.19.31', killSwitchIssue: window.__mock.ksIssue || null }),
     connect: async () => {
       const p = act();
       set({ state: 'connecting', error: null, profileId: p.id, server: p.active, mode: settings.mode });
@@ -60,7 +61,12 @@
       }, 1000);
     },
     disconnect: async () => { clearInterval(timer); set({ state: 'off', since: null, health: null }); log('INFO', 'Отключено, VPN-адаптер удалён'); },
-    selectProfile: async (id) => { settings.activeProfile = id; },
+    selectProfile: async (id) => {
+      const live = status.state === 'on' && status.profileId !== id;
+      settings.activeProfile = id;
+      if (live) { await window.kl.disconnect(); await window.kl.connect(); }
+      else set({ profileId: id, server: act().active });
+    },
     selectServer: async (pid, name) => { profiles.find((p) => p.id === pid).active = name; if (status.state === 'on') set({ server: name }); },
     ping: async (pid) => {
       await new Promise((r) => setTimeout(r, 1200));
@@ -90,6 +96,18 @@
     },
     setAutostart: async (v) => (autostart = v),
     retryKillSwitch: async () => { await new Promise((r) => setTimeout(r, 600)); window.__mock.ksIssue = null; return null; },
+    // Иконки в стенде — цветной квадрат с буквой: в сеть стенд не ходит.
+    favicon: async (host) => {
+      await new Promise((r) => setTimeout(r, 200));
+      if (host.startsWith('ads.')) return null;
+      const c = ['#4285f4', '#ea4335', '#34a853', '#ff9f0a', '#bf5af2'][host.length % 5];
+      return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="4" fill="${c}"/><text x="8" y="12" font-size="10" font-family="Arial" font-weight="700" fill="#fff" text-anchor="middle">${host[0].toUpperCase()}</text></svg>`);
+    },
+    appInfo: async () => ({ version: '0.2.0', build: '2026.09.23', mihomo: 'v1.19.31', system: 'Windows 11 · x64', dataDir: '%LOCALAPPDATA%\\com.vbu00.klick', geo: { updated: now() - 3 * 86400, size: 7780891, fresh: false }, repo: 'https://github.com/vbu00/klick' }),
+    updateGeo: async () => { await new Promise((r) => setTimeout(r, 1500)); return { updated: now(), size: 7780891, fresh: true }; },
+    checkUpdate: async () => { await new Promise((r) => setTimeout(r, 900)); return { current: '0.2.0', latest: '0.2.0', newer: false, url: 'https://github.com/vbu00/klick/releases/tag/v0.2.0' }; },
+    openUrl: async () => {},
+    licenses: async () => 'MIT License\n\nCopyright (c) 2026 vbu00 (kl!ck)\n\nPermission is hereby granted, free of charge, …\n\n────────\n\n# Сторонние компоненты kl!ck\n\n## mihomo — ядро\n- Лицензия: MIT',
     runningApps: async () => {
       await new Promise((r) => setTimeout(r, 300));
       const on = status.state === 'on';
@@ -112,7 +130,7 @@
   };
 
   // Съёмка скриншотов для README (tools/screenshots.ps1): параметры в адресе.
-  //   ?theme=light|dark|system | custom:<основа>:<акцент>  &state=on  &screen=rules|add|settings|kill|theme|mode  &expand=1
+  //   ?theme=light|dark|system | custom:<основа>:<акцент>  &state=on  &screen=rules|add|settings|kill|theme|mode|about  &expand=1  &ks=sites  &info=ksInfo
   const q = new URLSearchParams(location.search);
   if (q.get('frame')) {
     // Окно 380×720 посреди страницы — как в макете; безголовый браузер уже
@@ -135,6 +153,8 @@
     if (q.get('ping')) { await click('[data-act=ping]'); await pause(2000); }
     const scr = q.get('screen');
     if (scr === 'rules' || scr === 'add' || scr === 'settings') await click(`[data-nav=${scr}]`);
-    if (['kill', 'theme', 'mode'].includes(scr)) { await click('[data-nav=settings]'); await click({ kill: '[data-act=goKill]', theme: '[data-act=goTheme]', mode: '[data-act=goModeSub]' }[scr]); }
+    if (['kill', 'theme', 'mode', 'about'].includes(scr)) { await click('[data-nav=settings]'); await click({ kill: '[data-act=goKill]', theme: '[data-act=goTheme]', mode: '[data-act=goModeSub]', about: '[data-act=goAbout]' }[scr]); }
+    if (q.get('ks')) { await click('[data-act=ksTab][data-v=sites]'); await pause(800); }
+    if (q.get('info')) await click(`[data-act=${q.get('info')}]`);
   });
 })();

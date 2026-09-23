@@ -46,7 +46,10 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
         "external-controller": format!("127.0.0.1:{controller_port}"),
         "secret": secret,
         "geodata-mode": false,
-        "geo-auto-update": false,
+        // Свежая база GeoIP — забота mihomo, пока пресет включён (см. geo.rs).
+        "geo-auto-update": settings.presets.geoip,
+        "geo-update-interval": crate::geo::INTERVAL_HOURS,
+        "geox-url": { "mmdb": crate::geo::MMDB_URL },
         "profile": { "store-selected": false, "store-fake-ip": false },
         "tun": {
             "enable": tun,

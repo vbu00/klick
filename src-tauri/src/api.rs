@@ -103,6 +103,20 @@ impl Api {
             })
     }
 
+    /// Обновить базу GeoIP силами самого mihomo: он скачает её по geox-url
+    /// через свои же правила, проверит и подхватит без перезапуска.
+    pub fn update_geo(&self) -> Result<(), String> {
+        Self::agent(Duration::from_secs(120))
+            .post(&self.url("/configs/geo"))
+            .set("Authorization", &self.auth())
+            .send_json(serde_json::json!({}))
+            .map(|_| ())
+            .map_err(|e| match e {
+                ureq::Error::Status(_, r) => r.into_string().unwrap_or_default(),
+                e => e.to_string(),
+            })
+    }
+
     /// Сколько скачала каждая программа (по имени exe) за всё время её
     /// соединений — два замера подряд дают скорость.
     pub fn download_by_process(&self) -> HashMap<String, u64> {

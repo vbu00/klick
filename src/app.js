@@ -30,7 +30,16 @@ const ui = {
   linkInput: '', nameInput: '', siteInput: '',
   picker: null, pickerQuery: '', pickerSel: [], pickerApps: null,
   pinging: false, refreshing: false, adding: false, powerBusy: false,
+  // Какое подключение открыто на Главной. Пока VPN работает, можно смотреть
+  // другое, не разрывая текущее; переключение — кнопкой питания.
+  viewId: null,
+  // Окна-шторки: mode (как работает режим), ks (как работает Kill Switch),
+  // switch (сменить подключение?), licenses.
+  modal: null, modeInfo: 'tun', ksViz: 'on', switchTo: null,
+  ksTab: 'apps', ksSiteInput: '', geoBusy: false, updChecking: false,
 };
+let info = null; // app_info: версия, сборка, система, база GeoIP
+let licText = null;
 let toasts = [];
 let toastId = 0;
 // Проблема Kill Switch: тост, потом точка на «Настройках», пока её не
@@ -41,10 +50,14 @@ let ksToastId = 0;
 
 const S = () => ov.settings;
 const profiles = () => ov?.profiles || [];
-const active = () => profiles().find((p) => p.id === ov.activeProfile) || profiles()[0] || null;
+const byId = (id) => profiles().find((p) => p.id === id) || null;
+// Открытое на Главной: выбранное вручную, иначе то, что подключается/работает.
+const active = () => byId(ui.viewId) || byId(ov.activeProfile) || profiles()[0] || null;
 const isOn = () => status.state === 'on';
 const isBusy = () => status.state === 'connecting' || status.state === 'reconnecting';
 const liveOn = (p) => isOn() && p && status.profileId === p.id;
+// Работает другое подключение, а смотрим это.
+const elsewhere = (p) => isOn() && p && status.profileId && status.profileId !== p.id && !!byId(status.profileId);
 
 // ─────────── Форматирование ───────────
 
@@ -55,6 +68,34 @@ const gb = (b) => { const v = b / 1024 ** 3; return v >= 100 ? Math.round(v) : +
 const pingColor = (p) => (p == null ? RED : p < 80 ? GREEN : p < 160 ? 'var(--text)' : ORANGE);
 const pingText = (p) => (p == null ? 'нет ответа' : p + ' мс');
 const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? b : c; };
+const fmtDay = (secs) => {
+  const d = new Date(secs * 1000);
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+};
+
+// ─────────── Иконки сайтов ───────────
+
+// Иконки качает Rust (favicon.rs) с самого сайта и кэширует; до ответа и
+// если иконки нет — глобус, как в макете.
+const favs = {}; // домен → data:-URI | null (нет или ещё грузится)
+const favDomain = (pattern) => { const d = String(pattern).trim().replace(/^\*?\./, ''); return /^[a-z0-9.-]+\.[a-z0-9-]+$/i.test(d) ? d.toLowerCase() : null; };
+function favTile(pattern, big = false) {
+  const d = favDomain(pattern);
+  if (d && !(d in favs)) loadFav(d);
+  const src = d && favs[d];
+  return `<div class="fav${big ? ' big' : ''}"${d ? ` data-fav="${esc(d)}"` : ''}>${ic('globe', big ? 16 : 14)}${src ? `<img src="${src}" alt="">` : ''}</div>`;
+}
+async function loadFav(d) {
+  favs[d] = null;
+  let src = null;
+  try { src = await kl.favicon(d); } catch { /* нет — остаётся глобус */ }
+  if (!src || !/^data:image\//.test(src)) return;
+  favs[d] = src;
+  document.querySelectorAll('[data-fav]').forEach((el) => {
+    if (el.dataset.fav === d && !el.querySelector('img')) el.insertAdjacentHTML('beforeend', `<img src="${esc(src)}" alt="">`);
+  });
+}
+
 function timerText() {
   const h = isOn() && status.since ? Math.max(0, Math.floor(Date.now() / 1000 - status.since)) : 0;
   return `${Math.floor(h / 3600)}:${String(Math.floor(h / 60) % 60).padStart(2, '0')}:${String(h % 60).padStart(2, '0')}`;
@@ -67,31 +108,67 @@ function modeLabel() {
 
 // ─────────── Тосты ───────────
 
+// Снекбары по макету: не больше двух, 2,8 с (с кнопкой — 5 с). Пояснение
+// под заголовком — только у ошибок, предупреждений и тех, где есть кнопка.
 function toast(title, text = '', color = DIM, action = null) {
-  const id = ++toastId, ms = action ? 5000 : 4200;
-  toasts = [...toasts.slice(-2), { id, title, text, color, action, ms }];
+  const id = ++toastId, ms = action ? 5000 : 2800;
+  toasts = [...toasts.slice(-1), { id, title, text, color, action, ms }];
   renderToasts();
   setTimeout(() => { toasts = toasts.filter((t) => t.id !== id); renderToasts(); renderNav(); }, ms);
   return id;
 }
 function renderToasts() {
-  $('toasts').innerHTML = toasts.map((t) => `<div class="toast" data-id="${t.id}">
-    <div class="dot" style="background:${t.color}"></div>
-    <div style="flex:1;min-width:0"><div class="tt">${esc(t.title)}</div>${t.text ? `<div class="tx">${esc(t.text)}</div>` : ''}</div>
-    ${t.action ? `<button class="act press" data-tact="${t.id}">${esc(t.action.label)}</button><div class="bar" style="animation-duration:${t.ms}ms"></div>` : ''}
-    <button class="x press" data-tclose="${t.id}">${ic('close', 14)}</button></div>`).join('');
+  $('toasts').innerHTML = toasts.map((t) => {
+    const showText = t.text && (t.color === RED || t.color === ORANGE || t.action);
+    return `<div class="snack" data-id="${t.id}">
+      <div class="dot" style="background:${t.color}"></div>
+      <div class="bd" style="padding-right:${t.action ? 0 : 12}px"><div class="tt">${esc(t.title)}</div>${showText ? `<div class="tx">${esc(t.text)}</div>` : ''}</div>
+      ${t.action ? `<button class="act press" data-tact="${t.id}">${esc(t.action.label)}</button>` : ''}</div>`;
+  }).join('');
 }
+// Нажатие на снекбар убирает его; на кнопку — ещё и выполняет действие.
 $('toasts').addEventListener('click', (e) => {
-  const a = e.target.closest('[data-tact]');
-  const c = e.target.closest('[data-tclose]');
-  const id = +(a?.dataset.tact || c?.dataset.tclose || 0);
-  if (!id) return;
+  const s = e.target.closest('.snack');
+  if (!s) return;
+  const id = +s.dataset.id;
   const t = toasts.find((x) => x.id === id);
   toasts = toasts.filter((x) => x.id !== id);
   renderToasts();
   renderNav();
-  if (a && t?.action) t.action.run();
+  if (e.target.closest('[data-tact]') && t?.action) t.action.run();
 });
+
+// ─────────── Подсказки ───────────
+
+// Как в макете: всплывают через 350 мс (сразу, если подсказка уже видна),
+// над элементом, а у верхнего края окна — под ним.
+let tipEl = null, tipTimer = 0;
+function showTip(el) {
+  clearTimeout(tipTimer);
+  tipEl = el;
+  const visible = !!$('tip').firstChild;
+  tipTimer = setTimeout(() => {
+    if (tipEl !== el || !el.isConnected) return;
+    const r = el.getBoundingClientRect(), w = document.querySelector('.window').getBoundingClientRect();
+    const above = r.top - w.top > 90;
+    const x = Math.max(50, Math.min(w.width - 50, r.left - w.left + r.width / 2));
+    const y = above ? r.top - w.top - 8 : r.bottom - w.top + 8;
+    $('tip').innerHTML = `<div class="tip" style="left:${x}px;top:${y}px;transform:translate(-50%,${above ? '-100%' : '0'})"><div class="in">${esc(el.dataset.tip)}<i class="${above ? 'b' : 't'}"></i></div></div>`;
+  }, visible ? 0 : 350);
+}
+function hideTip() {
+  clearTimeout(tipTimer);
+  tipEl = null;
+  $('tip').innerHTML = '';
+}
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest?.('[data-tip]');
+  if (el === tipEl) return;
+  if (el) showTip(el); else hideTip();
+});
+document.addEventListener('mouseleave', hideTip);
+document.addEventListener('mousedown', hideTip, true);
+document.addEventListener('scroll', hideTip, true);
 
 // ─────────── Графики ───────────
 
@@ -137,7 +214,10 @@ function renderHome() {
     </div>`;
   }
   const p = active();
-  const on = isOn(), busy = isBusy() || ui.powerBusy;
+  const busy = isBusy() || ui.powerBusy;
+  const other = elsewhere(p);
+  // «on» — туннель идёт через открытое подключение.
+  const on = isOn() && !other;
   const bad = status.state === 'error' || (on && status.health && !status.health.ok);
   const isSub = p.kind === 'sub';
   const multi = p.servers.length > 1 || isSub;
@@ -147,8 +227,8 @@ function renderHome() {
   const activePingColor = ui.pinging ? DIM : pp[p.active] !== undefined ? pingColor(pp[p.active]) : livePing !== undefined ? pingColor(livePing) : DIM;
   const server = p.servers.find((s) => s.name === p.active) || p.servers[0];
   const subLine = isSub || multi ? server?.name || '' : 'IP: ' + (server?.host || '').replace(/:\d+$/, '');
-  const statusLabel = on ? 'время подключения' : status.state === 'connecting' ? 'подключение…' : status.state === 'reconnecting' ? 'переподключение…' : 'не подключено';
-  const powerCls = on ? 'on' : busy ? 'busy' : status.state === 'error' ? 'bad' : '';
+  const statusLabel = other ? 'нажмите, чтобы переключиться сюда' : on ? 'время подключения' : status.state === 'connecting' ? 'подключение…' : status.state === 'reconnecting' ? 'переподключение…' : 'не подключено';
+  const powerCls = other ? 'other' : on ? 'on' : busy ? 'busy' : status.state === 'error' ? 'bad' : '';
 
   let trafficHtml = '';
   if (p.info && (p.info.total > 0 || p.info.expire > 0 || p.info.download > 0)) {
@@ -204,7 +284,8 @@ function renderHome() {
     </div>`;
   }
 
-  const notice = status.state === 'error' && status.error
+  const notice = other ? ''
+    : status.state === 'error' && status.error
     ? `<div class="errbox"><div class="dot" style="background:var(--red);margin-top:5px"></div><div>${esc(status.error)}</div></div>`
     : status.warning ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div>${esc(status.warning)}</div></div>`
     : on && status.health && !status.health.ok ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div>Туннель поднят, но через «${esc(status.server || '')}» ничего не открывается. Выберите другой сервер.</div></div>` : '';
@@ -213,20 +294,20 @@ function renderHome() {
     <div class="status"><div class="lbl">${statusLabel}</div><div class="timer" id="timer">${timerText()}</div></div>
     <div class="power-wrap">
       ${on && !bad ? '<div class="waves"><div class="grid"></div><div class="wave"></div><div class="ringfx"></div></div>' : ''}
-      <button class="power ${powerCls}" data-act="power" title="${on || busy ? 'Отключить' : 'Подключить'}"><span class="disc">${ic('power', 34)}</span></button>
+      <button class="power ${powerCls}" data-act="power" aria-label="${other ? 'Переключиться сюда' : on || busy ? 'Отключить' : 'Подключить'}"><span class="disc">${ic('power', 34)}</span></button>
     </div>
-    <button class="modechip press" data-act="goMode"><span class="d" style="background:${on ? (bad ? RED : GREEN) : busy ? ORANGE : DIM}"></span>${esc(modeLabel())}</button>
+    <button class="modechip press" data-act="goMode"><span class="d" style="background:${isOn() ? (bad ? RED : GREEN) : busy ? ORANGE : DIM}"></span>${esc(modeLabel())}</button>
     ${notice}
-    ${profiles().length > 1 ? `<div class="chips">${profiles().map((x) => `<button class="chip press${x.id === p.id ? ' on' : ''}" data-profile="${x.id}">${esc(x.name)}</button>`).join('')}</div>` : ''}
+    ${profiles().length > 1 ? `<div class="chips">${profiles().map((x) => `<button class="chip press${x.id === p.id ? ' on' : ''}" data-profile="${x.id}">${liveOn(x) ? '<i class="live"></i>' : ''}<span>${esc(x.name)}</span></button>`).join('')}</div>` : ''}
     <div class="pcard" style="margin-top:${profiles().length > 1 ? 10 : 34}px">
       <div class="card">
         <div class="phead" data-act="toggleExpand">
           <div class="picon">${ic(isSub ? 'globe' : 'rules2', 24)}</div>
           <div style="flex:1;min-width:0">
-            <div class="pname">${esc(p.name)}</div>
+            <div class="pnamerow"><div class="pname">${esc(p.name)}</div>${on ? '<span class="livebadge">Работает</span>' : ''}</div>
             <div class="psub"><span class="s">${esc(subLine)}</span><span class="sep"></span><span class="p" style="color:${activePingColor}">${activePing}</span></div>
           </div>
-          <button class="menubtn press${ui.menuOpen ? ' on' : ''}" data-act="openMenu" title="Действия">${ic('dots', 20)}</button>
+          <button class="menubtn press${ui.menuOpen ? ' on' : ''}" data-act="openMenu" data-tip="Действия" aria-label="Действия">${ic('dots', 20)}</button>
         </div>
         ${trafficHtml}
         ${expandHtml}
@@ -234,8 +315,8 @@ function renderHome() {
       ${menuHtml}
     </div>
     <div class="speed">
-      <div class="card"><div class="hd">Чтение${ic('cloud-down', 22)}</div><div class="v" id="dlText">${fmtRate(on ? traffic.down : 0)}</div><div class="s" id="dlTotal">всего ${fmtBytes(traffic.downTotal || 0)}</div></div>
-      <div class="card"><div class="hd">Загрузка${ic('cloud-up', 22)}</div><div class="v" id="ulText">${fmtRate(on ? traffic.up : 0)}</div><div class="s" id="ulTotal">всего ${fmtBytes(traffic.upTotal || 0)}</div></div>
+      <div class="card"><div class="hd">Чтение${ic('cloud-down', 22)}</div><div class="v" id="dlText">${fmtRate(isOn() ? traffic.down : 0)}</div><div class="s" id="dlTotal">всего ${fmtBytes(traffic.downTotal || 0)}</div></div>
+      <div class="card"><div class="hd">Загрузка${ic('cloud-up', 22)}</div><div class="v" id="ulText">${fmtRate(isOn() ? traffic.up : 0)}</div><div class="s" id="ulTotal">всего ${fmtBytes(traffic.upTotal || 0)}</div></div>
     </div>
     <div class="card graph">
       <div class="hd"><div style="font-size:13px;color:var(--dim)">Последние 60 секунд</div>
@@ -312,11 +393,12 @@ function renderRules() {
   const summary = s.routeMode === 'global' ? 'Сейчас режим «Глобально»: всё идёт через VPN, исключения ниже не применяются. Изменить — в настройках режима.'
     : s.routeMode === 'direct' ? 'Сейчас режим «Напрямую»: VPN не используется ни для чего. Правила ниже сохраняются, но не действуют.'
     : 'По умолчанию весь трафик идёт через VPN. Ниже — что должно идти напрямую или блокироваться. Правила для приложений важнее правил для сайтов.';
-  const presets = [['ru', 'Домены .ru и .рф — напрямую', 'Госуслуги, банки, Яндекс без VPN'], ['lan', 'Локальная сеть — напрямую', 'Принтеры, NAS, 192.168.x.x'], ['geoip', 'Российские IP — напрямую', 'По базе GeoIP, даже без .ru в адресе']];
+  const geoDate = info?.geo?.updated ? ' · база от ' + fmtDay(info.geo.updated) : '';
+  const presets = [['ru', 'Домены .ru и .рф — напрямую', 'Госуслуги, банки, Яндекс без VPN'], ['lan', 'Локальная сеть — напрямую', 'Принтеры, NAS, 192.168.x.x'], ['geoip', 'Российские IP — напрямую', 'По базе GeoIP, даже без .ru в адресе' + geoDate]];
   const seg = (kind, i, cur) => `<div class="seg small">${ACTIONS.map(([v, l]) => `<button class="press${cur === v ? ' on' : ''}" data-act="ruleAction" data-kind="${kind}" data-i="${i}" data-v="${v}">${l}</button>`).join('')}</div>`;
   const list = ui.rulesTab === 'sites'
     ? `<div class="addline"><input class="field" id="siteInput" placeholder="domain.com  или  .ru" value="${esc(ui.siteInput)}" spellcheck="false" /><button class="sq press" data-act="addSite">${ic('plus', 22)}</button></div>
-      <div class="rules">${s.sites.map((r, i) => `<div class="rule"><div class="top"><div class="pat mono">${esc(r.pattern)}</div><button class="xbtn press" data-act="removeRule" data-kind="sites" data-i="${i}">${ic('close', 14)}</button></div>${seg('sites', i, r.action)}</div>`).join('') || '<div class="empty-note">Своих правил для сайтов пока нет.</div>'}</div>`
+      <div class="rules">${s.sites.map((r, i) => `<div class="rule"><div class="top">${favTile(r.pattern)}<div class="pat mono">${esc(r.pattern)}</div><button class="xbtn press" data-act="removeRule" data-kind="sites" data-i="${i}">${ic('close', 14)}</button></div>${seg('sites', i, r.action)}</div>`).join('') || '<div class="empty-note">Своих правил для сайтов пока нет.</div>'}</div>`
     : `<button class="addwide press" data-act="pickApps" data-v="rules">${ic('plus', 20)}Выбрать приложение…</button>
       <div class="rules">${s.apps.map((r, i) => `<div class="rule"><div class="top"><div class="tile-ic" style="background:${TINTS[i % TINTS.length]}">${esc((r.name || r.exe)[0].toUpperCase())}</div>
         <div style="flex:1;min-width:0"><div class="t14" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div><div class="mono" style="font-size:11px;color:var(--dim2)">${esc(r.exe)}</div></div>
@@ -341,36 +423,81 @@ function themeSummary() {
   return name + (t.theme === 'custom' ? ' · ' + T.BASES.find((b) => b[0] === t.base)[1] : t.theme === 'system' ? ' · сейчас ' + (T.systemDark() ? 'тёмная' : 'светлая') : '');
 }
 
+const ksCount = (s) => {
+  const a = s.ksApps.filter((x) => x.on).length, w = (s.ksSites || []).filter((x) => x.on).length;
+  const parts = [];
+  if (a || !w) parts.push(`${a} ${plural(a, 'приложение', 'приложения', 'приложений')}`);
+  if (w) parts.push(`${w} ${plural(w, 'сайт', 'сайта', 'сайтов')}`);
+  return parts.join(', ');
+};
+const infoBtn = (act, size = 18, extra = '') => `<button class="infobtn press" data-act="${act}" ${extra} data-tip="Как это работает" aria-label="Как это работает">${ic('info', size)}</button>`;
+
 function renderSettings() {
   const s = S();
   if (ui.sub === 'mode') return renderMode();
   if (ui.sub === 'kill') return renderKill();
   if (ui.sub === 'theme') return renderTheme();
   if (ui.sub === 'logs') return renderLogs();
-  const on = s.ksApps.filter((a) => a.on).length;
+  if (ui.sub === 'about') return renderAbout();
   const general = [['autostart', 'Запускать с Windows', 'Свёрнутым в трей и сразу подключаться', ov.autostart], ['autoUpdate', 'Обновлять подписки', 'Каждые 12 часов в фоне', s.autoUpdate], ['notifyDrops', 'Уведомлять об обрывах', 'Всплывающее окно при потере соединения', s.notifyDrops]];
   return `<div class="h1">Настройки</div>
     <div class="label">Подключение</div>
     <div class="card mt">${chevRow('goModeSub', 'Режим подключения', modeLabel())}<div class="divider"></div>${ksIssue
       ? `<div class="row click alert" data-act="goKill"><div class="grow"><div class="t14">Kill Switch</div><div class="t12" style="color:var(--orange)">Не применился — подробности внутри</div></div><span class="adot"></span>${ic('chevron', 16, 'color:var(--dim2)')}</div>`
-      : chevRow('goKill', 'Kill Switch', s.killSwitch ? `Вкл · ${on} ${plural(on, 'приложение', 'приложения', 'приложений')}` : 'Выкл')}</div>
+      : chevRow('goKill', 'Kill Switch', s.killSwitch ? `Вкл · ${ksCount(s)}` : 'Выкл')}</div>
     <div class="label">Оформление</div>
     <div class="card mt">${chevRow('goTheme', 'Тема', themeSummary())}</div>
     <div class="label">Общие</div>
     <div class="card mt">${general.map(([k, t, d, v], i) => `${i ? '<div class="divider"></div>' : ''}<div class="row"><div class="grow"><div class="t14">${t}</div><div class="t12">${d}</div></div><div class="toggle${v ? ' on' : ''}" data-act="general" data-v="${k}"></div></div>`).join('')}</div>
     <div class="label">Диагностика</div>
     <div class="card mt">${chevRow('goLogs', 'Логи подключения', `${logs.length} ${plural(logs.length, 'запись', 'записи', 'записей')}`)}<div class="divider"></div>
-      <div class="row"><div class="grow"><div class="t14">Ядро Mihomo</div><div class="t12">${esc(ov.mihomoVersion || 'не найдено')} · kl!ck ${esc(ov.appVersion)}</div></div><div class="dot" style="background:${ov.mihomoVersion ? GREEN : RED}"></div></div>
-      <div class="divider"></div>${chevRow('openData', 'Папка данных', 'Настройки, подключения, конфиг и лог ядра')}</div>`;
+      <div class="row"><div class="grow"><div class="t14">Ядро Mihomo</div><div class="t12">${esc(ov.mihomoVersion || 'не найдено')}${ov.mihomoVersion ? ' · официальный релиз' : ''}</div></div><div class="dot" style="background:${ov.mihomoVersion ? GREEN : RED}"></div></div></div>
+    <div class="card" style="margin-top:22px">${chevRow('goAbout', 'О приложении', 'Версия ' + ov.appVersion)}</div>`;
 }
+
+function renderAbout() {
+  const i = info;
+  const v = i?.version || ov.appVersion;
+  const geo = i?.geo;
+  const kv = (k, val, cls = '') => `<div class="kvrow"><span>${k}</span><span class="${cls}">${val}</span></div>`;
+  return `${backBtn()}
+    <div class="about">
+      <div class="logo"><span class="ic" style="--i:url(assets/mark.png);width:32px;height:32px"></span></div>
+      <div class="nm">kl<b>!</b>ck</div>
+      <div class="vr">Версия ${esc(v)}${i?.build ? ' · сборка ' + esc(i.build) : ''}</div>
+      <button class="smallpill press" data-act="checkUpdate">${ui.updChecking ? 'Проверяем…' : 'Проверить обновления'}</button>
+    </div>
+    <div class="card" style="margin-top:24px">
+      ${kv('Ядро', 'Mihomo ' + esc(i?.mihomo || ov.mihomoVersion || '—'))}
+      <div class="divider"></div>
+      <div class="kvrow"><span>База GeoIP</span><span class="geo">${geo?.updated ? 'от ' + esc(fmtDay(geo.updated)) : '—'}<button class="pill press" data-act="updateGeo">${ic('refresh', 13, ui.geoBusy ? 'animation:spin 1s linear infinite' : '')}${ui.geoBusy ? 'Обновляем…' : 'Обновить'}</button></span></div>
+      <div class="divider"></div>
+      ${kv('Система', esc(i?.system || 'Windows'))}
+      <div class="divider"></div>
+      <div class="kvrow click" data-act="openData"><span>Папка данных</span><span class="mono path">${esc(i?.dataDir || '%LOCALAPPDATA%\\com.vbu00.klick')}</span></div>
+    </div>
+    <div class="card mt">
+      ${chevRow('openChangelog', 'Что нового', 'Версия ' + v + ' на GitHub')}<div class="divider"></div>
+      ${chevRow('openRepo', 'Исходный код', 'GitHub · vbu00/klick')}<div class="divider"></div>
+      ${chevRow('openLicenses', 'Лицензии открытого ПО', 'kl!ck и mihomo — MIT, база GeoIP — GPL-3.0')}
+    </div>
+    <div class="label">Авторы</div>
+    <div class="card mt">
+      ${kv('Разработка', 'vbu00')}
+      <div class="divider"></div>
+      ${kv('Дизайн', 'Dmitriy Medvedev')}
+    </div>
+    <div class="disclaimer">Приложение не предоставляет VPN-серверы — только подключается к тем, что вы добавили.</div>`;
+}
+
+const MODE_DEFS = [
+  ['proxy', 'Proxy', 'ручная настройка', (s) => `Открывает прокси на 127.0.0.1:${s.proxyPort}. Через VPN пойдут только программы, где вы сами укажете этот адрес. Остальные — напрямую.`, 'Для браузеров с расширением, торрентов, отдельных программ'],
+  ['sysproxy', 'Системный proxy', 'большинство программ', () => 'Windows сообщает адрес прокси всем программам. Браузеры, Telegram, магазины подхватят его сами. Игры и часть приложений его игнорируют.', 'При отключении прежние настройки прокси вернутся'],
+  ['tun', 'VPN (TUN)', 'весь трафик', () => 'Создаёт виртуальный сетевой адаптер — через него идёт трафик всех программ без исключения, включая игры и UDP.', 'Рекомендуется'],
+];
 
 function renderMode() {
   const s = S();
-  const defs = [
-    ['proxy', 'Proxy', 'ручная настройка', `Открывает прокси на 127.0.0.1:${s.proxyPort}. Через VPN пойдут только программы, где вы сами укажете этот адрес. Остальные — напрямую.`, 'Для браузеров с расширением, торрентов, отдельных программ'],
-    ['sysproxy', 'Системный proxy', 'большинство программ', 'Windows сообщает адрес прокси всем программам. Браузеры, Telegram, магазины подхватят его сами. Игры и часть приложений его игнорируют.', 'При отключении прежние настройки прокси вернутся'],
-    ['tun', 'VPN (TUN)', 'весь трафик', 'Создаёт виртуальный сетевой адаптер — через него идёт трафик всех программ без исключения, включая игры и UDP.', 'Рекомендуется'],
-  ];
   const routeDesc = {
     rule: 'Рекомендуется. Трафик идёт через VPN, кроме исключений на экране «Маршрутизация»: .ru-сайты, локальная сеть и выбранные вами сайты и приложения.',
     global: 'Абсолютно всё через VPN — правила и исключения игнорируются. Полезно, если что-то не открывается.',
@@ -380,8 +507,8 @@ function renderMode() {
     <div class="h1" style="margin-top:12px">Режим подключения</div>
     <div class="lead">Определяет, какие программы будут ходить через подключение.</div>
     <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
-      ${defs.map(([k, t, tag, d, h]) => `<div class="modecard${s.mode === k ? ' on' : ''}" data-act="mode" data-v="${k}"><div class="radio${s.mode === k ? ' on' : ''}"><i></i></div>
-        <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px"><div class="ti">${t}</div><div class="tag">${tag}</div></div><div class="ds">${d}</div><div class="hn">${h}</div></div></div>`).join('')}
+      ${MODE_DEFS.map(([k, t, , d, h]) => `<div class="modecard${s.mode === k ? ' on' : ''}" data-act="mode" data-v="${k}"><div class="radio${s.mode === k ? ' on' : ''}"><i></i></div>
+        <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px"><div class="ti">${t}</div>${infoBtn('modeInfo', 18, `data-v="${k}"`)}</div><div class="ds">${d(s)}</div><div class="hn">${h}</div></div></div>`).join('')}
     </div>
     ${s.mode !== 'tun' ? `<div class="card mt" style="margin-top:8px"><div class="row"><div class="grow"><div class="t14">Порт прокси</div><div class="t12">SOCKS5 и HTTP на 127.0.0.1</div></div><input class="field" id="portInput" type="number" min="1024" max="65535" value="${s.proxyPort}" style="width:96px;height:36px;text-align:right;background:var(--elem)" /></div></div>` : ''}
     <div class="label" style="margin-top:26px">Куда направлять трафик</div>
@@ -391,24 +518,39 @@ function renderMode() {
 
 function renderKill() {
   const s = S();
-  const on = s.ksApps.filter((a) => a.on).length;
-  return `${backBtn()}
-    <div class="h1" style="margin-top:12px">Kill Switch</div>
-    ${ksIssue ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div style="flex:1;min-width:0">${esc(ksIssue)}</div><button class="retry press" data-act="retryKs">Повторить</button></div>` : ''}
-    <div class="card" style="margin-top:16px;padding:14px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">Если VPN выключен или соединение оборвалось, выбранные программы остаются без интернета — их данные не уйдут напрямую через провайдера.</div></div>
-      <div class="toggle big${s.killSwitch ? ' on' : ''}" data-act="toggleKill"></div>
-    </div>
-    <div style="margin-top:22px;display:flex;justify-content:space-between;align-items:baseline"><div class="label" style="margin:0">Защищённые приложения</div><div style="font-size:12px;color:var(--dim)">${on} из ${s.ksApps.length}</div></div>
-    <div class="card mt" style="opacity:${s.killSwitch ? 1 : 0.45};transition:opacity .2s">
+  const apps = ui.ksTab === 'apps';
+  const list = apps ? s.ksApps : s.ksSites || [];
+  const n = list.filter((a) => a.on).length;
+  const body = apps
+    ? `<div class="card mt ks-list" style="opacity:${s.killSwitch ? 1 : 0.45}">
       ${s.ksApps.map((a, i) => `${i ? '<div class="divider"></div>' : ''}<div class="row"><div class="tile-ic" style="background:${TINTS[(i + 2) % TINTS.length]}">${esc((a.name || a.exe)[0].toUpperCase())}</div>
         <div class="grow"><div class="t14">${esc(a.name)}</div><div class="mono" style="font-size:11px;color:var(--dim2)">${esc(a.exe)}</div></div>
-        <button class="xbtn press" data-act="removeKs" data-i="${i}" title="Убрать">${ic('close', 14)}</button>
-        <div class="toggle${a.on ? ' on' : ''}" data-act="ksApp" data-i="${i}"></div></div>`).join('')}
+        <div class="toggle${a.on ? ' on' : ''}" data-act="ksApp" data-i="${i}"></div>
+        <button class="rmbtn press" data-act="removeKs" data-i="${i}" aria-label="Удалить">${ic('close', 14)}</button></div>`).join('')}
       ${s.ksApps.length ? '<div class="divider"></div>' : ''}
       <div class="row click" style="justify-content:center;gap:8px;padding:16px 14px;color:var(--text2);font-size:13px;font-weight:500" data-act="pickApps" data-v="kill">${ic('plus', 18)}Добавить приложение</div>
+    </div>`
+    : `<div class="addline" style="margin-top:10px"><input class="field" id="ksSiteInput" placeholder="domain.com" value="${esc(ui.ksSiteInput)}" spellcheck="false" /><button class="sq press" data-act="addKsSite">${ic('plus', 22)}</button></div>
+    <div class="card ks-list" style="margin-top:8px;opacity:${s.killSwitch ? 1 : 0.45}">
+      ${list.map((a, i) => `${i ? '<div class="divider"></div>' : ''}<div class="row">${favTile(a.pattern, true)}
+        <div class="grow mono t14" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.pattern)}</div>
+        <div class="toggle${a.on ? ' on' : ''}" data-act="ksSite" data-i="${i}"></div>
+        <button class="rmbtn press" data-act="removeKsSite" data-i="${i}" aria-label="Удалить">${ic('close', 14)}</button></div>`).join('')
+        || '<div class="empty-note">Пока пусто. Добавьте домен выше.</div>'}
+    </div>`;
+  return `${backBtn()}
+    <div class="h1row"><div class="h1" style="margin:0">Kill Switch</div>${infoBtn('ksInfo', 22, 'style="width:28px;height:28px"')}</div>
+    ${ksIssue ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div style="flex:1;min-width:0">${esc(ksIssue)}</div><button class="retry press" data-act="retryKs">Повторить</button></div>` : ''}
+    <div class="card" style="margin-top:16px;padding:14px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">Если VPN выключен или соединение оборвалось, выбранные программы и сайты остаются без интернета — их данные не уйдут напрямую через провайдера.</div></div>
+      <div class="toggle big${s.killSwitch ? ' on' : ''}" data-act="toggleKill"></div>
     </div>
-    <div class="hint" style="color:var(--dim2);margin-top:12px">Приложения, не отмеченные здесь, при выключенном VPN работают как обычно — напрямую. Блокировка остаётся и после выхода из kl!ck, пока VPN не включён.</div>`;
+    <div class="seg" style="margin-top:22px"><button class="press${apps ? ' on' : ''}" data-act="ksTab" data-v="apps">Приложения</button><button class="press${!apps ? ' on' : ''}" data-act="ksTab" data-v="sites">Сайты</button></div>
+    <div class="listhead"><div class="label" style="margin:0">${apps ? 'Защищённые приложения' : 'Защищённые сайты'}</div><div>${list.length ? `${n} из ${list.length}` : ''}</div></div>
+    ${body}
+    <div class="hint" style="color:var(--dim2);margin-top:12px">${apps
+      ? 'Приложения, не отмеченные здесь, при выключенном VPN работают как обычно — напрямую. Блокировка остаётся и после выхода из kl!ck, пока VPN не включён.'
+      : 'При выключенном VPN эти сайты не откроются ни в одной программе. Закрываются адреса самого домена и www — поддомены на других серверах могут открываться, а у сайтов за общим CDN (Cloudflare и т. п.) пропадут и соседи по адресу.'}</div>`;
 }
 
 function renderTheme() {
@@ -444,6 +586,114 @@ function renderLogs() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px"><div class="h1" style="margin:0">Логи</div>
       <div style="display:flex;gap:6px"><button class="smallbtn press" data-act="copyLogs">${ic('copy2', 13)}Копировать</button><button class="smallbtn press" data-act="clearLogs">Очистить</button></div></div>
     <div class="logbox" id="logbox">${logs.length ? logs.map(logLine).join('') : '<div style="padding:16px 12px;color:var(--dim2);text-align:center">Пусто</div>'}</div>`;
+}
+
+// ─────────── Шторки «Как это работает», смена подключения, лицензии ───────────
+
+// Пиктограмма монитора — как в макете, из двух прямоугольников.
+const pc = (big) => `<div class="pc${big ? ' big' : ''}"><i></i><b></b></div>`;
+// Узел схемы: значок, подпись, пояснение. x, y — в процентах поля.
+const node = (x, y, iconHtml, title, sub, style = '', w = 84) => `<div class="node" style="left:${x}%;top:${y}%;width:${w}px"><div class="nic" style="${style}">${iconHtml}</div><div class="nt">${esc(title)}</div><div class="ns">${esc(sub)}</div></div>`;
+const pill = (x, y, text, dot, style = '') => `<div class="flowpill" style="left:${x}%;top:${y}%;${style}">${dot ? `<span style="background:${dot}"></span>` : ''}${esc(text)}</div>`;
+const path = (d, kind) => `<path d="${d}" fill="none" vector-effect="non-scaling-stroke" class="fl ${kind}"></path>`;
+const flowSvg = (paths) => `<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="flow">${paths.join('')}</svg>`;
+const sheetWrap = (inner, closeAct) => `<div class="sheet modal"><div class="bg" data-act="${closeAct}"></div><div class="body">
+  <div class="grip"></div>${inner}</div></div>`;
+
+const MODE_INFO = {
+  proxy: { top: ['Настроенные', 'браузер, торрент'], bot: ['Остальные', 'приложения'], pill: (s) => '127.0.0.1:' + s.proxyPort, split: true,
+    points: [['var(--accent)', (s) => `Через VPN идут только программы, в которых вы вручную указали адрес 127.0.0.1:${s.proxyPort}.`], ['var(--dim)', () => 'Все остальные ходят напрямую через провайдера — как без VPN.']] },
+  sysproxy: { top: ['Большинство', 'браузеры, Telegram'], bot: ['Игры', 'и часть программ'], pill: () => 'Системный прокси', split: true,
+    points: [['var(--accent)', () => 'Windows сама передаёт адрес прокси программам — большинство подхватывает его без настройки.'], ['var(--dim)', () => 'Игры, UDP-трафик и программы, игнорирующие настройки системы, идут напрямую.']] },
+  tun: { top: ['Все программы', 'включая игры'], bot: ['Службы', 'и UDP-трафик'], pill: () => 'TUN-адаптер', split: false,
+    points: [['var(--accent)', () => 'Виртуальный сетевой адаптер перехватывает трафик всех программ — ничего не нужно настраивать.'], ['var(--accent)', () => 'Исключения из «Маршрутизации» (например, .ru) по-прежнему идут напрямую.']] },
+};
+
+function modeInfoHtml() {
+  const s = S(), k = ui.modeInfo, D = MODE_INFO[k];
+  const svg = D.split
+    ? flowSvg([path('M14 74 C32 74,32 26,50 26', 'idle'), path('M14 26 L50 26', 'go'), path('M50 26 C68 26,68 50,86 50', 'go'), path('M14 74 L50 74', 'dim'), path('M50 74 C68 74,68 50,86 50', 'dim')])
+    : flowSvg([path('M14 74 L50 74', 'idle'), path('M50 74 C68 74,68 50,86 50', 'idle'), path('M14 26 L50 26', 'go'), path('M14 74 C32 74,32 26,50 26', 'go'), path('M50 26 C68 26,68 50,86 50', 'go')]);
+  return sheetWrap(`<div class="mt-title">Как работает режим</div>
+    <div class="seg" style="margin-top:14px">${[['proxy', 'Proxy'], ['sysproxy', 'Системный'], ['tun', 'VPN (TUN)']].map(([v, l]) => `<button class="press${k === v ? ' on' : ''}" data-act="modeInfoTab" data-v="${v}">${l}</button>`).join('')}</div>
+    <div class="flowbox"><div class="field170">${svg}
+      ${node(14, 26, pc(), D.top[0], D.top[1], 'background:color-mix(in srgb,var(--accent) 14%,var(--elem));color:var(--accent)')}
+      ${node(14, 74, pc(), D.bot[0], D.bot[1], `color:${D.split ? 'var(--text2)' : 'var(--accent)'}`)}
+      ${pill(50, 26, D.pill(s), 'var(--accent)', 'background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 40%,transparent)')}
+      ${pill(50, 74, 'Провайдер', null, `background:var(--win);color:${D.split ? 'var(--text)' : 'var(--dim2)'}`)}
+      ${node(86, 50, ic('globe', 18), 'Интернет', 'сайты')}
+    </div></div>
+    <div class="points">${D.points.map(([dot, t]) => `<div><span style="background:${dot}"></span><div>${esc(t(s))}</div></div>`).join('')}</div>
+    <div class="mbtns"><button class="mbtn press" data-act="closeModal">Понятно</button>${k !== s.mode ? `<button class="mbtn accent press" data-act="modeInfoPick">Выбрать</button>` : ''}</div>`, 'closeModal');
+}
+
+function ksInfoHtml() {
+  const s = S(), on = ui.ksViz === 'on';
+  const n = s.ksApps.filter((a) => a.on).length + (s.ksSites || []).filter((a) => a.on).length;
+  const svg = on
+    ? flowSvg([path('M16 74 L50 74', 'idle'), path('M50 74 C68 74,68 50,84 50', 'idle'), path('M16 26 L50 26', 'go'), path('M16 74 C32 74,32 26,50 26', 'go'), path('M50 26 C68 26,68 50,84 50', 'go')])
+    : flowSvg([path('M50 26 C68 26,68 50,84 50', 'idle'), path('M16 74 L50 74', 'dim'), path('M50 74 C68 74,68 50,84 50', 'dim'), path('M16 26 L30 26', 'cut')]);
+  return sheetWrap(`<div class="mt-title">Как работает Kill Switch</div>
+    <div class="seg" style="margin-top:14px"><button class="press${on ? ' on' : ''}" data-act="ksViz" data-v="on">VPN включён</button><button class="press${!on ? ' on' : ''}" data-act="ksViz" data-v="off">VPN выключен</button></div>
+    <div class="flowbox"><div class="field170">${svg}
+      ${on ? '' : `<div class="cutmark">${ic('close', 10)}</div>`}
+      ${node(16, 26, pc(), 'Защищённые', n + ' в списке', on ? 'color:var(--text2)' : 'background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)', 76)}
+      ${node(16, 74, pc(), 'Остальные', 'приложения', 'color:var(--text2)', 76)}
+      ${pill(50, 26, 'VPN', on ? 'var(--accent)' : 'var(--ring)', on ? 'background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 40%,transparent)' : 'background:var(--win);color:var(--dim2)')}
+      ${pill(50, 74, 'Провайдер', null, `background:var(--win);color:${on ? 'var(--dim2)' : 'var(--text)'}`)}
+      ${node(84, 50, ic('globe', 18), 'Интернет', 'сайты', '', 76)}
+    </div></div>
+    <div class="points"><div><span style="background:${on ? 'var(--accent)' : 'var(--red)'}"></span><div>${on
+      ? 'Все программы и сайты идут через VPN. Провайдер видит только зашифрованное соединение с сервером.'
+      : 'Защищённые программы и сайты остаются без интернета — их данные не уйдут через провайдера. Остальные работают напрямую.'}</div></div></div>
+    <button class="mbtn press" style="width:100%;margin-top:16px" data-act="closeModal">Понятно</button>`, 'closeModal');
+}
+
+function switchHtml() {
+  const live = byId(status.profileId), tgt = byId(ui.switchTo);
+  if (!live || !tgt) return '';
+  return sheetWrap(`<div class="mt-title" style="text-wrap:pretty">Сменить подключение?</div>
+    <div class="mlead">Сейчас работает <b>${esc(live.name)}</b>. Текущее соединение разорвётся на пару секунд, и трафик пойдёт через <b>${esc(tgt.name)}</b>.</div>
+    <div class="flowbox" style="margin-top:16px"><div class="field150">
+      ${flowSvg([path('M14 50 C32 50,30 22,50 22 C70 22,68 50,86 50', 'go'), path('M14 50 C32 50,30 78,50 78 C70 78,68 50,86 50', 'next')])}
+      ${node(14, 50, pc(true), 'Компьютер', 'приложения', 'color:var(--text2)', 72)}
+      <div class="flowpill wide" style="left:50%;top:22%;background:color-mix(in srgb,var(--accent) 16%,var(--card));border-color:color-mix(in srgb,var(--accent) 40%,transparent)"><span style="background:var(--accent)"></span><em>${esc(live.name)}</em></div>
+      <div class="flowpill wide glow" style="left:50%;top:78%;background:var(--win)"><span class="ring"></span><em>${esc(tgt.name)}</em></div>
+      ${node(86, 50, ic('globe', 20), 'Интернет', 'сайты', 'color:var(--text2)', 72)}
+    </div>
+    <div class="legend2"><span><i class="solid"></i>трафик сейчас</span><span><i class="dash"></i>после переключения</span></div></div>
+    <div class="mbtns"><button class="mbtn press" data-act="closeModal">Отмена</button><button class="mbtn accent press" data-act="confirmSwitch">Переключить</button></div>`, 'closeModal');
+}
+
+function licensesHtml() {
+  return `<div class="sheet"><div class="bg" data-act="closeModal"></div><div class="body">
+    <div class="grip"></div>
+    <div class="top"><div style="flex:1;min-width:0"><div style="font-size:20px;font-weight:600">Лицензии</div>
+      <div style="font-size:12px;color:var(--dim);margin-top:4px">kl!ck, ядро mihomo и база GeoIP</div></div>
+      <button class="x press" data-act="closeModal">${ic('close', 14)}</button></div>
+    <pre class="lic">${licText == null ? 'Загружаю…' : esc(licText)}</pre>
+  </div></div>`;
+}
+
+function renderModal() {
+  const box = $('modal');
+  const html = ui.modal === 'mode' ? modeInfoHtml() : ui.modal === 'ks' ? ksInfoHtml() : ui.modal === 'switch' ? switchHtml() : ui.modal === 'licenses' ? licensesHtml() : '';
+  // Переключение вкладок внутри шторки — без повторного выезда.
+  const same = !!html && box.dataset.kind === ui.modal;
+  box.innerHTML = html;
+  box.firstElementChild?.classList.toggle('noanim', same);
+  if (!html) ui.modal = null;
+  box.dataset.kind = ui.modal || '';
+}
+function openModal(kind) {
+  hideTip();
+  ui.modal = kind;
+  renderModal();
+}
+function closeModal() {
+  ui.modal = null;
+  ui.switchTo = null;
+  renderModal();
 }
 
 // ─────────── Шторка: выбор программ ───────────
@@ -515,7 +765,7 @@ function render() {
 function renderNav() {
   // Точка — когда тост о проблеме уже ушёл, а раздел ещё не открывали.
   const badge = ksIssue && !ksSeen && !toasts.some((t) => t.id === ksToastId);
-  $('nav').innerHTML = NAV.map(([k, i, t]) => `<button class="${ui.screen === k ? 'on' : ''}" data-nav="${k}" title="${t}">${ic(i, 24)}${k === 'settings' && badge ? '<i class="badge"></i>' : ''}</button>`).join('');
+  $('nav').innerHTML = NAV.map(([k, i, t]) => `<button class="${ui.screen === k ? 'on' : ''}" data-nav="${k}" data-tip="${t}" aria-label="${t}">${ic(i, 24)}${k === 'settings' && badge ? '<i class="badge"></i>' : ''}</button>`).join('');
 }
 
 function setKsIssue(issue) {
@@ -532,7 +782,9 @@ function setKsIssue(issue) {
 function go(screen, sub = null) {
   if (screen === 'settings' && sub === 'kill') ksSeen = true;
   const same = ui.screen === screen && ui.sub === sub;
+  hideTip();
   ui.screen = screen; ui.sub = sub; ui.menuOpen = false; ui.confirmDel = false;
+  if (sub === 'about' && !same) loadInfo();
   if (!same) $('scroll').scrollTop = 0;
   // Анимация входа — только при смене экрана.
   $('screen').className = '';
@@ -565,15 +817,47 @@ async function save(patch) {
 
 async function togglePower() {
   if (!profiles().length) return toast('Нет подключений', 'Сначала добавьте подписку или конфигурацию.', RED);
+  const p = active();
+  // VPN работает через другое подключение — сперва спросить.
+  if (elsewhere(p)) {
+    ui.switchTo = p.id;
+    return openModal('switch');
+  }
   if (isOn() || isBusy()) {
     await kl.disconnect();
-    const n = S().ksApps.filter((a) => a.on).length;
-    if (S().killSwitch && n) toast('Kill Switch активен', `${n} ${plural(n, 'приложение', 'приложения', 'приложений')} без интернета до включения VPN.`, ORANGE);
+    const s = S(), n = s.ksApps.filter((a) => a.on).length + (s.ksSites || []).filter((a) => a.on).length;
+    if (s.killSwitch && n) toast('Kill Switch активен', `${ksCount(s)} без интернета до включения VPN.`, ORANGE);
     return;
   }
   ui.powerBusy = true; render();
-  try { await kl.connect(); } catch { /* причину показывает карточка ошибки */ }
+  try {
+    if (p.id !== ov.activeProfile) { await kl.selectProfile(p.id); ov.activeProfile = p.id; }
+    ui.viewId = null;
+    await kl.connect();
+  } catch { /* причину показывает карточка ошибки */ }
   ui.powerBusy = false; render();
+}
+
+async function doSwitch() {
+  const tgt = byId(ui.switchTo);
+  closeModal();
+  if (!tgt) return;
+  ui.viewId = null;
+  ov.activeProfile = tgt.id;
+  ui.powerBusy = true; render();
+  try {
+    await kl.selectProfile(tgt.id);
+    toast('Подключено к ' + tgt.name, '', GREEN);
+  } catch (e) {
+    toast('Не переключилось', errText(e), RED);
+  }
+  ui.powerBusy = false;
+  await refresh();
+}
+
+async function loadInfo() {
+  try { info = await kl.appInfo(); } catch { return; }
+  if (ui.screen === 'settings' || ui.screen === 'rules') render();
 }
 
 async function doPing() {
@@ -642,6 +926,7 @@ const actions = {
     ui.menuOpen = false; ui.confirmDel = false; ui.expanded = false;
     try {
       const r = await kl.removeProfile(p.id);
+      ui.viewId = null;
       await refresh();
       toast(p.kind === 'sub' ? 'Подписка удалена' : 'Конфигурация удалена', r.was_live ? p.name + ' · соединение разорвано' : p.name, DIM, {
         label: 'Отменить', run: async () => { await kl.restoreProfile(r.profile, r.index, true); await refresh(); },
@@ -696,6 +981,42 @@ const actions = {
   goKill: () => go('settings', 'kill'),
   goTheme: () => go('settings', 'theme'),
   goLogs: () => go('settings', 'logs'),
+  goAbout: () => go('settings', 'about'),
+  // Шторки
+  closeModal,
+  modeInfo: (el, e) => { e.stopPropagation(); ui.modeInfo = el.dataset.v; openModal('mode'); },
+  modeInfoTab: (el) => { ui.modeInfo = el.dataset.v; renderModal(); },
+  modeInfoPick: () => { const k = ui.modeInfo; closeModal(); if (k !== S().mode) save({ mode: k }); },
+  ksInfo: () => { ui.ksViz = isOn() ? 'on' : 'off'; openModal('ks'); },
+  ksViz: (el) => { ui.ksViz = el.dataset.v; renderModal(); },
+  confirmSwitch: doSwitch,
+  // О приложении
+  checkUpdate: async () => {
+    if (ui.updChecking) return;
+    ui.updChecking = true; render();
+    try {
+      const u = await kl.checkUpdate();
+      if (u.newer) toast('Доступна версия ' + u.latest, 'Сейчас установлена ' + u.current + '.', GREEN, { label: 'Открыть', run: () => kl.openUrl(u.url) });
+      else toast('Обновлений нет', 'У вас последняя версия ' + u.current + '.', GREEN);
+    } catch (e) { toast('Не удалось проверить', errText(e), RED); }
+    ui.updChecking = false; render();
+  },
+  updateGeo: async () => {
+    if (ui.geoBusy) return;
+    ui.geoBusy = true; render();
+    try {
+      const g = await kl.updateGeo();
+      if (info) info.geo = g;
+      toast('База GeoIP обновлена', 'Российские адреса определяются по свежим данным.', GREEN);
+    } catch (e) { toast('База GeoIP не обновилась', errText(e), RED); }
+    ui.geoBusy = false; render();
+  },
+  openChangelog: () => kl.openUrl((info?.repo || 'https://github.com/vbu00/klick') + '/releases/tag/v' + (info?.version || ov.appVersion)).catch((e) => toast('Не открылось', errText(e), RED)),
+  openRepo: () => kl.openUrl(info?.repo || 'https://github.com/vbu00/klick').catch((e) => toast('Не открылось', errText(e), RED)),
+  openLicenses: async () => {
+    openModal('licenses');
+    if (licText == null) { try { licText = await kl.licenses(); } catch (e) { licText = errText(e); } if (ui.modal === 'licenses') renderModal(); }
+  },
   openData: () => kl.openDataDir(),
   general: async (el) => {
     const k = el.dataset.v;
@@ -713,11 +1034,27 @@ const actions = {
     try { setKsIssue(await kl.retryKillSwitch()); } catch (e) { toast('Не получилось', errText(e), RED); }
     render();
   },
+  ksTab: (el) => { ui.ksTab = el.dataset.v; render(); },
+  addKsSite: () => {
+    const raw = ui.ksSiteInput.trim();
+    if (!raw) return $('ksSiteInput')?.focus();
+    const d = raw.toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').replace(/^\*?\./, '').replace(/\.$/, '');
+    if (!/^([a-z0-9-]+\.)+[a-z0-9-]+$/.test(d) || /^[\d.]+$/.test(d)) return toast('Нужен адрес сайта', 'Например, sberbank.ru — зону целиком (.ru) Kill Switch закрыть не может.', ORANGE);
+    if ((S().ksSites || []).some((x) => x.pattern === d)) return toast('Уже в списке', d);
+    ui.ksSiteInput = '';
+    save({ ksSites: [{ pattern: d, on: true }, ...(S().ksSites || [])] });
+  },
+  ksSite: (el) => { const i = +el.dataset.i; save({ ksSites: S().ksSites.map((a, j) => (j === i ? { ...a, on: !a.on } : a)) }); },
+  removeKsSite: (el) => {
+    const i = +el.dataset.i, item = S().ksSites[i];
+    save({ ksSites: S().ksSites.filter((_, j) => j !== i) });
+    toast('Удалено', item.pattern, DIM, { label: 'Отменить', run: () => { const arr = [...S().ksSites]; arr.splice(Math.min(i, arr.length), 0, item); save({ ksSites: arr }); } });
+  },
   ksApp: (el) => { const i = +el.dataset.i; save({ ksApps: S().ksApps.map((a, j) => (j === i ? { ...a, on: !a.on } : a)) }); },
   removeKs: (el) => {
     const i = +el.dataset.i, item = S().ksApps[i];
     save({ ksApps: S().ksApps.filter((_, j) => j !== i) });
-    toast('Приложение убрано', item.name, DIM, { label: 'Отменить', run: () => { const arr = [...S().ksApps]; arr.splice(Math.min(i, arr.length), 0, item); save({ ksApps: arr }); } });
+    toast('Удалено', item.name, DIM, { label: 'Отменить', run: () => { const arr = [...S().ksApps]; arr.splice(Math.min(i, arr.length), 0, item); save({ ksApps: arr }); } });
   },
   theme: (el) => { T.save({ theme: el.dataset.v }); render(); },
   themeBase: (el) => { T.save({ base: el.dataset.v }); render(); },
@@ -735,9 +1072,16 @@ const actions = {
 document.addEventListener('click', (e) => {
   const prof = e.target.closest('[data-profile]');
   if (prof) {
-    ui.expanded = false;
-    kl.selectProfile(prof.dataset.profile).then(refresh).catch((err) => toast('Не переключилось', errText(err), RED));
-    ov.activeProfile = prof.dataset.profile;
+    const id = prof.dataset.profile;
+    ui.expanded = false; ui.menuOpen = false;
+    if (isOn() || isBusy()) {
+      // VPN работает — только смотрим; переключение — кнопкой питания.
+      ui.viewId = id === status.profileId ? null : id;
+    } else {
+      ui.viewId = null;
+      ov.activeProfile = id;
+      kl.selectProfile(id).then(refresh).catch((err) => toast('Не переключилось', errText(err), RED));
+    }
     render();
     return;
   }
@@ -747,7 +1091,9 @@ document.addEventListener('click', (e) => {
     if (name === p.active) return;
     p.active = name;
     render();
-    kl.selectServer(p.id, name).catch((err) => toast('Сервер не переключился', errText(err), RED));
+    kl.selectServer(p.id, name)
+      .then(() => { if (liveOn(p)) toast('Сервер сменён', name, GREEN); })
+      .catch((err) => toast('Сервер не переключился', errText(err), RED));
     return;
   }
   const pick = e.target.closest('[data-pick]');
@@ -772,6 +1118,7 @@ document.addEventListener('input', (e) => {
   if (id === 'linkInput') { ui.linkInput = e.target.value; updateAddDynamic(); }
   else if (id === 'nameInput') ui.nameInput = e.target.value;
   else if (id === 'siteInput') ui.siteInput = e.target.value;
+  else if (id === 'ksSiteInput') ui.ksSiteInput = e.target.value;
   else if (id === 'pickerQuery') {
     ui.pickerQuery = e.target.value;
     const s = S();
@@ -786,9 +1133,11 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'siteInput') actions.addSite();
+  if (e.key === 'Enter' && e.target.id === 'ksSiteInput') actions.addKsSite();
   if (e.key === 'Enter' && e.target.id === 'linkInput' && (e.ctrlKey || !ui.linkInput.includes('\n'))) { e.preventDefault(); doAddLink(); }
   if (e.key === 'Escape') {
-    if (ui.picker) { ui.picker = null; renderSheet(); }
+    if (ui.modal) closeModal();
+    else if (ui.picker) { ui.picker = null; renderSheet(); }
     else if (ui.menuOpen) actions.closeMenu();
   }
 });
@@ -833,7 +1182,7 @@ kl.on('logs', (batch) => {
   }
 });
 kl.on('pings', (m) => {
-  const p = active();
+  const p = byId(status.profileId);
   if (p && status.profileId === p.id) { pings[p.id] = { ...(pings[p.id] || {}), ...m }; if (ui.screen === 'home' && !ui.menuOpen) render(); }
 });
 kl.on('profiles-changed', refresh);
@@ -843,6 +1192,7 @@ setInterval(() => { if (isOn() && ui.screen === 'home') updateLive(); }, 1000);
 
 (async () => {
   await refresh();
+  loadInfo();
   logs = await kl.getLogs();
   if (ui.screen === 'settings') render();
 })();

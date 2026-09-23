@@ -9,6 +9,8 @@ mod autostart;
 mod commands;
 mod config;
 mod core;
+mod favicon;
+mod geo;
 mod killswitch;
 mod links;
 mod notify;
@@ -45,9 +47,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let state = AppState::load(&handle);
-            let (ks, ks_apps, port, connect_on_launch) = {
+            let (ks, ks_apps, ks_sites, port, connect_on_launch) = {
                 let s = state.settings.lock().unwrap();
-                (s.kill_switch, s.ks_apps.clone(), s.proxy_port, s.connect_on_launch)
+                (s.kill_switch, s.ks_apps.clone(), s.ks_sites.clone(), s.proxy_port, s.connect_on_launch)
             };
             // Системный прокси от прошлого запуска (падение, выключение ПК)
             // указывает в никуда — вернуть как было.
@@ -60,7 +62,7 @@ pub fn run() {
             {
                 let h = handle.clone();
                 std::thread::spawn(move || {
-                    if let Some(w) = core::ks_apply(&h, ks, &ks_apps) {
+                    if let Some(w) = core::ks_apply(&h, ks, &ks_apps, &ks_sites) {
                         core::note("WARN", &w);
                     }
                     if connect_on_launch && autostarted {
@@ -114,6 +116,12 @@ pub fn run() {
             commands::update_settings,
             commands::set_autostart,
             commands::retry_kill_switch,
+            commands::favicon,
+            commands::app_info,
+            commands::update_geo,
+            commands::check_update,
+            commands::open_url,
+            commands::licenses,
             commands::running_apps,
             commands::app_from_file,
             commands::get_logs,

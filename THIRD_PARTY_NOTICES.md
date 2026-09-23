@@ -27,11 +27,14 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 - Лицензия набора данных: GPL-3.0 (полный текст и исходные данные — в
   репозитории meta-rules-dat). Файл поставляется без изменений и отдельно от
   кода kl!ck; используется только пресетом «Российские IP — напрямую».
+  Пока пресет включён, mihomo обновляет базу из релизов meta-rules-dat
+  (`releases/download/latest/country.mmdb`) — это тот же набор данных.
 
 ## Прочее
 
 - [Tauri](https://tauri.app) и Rust-зависимости (serde, ureq, windows-sys и
   др.) — MIT / Apache-2.0; список с версиями — `src-tauri/Cargo.lock`.
-- Интерфейс и иконки — по макету «VPN Client», сделанному для kl!ck.
+- Интерфейс и иконки — по макету «VPN Client», который сделал для kl!ck
+  Dmitriy Medvedev.
 - Разбор ссылок и часть системного кода перенесены из проектов автора
   [Klutz](https://github.com/vbu00) и KlutzBOX.
