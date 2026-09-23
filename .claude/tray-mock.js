@@ -9,8 +9,9 @@
   const base = {
     on: { look: 'ok', label: 'Подключено', state: 'on', ms: 48 },
     off: { look: 'idle', label: 'Не подключено', state: 'off', ms: null },
-    connecting: { look: 'warn', label: 'Подключаюсь…', state: 'connecting', ms: null },
-    bad: { look: 'bad', label: 'Сервер не отвечает', state: 'on', ms: null },
+    connecting: { look: 'busy', label: 'Подключаюсь…', state: 'connecting', ms: null },
+    warn: { look: 'warn', label: 'Сервер не отвечает', state: 'on', ms: null },
+    bad: { look: 'bad', label: 'Не подключено', state: 'error', ms: null },
   }[st];
   let active = servers[0];
   const now = Math.floor(Date.now() / 1000);

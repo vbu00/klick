@@ -34,7 +34,7 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 - [Tauri](https://tauri.app) и Rust-зависимости (serde, ureq, windows-sys и
   др.) — MIT / Apache-2.0; список с версиями — `src-tauri/Cargo.lock`.
-- Интерфейс и иконки — по макету «VPN Client», который сделал для kl!ck
-  Dmitriy Medvedev.
+- Интерфейс, логотип и иконки — по макету «VPN Client» и логотипу, которые
+  сделал для kl!ck Dmitriy Medvedev.
 - Разбор ссылок и часть системного кода перенесены из проектов автора
   [Klutz](https://github.com/vbu00) и KlutzBOX.

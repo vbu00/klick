@@ -25,11 +25,18 @@ pub fn show_window(app: &AppHandle) {
     }
 }
 
+/// Состояние трея — по цветам логотипа-клавиши (docs/logo).
 #[derive(PartialEq, Clone, Copy)]
 enum Look {
+    /// Зелёная: подключено.
     Ok,
+    /// Синяя, мигает: подключаюсь.
+    Busy,
+    /// Оранжевая: туннель есть, но сервер не отвечает.
     Warn,
+    /// Красная: не подключилось.
     Bad,
+    /// Серая: выключено.
     Idle,
 }
 
@@ -37,6 +44,7 @@ impl Look {
     fn key(self) -> &'static str {
         match self {
             Look::Ok => "ok",
+            Look::Busy => "busy",
             Look::Warn => "warn",
             Look::Bad => "bad",
             Look::Idle => "idle",
@@ -61,10 +69,11 @@ macro_rules! icon_set {
 
 const ICONS_OK: [(i32, &[u8]); 8] = icon_set!("ok");
 const ICONS_WARN: [(i32, &[u8]); 8] = icon_set!("warn");
+const ICONS_BUSY: [(i32, &[u8]); 8] = icon_set!("busy");
 const ICONS_BAD: [(i32, &[u8]); 8] = icon_set!("bad");
 const ICONS_IDLE: [(i32, &[u8]); 8] = icon_set!("idle");
 /// Второй кадр мигания, пока идёт подключение.
-const ICONS_WARN2: [(i32, &[u8]); 8] = icon_set!("warn2");
+const ICONS_BUSY2: [(i32, &[u8]); 8] = icon_set!("busy2");
 
 /// Иконка ровно под SM_CXSMICON (16 при 100 %, 20 при 125 %…), а не ужатая.
 #[cfg(target_os = "windows")]
@@ -82,6 +91,7 @@ fn small_icon_px() -> i32 {
 fn icon_bytes(l: Look) -> &'static [u8] {
     pick(match l {
         Look::Ok => &ICONS_OK,
+        Look::Busy => &ICONS_BUSY,
         Look::Warn => &ICONS_WARN,
         Look::Bad => &ICONS_BAD,
         Look::Idle => &ICONS_IDLE,
@@ -96,11 +106,10 @@ fn pick(set: &[(i32, &'static [u8])]) -> &'static [u8] {
 fn look(s: &core::Status) -> Look {
     match s.state {
         "on" => match &s.health {
-            Some(h) if h.ok => Look::Ok,
-            Some(_) => Look::Bad,
-            None => Look::Warn,
+            Some(h) if !h.ok => Look::Warn,
+            _ => Look::Ok,
         },
-        "connecting" | "reconnecting" => Look::Warn,
+        "connecting" | "reconnecting" => Look::Busy,
         "error" => Look::Bad,
         _ => Look::Idle,
     }
@@ -421,7 +430,7 @@ fn start_blink(app: &AppHandle) {
                 return;
             }
             dim = !dim;
-            set_icon(&app, if dim { pick(&ICONS_WARN2) } else { icon_bytes(Look::Warn) });
+            set_icon(&app, if dim { pick(&ICONS_BUSY2) } else { icon_bytes(Look::Busy) });
         }
     });
 }

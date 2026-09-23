@@ -462,7 +462,7 @@ function renderAbout() {
   const kv = (k, val, cls = '') => `<div class="kvrow"><span>${k}</span><span class="${cls}">${val}</span></div>`;
   return `${backBtn()}
     <div class="about">
-      <div class="logo"><span class="ic" style="--i:url(assets/mark.png);width:32px;height:32px"></span></div>
+      <span class="key"><span class="ic kf" style="--i:url(assets/mark-face.png)"></span><span class="ic kb" style="--i:url(assets/mark.png)"></span></span>
       <div class="nm">kl<b>!</b>ck</div>
       <div class="vr">Версия ${esc(v)}${i?.build ? ' · сборка ' + esc(i.build) : ''}</div>
       <button class="smallpill press" data-act="checkUpdate">${ui.updChecking ? 'Проверяем…' : 'Проверить обновления'}</button>

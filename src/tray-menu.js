@@ -52,8 +52,8 @@ function render() {
   const s = state;
   const on = isOn(), busy = isBusy();
   const has = !!s.profile;
-  const bad = s.look === 'bad';
-  const powerCls = on && !bad ? 'on' : busy ? 'busy' : bad ? 'bad' : '';
+  const bad = s.look === 'bad', warn = s.look === 'warn';
+  const powerCls = warn ? 'warn' : on ? 'on' : busy ? 'busy' : bad ? 'bad' : '';
   const ping = on && s.ms != null ? `<div class="pingpill" style="color:${pingColor(s.ms)}"><i></i>${s.ms} мс</div>` : '';
   const big = on ? `<div class="big" id="timer">${timerText()}</div>` : `<div class="big name">${esc(s.profile || 'Нет подключений')}</div>`;
   // Название подключения видно на чипах, если их несколько.
@@ -86,7 +86,7 @@ function render() {
   $('card').innerHTML = `
     <div class="hero ${s.look}">
       <div class="dots"></div><div class="glow"></div>
-      <div class="top"><div class="brand"><span class="ic" style="--i:url(assets/mark.png)"></span><span>kl<b>!</b>ck</span></div>${ping}</div>
+      <div class="top"><div class="brand"><span class="key"><span class="ic" style="--i:url(assets/mark-face.png)"></span><span class="ic" style="--i:url(assets/mark.png)"></span></span><span>kl<b>!</b>ck</span></div>${ping}</div>
       <div class="main">
         <button class="power ${powerCls}" data-act="toggle" title="${on || busy ? 'Отключить' : 'Подключить'}" ${has ? '' : 'disabled'}>${ic('power')}</button>
         <div class="ht"><div class="state"><i></i>${esc(s.label)}</div>${big}<div class="meta">${meta}</div></div>

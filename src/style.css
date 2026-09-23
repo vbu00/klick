@@ -33,7 +33,11 @@ input,textarea{font-family:inherit;user-select:text}
 /* ─── Окно ─── */
 .window{position:relative;height:100%;display:flex;flex-direction:column;overflow:hidden;background:var(--win)}
 .titlebar{height:44px;flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 0 16px;color:var(--text2);border-bottom:1px solid var(--line);background:var(--win);position:relative;z-index:2;-webkit-app-region:drag}
-.titlebar .mark{width:16px;height:16px;color:var(--accent)}
+/* Знак-клавиша: крышка белая, корпус с «!» — цвета акцента. */
+.key{position:relative;flex:none;display:block;width:18px;height:18px}
+.key .ic{position:absolute;inset:0;width:100%;height:100%}
+.key .kf{color:#fff}
+.key .kb{color:var(--accent)}
 .titlebar .brand{font-size:13px;font-weight:600;color:var(--text2);letter-spacing:.2px}
 .titlebar .brand b{color:var(--accent)}
 .titlebar .sp{flex:1}
@@ -264,7 +268,7 @@ input,textarea{font-family:inherit;user-select:text}
 .ks-list{transition:opacity .2s}
 /* О приложении */
 .about{display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:20px}
-.about .logo{width:72px;height:72px;border-radius:20px;background:var(--accent);color:var(--onAccent);display:flex;align-items:center;justify-content:center}
+.about .key{width:88px;height:88px;filter:drop-shadow(0 10px 22px color-mix(in srgb,var(--accent) 30%,transparent))}
 .about .nm{font-size:20px;font-weight:600;margin-top:14px}
 .about .nm b{color:var(--accent)}
 .about .vr{font-size:13px;color:var(--dim);margin-top:4px}

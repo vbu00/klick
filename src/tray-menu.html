@@ -7,7 +7,7 @@
      его над иконкой и прячет при потере фокуса (tray.rs). -->
 <script src="theme.js"></script>
 <style>
-  :root { --red: #ff6961; --orange: #ffb340; }
+  :root { --red: #ff6961; --orange: #ffb340; --blue: #0a84ff; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; overflow: hidden; color: var(--text);
     font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-size: 13px;
@@ -35,10 +35,14 @@
     --g: var(--accent); background: radial-gradient(circle 120px at 48px 86px, color-mix(in srgb, var(--g) 24%, transparent), transparent); }
   .hero.ok .glow { opacity: 1; }
   .hero.warn .glow { opacity: .8; --g: var(--orange); }
+  .hero.busy .glow { opacity: .8; --g: var(--blue); }
   .hero.bad .glow { opacity: .8; --g: var(--red); }
   .top { position: relative; display: flex; align-items: center; gap: 8px; height: 22px; }
   .brand { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--text2); letter-spacing: .2px; }
-  .brand .ic { width: 14px; height: 14px; color: var(--accent); }
+  .key { position: relative; flex: none; width: 16px; height: 16px; }
+  .key .ic { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .key .ic:first-child { color: #fff; }
+  .key .ic:last-child { color: var(--accent); }
   .brand b { color: var(--accent); }
   .pingpill { margin-left: auto; height: 22px; padding: 0 9px; border-radius: 11px; display: flex; align-items: center; gap: 6px;
     background: color-mix(in srgb, var(--card) 85%, transparent); border: 1px solid var(--line); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -53,14 +57,16 @@
   .power.on::before, .power.on::after { content: ""; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
     animation: wave 3.6s cubic-bezier(.3,.6,.4,1) infinite; pointer-events: none; }
   .power.on::after { animation-delay: 1.8s; }
-  .power.busy { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, var(--line)); animation: busy 1.2s ease-in-out infinite; }
+  .power.busy { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); animation: busy 1.2s ease-in-out infinite; }
+  .power.warn { color: var(--onAccent); background: var(--orange); border-color: var(--orange); }
   .power.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
   .power:disabled { opacity: .5; cursor: default; }
   .ht { min-width: 0; flex: 1; }
   .state { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
   .state i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim2); }
   .ok .state { color: var(--accent); } .ok .state i { background: var(--accent); }
-  .warn .state { color: var(--orange); } .warn .state i { background: var(--orange); animation: busy 1.2s ease-in-out infinite; }
+  .warn .state { color: var(--orange); } .warn .state i { background: var(--orange); }
+  .busy .state { color: var(--blue); } .busy .state i { background: var(--blue); animation: busy 1.2s ease-in-out infinite; }
   .bad .state { color: var(--red); } .bad .state i { background: var(--red); }
   .big { margin-top: 2px; font-size: 26px; font-weight: 500; letter-spacing: .4px; font-variant-numeric: tabular-nums; line-height: 1.2; }
   .big.name { font-size: 17px; font-weight: 600; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
