@@ -27,7 +27,13 @@
     ; SID вместо имён: на русской Windows группы называются иначе.
     nsExec::ExecToLog 'icacls "$INSTDIR" /setowner "*S-1-5-32-544" /T /C /Q'
     Pop $R0
-    nsExec::ExecToLog 'icacls "$INSTDIR" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /T /C /Q'
+    ; Права задаём только самой папке, а всё внутри просто наследует их.
+    ; Раньше здесь стоял /T: на каждом файле снималось наследование, а
+    ; флаги (OI)(CI) к файлу не применяются — файлы оставались вовсе без
+    ; разрешений, и ни klick.exe, ни uninstall.exe не запускались.
+    nsExec::ExecToLog 'icacls "$INSTDIR" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C /Q'
+    Pop $R0
+    nsExec::ExecToLog 'icacls "$INSTDIR\*" /reset /T /C /Q'
     Pop $R0
   klick_acl_done:
 
