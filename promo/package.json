@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "shots": "bash shots.sh",
-    "render": "node render.mjs"
+    "render": "node render.mjs",
+    "render:fly": "node render.mjs flythrough"
   },
   "devDependencies": {
     "mp4-muxer": "^5.2.2",

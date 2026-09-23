@@ -34,6 +34,8 @@
       : [{ name: 'Discord', exe: 'Discord.exe', action: 'proxy' }];
     settings.sites = [];
   }
+  // &mode=proxy|sysproxy|tun — режим подключения на стенде.
+  if (PQ.get('mode')) settings.mode = PQ.get('mode');
   let status = { state: 'off', error: null, warning: null, profileId: 'p1', server: 'Нидерланды · Amsterdam', mode: 'tun', since: null, health: null };
   let autostart = true;
   let logs = [
@@ -145,6 +147,7 @@
   // Съёмка скриншотов для README (tools/screenshots.ps1): параметры в адресе.
   //   ?theme=light|dark|system | custom:<основа>:<акцент>  &state=on  &screen=rules|add|settings|kill|theme|mode|about  &expand=1  &ks=sites  &info=ksInfo
   //   ролик: &promo=1 [&apps=after] &rtab=apps &picker=1 &pick=cs2.exe &scroll=end|px
+  //   пролёт: &mode=sysproxy  &link=<текст в поле «Добавить»>
   const q = new URLSearchParams(location.search);
   if (q.get('frame')) {
     // Окно 380×720 посреди страницы — как в макете; безголовый браузер уже
@@ -170,6 +173,12 @@
     if (['kill', 'theme', 'mode', 'about'].includes(scr)) { await click('[data-nav=settings]'); await click({ kill: '[data-act=goKill]', theme: '[data-act=goTheme]', mode: '[data-act=goModeSub]', about: '[data-act=goAbout]' }[scr]); }
     if (q.get('ks')) { await click('[data-act=ksTab][data-v=sites]'); await pause(800); }
     if (q.get('rtab')) await click(`[data-act=rulesTab][data-v=${q.get('rtab')}]`);
+    if (q.get('link')) {
+      const ta = document.getElementById('linkInput');
+      ta.value = q.get('link');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      await pause(200);
+    }
     if (q.get('picker')) { await click('[data-act=pickApps]'); await pause(800); }
     if (q.get('pick')) await click(`[data-pick="${q.get('pick')}"]`);
     if (q.get('scroll')) { const sc = document.getElementById('scroll'); sc.scrollTop = q.get('scroll') === 'end' ? sc.scrollHeight : +q.get('scroll'); await pause(400); }

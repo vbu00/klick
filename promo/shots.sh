@@ -27,3 +27,12 @@ tray() {
 # Для ролика: сейчас Frankfurt (96 мс) → переключились на Amsterdam (31 мс).
 tray tray-before "promo=1"
 tray tray-after  "promo=1&active=Amsterdam"
+# Пролёт по приложению (flythrough): режим «Системный proxy», без «VPN» в кадре.
+shot fly-off   "theme=dark&mode=sysproxy"
+shot fly-on    "theme=dark&mode=sysproxy&state=on&expand=1&ping=1" 40000
+shot fly-add   "theme=dark&screen=add&link=https%3A%2F%2Fpanel.example.com%2Fsub%2Fa1b2c3d4"
+shot fly-rules "theme=dark&screen=rules"
+shot fly-ks    "theme=dark&screen=kill&ks=sites"
+shot fly-theme "theme=custom:midnight:0a84ff&screen=theme"
+tray fly-tray  ""
+shot fly-servers "theme=dark&mode=sysproxy&state=on&expand=1&ping=1&scroll=250" 40000
