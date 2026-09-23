@@ -8,3 +8,9 @@
 *.dll binary
 *.woff2 binary
 *.ps1 text eol=crlf
+
+# Статистика языков на GitHub: вспомогательные скрипты (иконки, скриншоты,
+# загрузка ядра) и стенд вёрстки — не код приложения.
+tools/** linguist-vendored
+.claude/** linguist-vendored
+src-tauri/installer-hooks.nsh linguist-vendored
