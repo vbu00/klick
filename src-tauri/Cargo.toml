@@ -1,6 +1,6 @@
 [package]
 name = "klick"
-version = "0.2.0"
+version = "0.2.1"
 description = "kl!ck — VPN-клиент на mihomo"
 authors = ["vbu00", "Dmitriy Medvedev (дизайн)"]
 license = "MIT"
