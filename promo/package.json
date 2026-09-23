@@ -1,0 +1,14 @@
+{
+  "name": "klick-promo",
+  "private": true,
+  "description": "Ролик kl!ck для TikTok: canvas + WebCodecs в безголовом Edge",
+  "type": "module",
+  "scripts": {
+    "shots": "bash shots.sh",
+    "render": "node render.mjs"
+  },
+  "devDependencies": {
+    "mp4-muxer": "^5.2.2",
+    "puppeteer-core": "^23.11.1"
+  }
+}

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>kl!ck — ролик для TikTok</title>
+<!-- Ролик 1080×1920 рисуется на canvas функцией draw(t) — кадр зависит только
+     от времени, поэтому просмотр в браузере и рендер в MP4 (render.mjs)
+     совпадают кадр в кадр.
+       просмотр:     story.html          (по кругу; пробел — пауза)
+       один кадр:    story.html?t=12.5 -->
+<style>
+  html, body { margin: 0; height: 100%; background: #050608; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  canvas { height: 100vh; width: auto; max-width: 100vw; aspect-ratio: 9 / 16; display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script src="node_modules/mp4-muxer/build/mp4-muxer.js"></script>
+<script src="story.js"></script>
+</body>
+</html>
