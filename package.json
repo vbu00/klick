@@ -12,8 +12,16 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2"
   },
-  "author": "vbu00",
-  "contributors": ["Dmitriy Medvedev (дизайн)"],
+  "author": {
+    "name": "vbu00",
+    "url": "https://github.com/vbu00"
+  },
+  "contributors": [
+    {
+      "name": "Dmitriy Medvedev (дизайн и логотип)",
+      "url": "https://github.com/aleuuu"
+    }
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

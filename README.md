@@ -199,8 +199,8 @@ http://localhost:4176/src/mock (`#fail`, `#dead`, `#empty`, `#ksfail` — сце
 
 ## Авторы
 
-- **vbu00** — разработка
-- **Dmitriy Medvedev** — дизайн интерфейса и логотип
+- [**vbu00**](https://github.com/vbu00) — разработка
+- [**Dmitriy Medvedev**](https://github.com/aleuuu) — дизайн интерфейса и логотип
 
 Логотип-клавиша в пяти цветах и вордмарк — в [`docs/logo`](docs/logo): по
 цвету на каждое состояние трея (синяя — подключаюсь, зелёная — подключено,
