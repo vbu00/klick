@@ -1,0 +1,61 @@
+[package]
+name = "klick"
+version = "0.1.0"
+description = "kl!ck — VPN-клиент на mihomo"
+authors = ["vbu00"]
+license = "MIT"
+repository = "https://github.com/vbu00/klick"
+edition = "2021"
+
+[lib]
+name = "klick_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "klick"
+path = "src/main.rs"
+# Манифест требует прав администратора (TUN): `cargo test` не смог бы
+# запустить сам бинарник (ошибка 740). Тесты живут в библиотеке.
+test = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-clipboard-manager = "2"
+notify-rust = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+once_cell = "1"
+# Только для API mihomo на 127.0.0.1 — TLS не нужен. Подписки по https
+# качает системный curl.exe.
+ureq = { version = "2", default-features = false, features = ["json"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Networking_WinInet",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_Memory",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

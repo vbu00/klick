@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>kl!ck</title>
+<!-- Меню трея: маленькое прозрачное окно в стиле приложения. Rust ставит
+     его над иконкой и прячет при потере фокуса (tray.rs). -->
+<script src="theme.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; overflow: hidden; color: var(--text);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-size: 13px;
+    -webkit-font-smoothing: antialiased; user-select: none; cursor: default; }
+  /* Поля вокруг карточки — место под тень: окно прозрачное. */
+  .wrap { width: 290px; padding: 10px; }
+  .card { background: var(--win); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 16px 40px var(--shadow); animation: pop .15s cubic-bezier(.2,.7,.2,1); }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+  .head { display: flex; align-items: center; gap: 12px; padding: 14px; }
+  .power { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+    color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .25s; }
+  .power:active { transform: scale(.95); }
+  .power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); }
+  .power.busy { color: var(--orange, #ffb340); }
+  .ic { display: block; flex: none; background: currentColor; -webkit-mask: var(--i) center/contain no-repeat; mask: var(--i) center/contain no-repeat; }
+  .power .ic { width: 20px; height: 20px; }
+  .ht { min-width: 0; flex: 1; }
+  .state { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+  .state i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim2); }
+  .ok .state { color: var(--accent); } .ok .state i { background: var(--accent); }
+  .warn .state { color: #ffb340; } .warn .state i { background: #ffb340; }
+  .bad .state { color: #ff6961; } .bad .state i { background: #ff6961; }
+  .name { margin-top: 3px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { display: flex; gap: 6px; font-size: 12px; color: var(--dim); margin-top: 1px; white-space: nowrap; overflow: hidden; }
+  .meta .ms { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .sep { height: 1px; background: var(--line); }
+  .items { padding: 5px; }
+  .item { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 10px;
+    background: transparent; font: inherit; color: var(--text); text-align: left; cursor: default; }
+  .item:hover { background: var(--hover); }
+  .item .ic { width: 16px; height: 16px; color: var(--dim); }
+  .item .chev { margin-left: auto; width: 14px; height: 14px; transition: transform .15s; }
+  .item.open .chev { transform: rotate(90deg); }
+  .item.danger, .item.danger .ic { color: #ff6961; }
+  .sub { padding: 0 0 4px 26px; max-height: 260px; overflow-y: auto; }
+  .sub::-webkit-scrollbar { width: 0; }
+  .sub .item { height: 32px; font-size: 12.5px; color: var(--text2); }
+  .sub .item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub .item .mark { margin-left: auto; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .foot { display: flex; justify-content: space-between; padding: 9px 14px 11px; font-size: 11px; color: var(--dim2); }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card" id="card"></div></div>
+<script src="tray-menu.js"></script>
+</body>
+</html>

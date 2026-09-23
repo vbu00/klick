@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "kl!ck",
+  "mainBinaryName": "klick",
+  "version": "0.1.0",
+  "identifier": "com.vbu00.klick",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "kl!ck",
+        "width": 380,
+        "height": 720,
+        "minWidth": 380,
+        "minHeight": 560,
+        "maxWidth": 380,
+        "resizable": true,
+        "maximizable": false,
+        "decorations": false,
+        "transparent": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "bin/mihomo.exe": "bin/mihomo.exe",
+      "bin/Country.mmdb": "bin/Country.mmdb",
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
+    "publisher": "vbu00",
+    "copyright": "© 2026 vbu00. Лицензия MIT",
+    "category": "Utility",
+    "shortDescription": "VPN-клиент на mihomo",
+    "longDescription": "kl!ck — подключение по подпискам и ссылкам через ядро mihomo: VPN (TUN), системный прокси или прокси, маршрутизация по сайтам и программам, Kill Switch.",
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "./installer-hooks.nsh",
+        "languages": [
+          "Russian"
+        ],
+        "installerIcon": "./icons/icon.ico"
+      }
+    },
+    "license": "MIT",
+    "homepage": "https://github.com/vbu00/klick"
+  }
+}

@@ -1,0 +1,14 @@
+# Зависимости и сборка
+node_modules/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Локальные настройки Claude Code
+.claude/settings.local.json
+
+# Путь к линкеру MSVC — у каждой машины свой (см. README)
+src-tauri/.cargo/config.toml
+
+# Ядро и GeoIP-база не хранятся в git: npm run core скачает их со сверкой sha256
+src-tauri/bin/mihomo.exe
+src-tauri/bin/Country.mmdb

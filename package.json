@@ -1,0 +1,20 @@
+{
+  "name": "klick",
+  "version": "0.1.0",
+  "private": true,
+  "description": "kl!ck — VPN-клиент на mihomo (Tauri)",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "core": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/fetch-core.ps1",
+    "screenshots": "bash tools/screenshots.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vbu00/klick"
+  }
+}
