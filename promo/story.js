@@ -83,7 +83,7 @@ const logoWord = (cx, y, size, alpha = 1) => parts([['kl', C.text], ['!', C.blue
 const IMG = {};
 const SRC = {
   key: '../src-tauri/icons/icon.png',
-  off: 'assets/off.png', on: 'assets/on.png', rules: 'assets/rules.png', ks: 'assets/ks.png', tray: 'assets/tray.png',
+  off: 'assets/off.png', on: 'assets/on.png', tray: 'assets/tray.png',
 };
 const loadImages = () => Promise.all(Object.entries(SRC).map(([k, src]) => new Promise((ok, fail) => {
   const im = new Image();

@@ -15,9 +15,6 @@ shot() {
 }
 shot off   "theme=dark"
 shot on    "theme=dark&state=on&ping=1" 40000
-shot rules "theme=dark&screen=rules"
-shot ks    "theme=dark&screen=kill&ks=sites"
-shot ksoff "theme=dark&screen=kill&info=ksInfo"
 "$EDGE" --headless=new --disable-gpu --hide-scrollbars --no-first-run --user-data-dir="$TMP\klick-promo" \
   --window-size=380,700 --force-device-scale-factor=2 --virtual-time-budget=6000 \
   --screenshot="$TMP\promo-tray.png" "http://localhost:4176/src/tray?state=on&theme=dark&bg=%23000000" >/dev/null 2>&1
