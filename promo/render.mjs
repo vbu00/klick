@@ -1,5 +1,5 @@
 // Рендер ролика: story.html в безголовом Edge → WebCodecs (H.264) → MP4.
-//   npm run render                      → out/klick-tiktok.mp4 и обложка out/cover.png
+//   npm run render                      → out/klick-tiktok.mp4 (H.264 + AAC) и обложка out/cover.png
 //   node render.mjs --stills 1,5.5,9    → out/still-*.png для проверки кадров
 // Страница открывается с локального HTTP-сервера, а не с file://: с file://
 // картинки «грязнят» canvas, и из него нельзя сделать VideoFrame.
@@ -40,19 +40,20 @@ try {
 
   const i = process.argv.indexOf('--stills');
   if (i > 0) {
-    for (const t of process.argv[i + 1].split(',').map(Number)) {
-      const b64 = await page.evaluate((t) => window.frameAt(t), t);
+    for (const t of process.argv[i + 1].split(',')) {
+      const b64 = await page.evaluate((t) => window.frameAt(t), Number(t));
       fs.writeFileSync(path.join(OUT, `still-${t}.png`), Buffer.from(b64, 'base64'));
       console.log('кадр', t);
     }
   } else {
     await page.exposeFunction('reportProgress', (i, n) => process.stdout.write(`\r  кадр ${i}/${n}`));
     const started = Date.now();
-    const b64 = await page.evaluate(() => window.encodeStory((i, n) => window.reportProgress(i, n)));
+    const { b64, audioCodec } = await page.evaluate(() => window.encodeStory((i, n) => window.reportProgress(i, n)));
     const file = path.join(OUT, 'klick-tiktok.mp4');
     fs.writeFileSync(file, Buffer.from(b64, 'base64'));
-    fs.writeFileSync(path.join(OUT, 'cover.png'), Buffer.from(await page.evaluate(() => window.frameAt(8.4)), 'base64'));
-    console.log(`\nготово за ${((Date.now() - started) / 1000).toFixed(0)} с: ${file} (${(fs.statSync(file).size / 1e6).toFixed(1)} МБ)`);
+    // Обложка — кадр с логотипом сразу после удара клавиши.
+    fs.writeFileSync(path.join(OUT, 'cover.png'), Buffer.from(await page.evaluate(() => window.frameAt(11.0)), 'base64'));
+    console.log(`\nготово за ${((Date.now() - started) / 1000).toFixed(0)} с: ${file} (${(fs.statSync(file).size / 1e6).toFixed(1)} МБ, звук ${audioCodec})`);
   }
 } finally {
   await browser.close();

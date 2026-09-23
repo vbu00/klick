@@ -13,15 +13,20 @@
     warn: { look: 'warn', label: 'Сервер не отвечает', state: 'on', ms: null },
     bad: { look: 'bad', label: 'Не подключено', state: 'error', ms: null },
   }[st];
-  let active = servers[0];
+  // ?promo=1 — для ролика: сейчас Frankfurt (96 мс), самый быстрый — Amsterdam
+  // (31 мс); &active=Amsterdam — после переключения.
+  const promo = !!q.get('promo');
+  const PINGS = promo ? [31, 96, 44, 142] : [48, 61, null, 142];
+  let active = servers.find((n) => q.get('active') && n.includes(q.get('active'))) || (promo ? servers[1] : servers[0]);
+  if (promo) base.ms = PINGS[servers.indexOf(active)];
   const now = Math.floor(Date.now() / 1000);
   const state = () => ({
     ...base, profile: 'Remnawave · Alex', server: active, mode: 'VPN (TUN)', routeMode: 'по правилам',
     since: st === 'on' || st === 'bad' ? now - 2 * 3600 - 17 * 60 : null,
     traffic: { down: st === 'on' ? 3.4e6 : 0, up: st === 'on' ? 0.41e6 : 0, downTotal: 1.9e9, upTotal: 0.21e9 },
     killSwitch: true, ksApps: 3, ksSites: 2,
-    profiles: [{ id: 'p1', name: 'Remnawave · Alex', active: true, live: st !== 'off' }, { id: 'p2', name: 'grpc', active: false, live: false }],
-    servers: servers.map((n, i) => ({ name: n, active: n === active, ms: [48, 61, null, 142][i] })),
+    profiles: promo ? [{ id: 'p1', name: 'Remnawave · Alex', active: true, live: true }] : [{ id: 'p1', name: 'Remnawave · Alex', active: true, live: st !== 'off' }, { id: 'p2', name: 'grpc', active: false, live: false }],
+    servers: servers.map((n, i) => ({ name: n, active: n === active, ms: PINGS[i] })),
     version: '0.2.0', mihomo: 'v1.19.31',
   });
   window.__TAURI__ = {

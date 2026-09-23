@@ -25,6 +25,15 @@
     ksApps: [{ name: 'qBittorrent', exe: 'qbittorrent.exe', path: 'C:\\x', on: true }, { name: 'Telegram', exe: 'Telegram.exe', path: 'C:\\x', on: true }, { name: 'Discord', exe: 'Discord.exe', path: 'C:\\x', on: true }, { name: 'Firefox', exe: 'firefox.exe', path: 'C:\\x', on: false }],
     autoUpdate: true, notifyDrops: true, connectOnLaunch: true,
   };
+  // ?promo=1 — данные для ролика (promo/): геймер, CS2 и Discord.
+  //   &apps=after — правило для CS2 уже добавлено.
+  const PQ = new URLSearchParams(location.search);
+  if (PQ.get('promo')) {
+    settings.apps = PQ.get('apps') === 'after'
+      ? [{ name: 'Counter-Strike 2', exe: 'cs2.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }]
+      : [{ name: 'Discord', exe: 'Discord.exe', action: 'proxy' }];
+    settings.sites = [];
+  }
   let status = { state: 'off', error: null, warning: null, profileId: 'p1', server: 'Нидерланды · Amsterdam', mode: 'tun', since: null, health: null };
   let autostart = true;
   let logs = [
@@ -111,6 +120,10 @@
     runningApps: async () => {
       await new Promise((r) => setTimeout(r, 300));
       const on = status.state === 'on';
+      if (PQ.get('promo')) {
+        return [['Counter-Strike 2', 'cs2.exe', 18240, 12.6], ['Steam', 'steam.exe', 5316, 1.9], ['Google Chrome', 'chrome.exe', 11284, 1.2], ['Discord', 'Discord.exe', 7732, 0.4], ['OBS Studio', 'obs64.exe', 9904, 0.2], ['Spotify', 'Spotify.exe', 14020, 0.1], ['Telegram', 'Telegram.exe', 9120, 0.05], ['FACEIT', 'FACEIT.exe', 6620, 0]]
+          .map(([name, exe, pid, mbs]) => ({ name, exe, pid, path: 'C:\\Games\\' + exe, activity: on ? mbs * 1024 * 1024 : null }));
+      }
       return [['Google Chrome', 'chrome.exe', 11284, 3.4], ['Telegram', 'Telegram.exe', 9120, 0.8], ['Discord', 'Discord.exe', 7732, 0.4], ['Steam', 'steam.exe', 5316, 1.9], ['Spotify', 'Spotify.exe', 14020, 0.3], ['qBittorrent', 'qbittorrent.exe', 6604, 12.6], ['Firefox', 'firefox.exe', 15872, 0.6], ['Visual Studio Code', 'Code.exe', 4480, 0.1], ['Zoom', 'Zoom.exe', 12760, 0]]
         .map(([name, exe, pid, mbs]) => ({ name, exe, pid, path: 'C:\\Program Files\\' + exe, activity: on ? mbs * 1024 * 1024 : null }))
         .sort((a, b) => (b.activity || 0) - (a.activity || 0));
@@ -131,6 +144,7 @@
 
   // Съёмка скриншотов для README (tools/screenshots.ps1): параметры в адресе.
   //   ?theme=light|dark|system | custom:<основа>:<акцент>  &state=on  &screen=rules|add|settings|kill|theme|mode|about  &expand=1  &ks=sites  &info=ksInfo
+  //   ролик: &promo=1 [&apps=after] &rtab=apps &picker=1 &pick=cs2.exe &scroll=end|px
   const q = new URLSearchParams(location.search);
   if (q.get('frame')) {
     // Окно 380×720 посреди страницы — как в макете; безголовый браузер уже
@@ -155,6 +169,10 @@
     if (scr === 'rules' || scr === 'add' || scr === 'settings') await click(`[data-nav=${scr}]`);
     if (['kill', 'theme', 'mode', 'about'].includes(scr)) { await click('[data-nav=settings]'); await click({ kill: '[data-act=goKill]', theme: '[data-act=goTheme]', mode: '[data-act=goModeSub]', about: '[data-act=goAbout]' }[scr]); }
     if (q.get('ks')) { await click('[data-act=ksTab][data-v=sites]'); await pause(800); }
+    if (q.get('rtab')) await click(`[data-act=rulesTab][data-v=${q.get('rtab')}]`);
+    if (q.get('picker')) { await click('[data-act=pickApps]'); await pause(800); }
+    if (q.get('pick')) await click(`[data-pick="${q.get('pick')}"]`);
+    if (q.get('scroll')) { const sc = document.getElementById('scroll'); sc.scrollTop = q.get('scroll') === 'end' ? sc.scrollHeight : +q.get('scroll'); await pause(400); }
     if (q.get('info')) await click(`[data-act=${q.get('info')}]`);
   });
 })();
