@@ -30,6 +30,13 @@
     nsExec::ExecToLog 'icacls "$INSTDIR" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /T /C /Q'
     Pop $R0
   klick_acl_done:
+
+  ; Иконка поменялась (0.2 — логотип-клавиша), а путь к exe прежний:
+  ; Windows показывает на панели задач и в «Пуске» картинку из своего кэша.
+  ; Сообщаем оболочке, что значки устарели, и перестраиваем кэш значков.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'
+  nsExec::ExecToLog '"$SYSDIR\ie4uinit.exe" -show'
+  Pop $R0
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
