@@ -30,6 +30,15 @@ http
       return;
     }
 
+    // /src/tray — меню трея со стабом __TAURI__ (tray-mock.js).
+    if (rel === '/src/tray') {
+      const html = fs.readFileSync(path.join(ROOT, 'src/tray-menu.html'), 'utf8');
+      const mockJs = fs.readFileSync(path.join(__dirname, 'tray-mock.js'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html.replace('<script src="theme.js"></script>', `<script>${mockJs}</script>\n<script src="theme.js"></script>`));
+      return;
+    }
+
     const file = path.join(ROOT, rel === '/' ? 'src/index.html' : rel);
     if (!file.startsWith(ROOT)) {
       res.writeHead(403).end();

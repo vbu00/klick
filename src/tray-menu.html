@@ -3,51 +3,131 @@
 <head>
 <meta charset="utf-8">
 <title>kl!ck</title>
-<!-- Меню трея: маленькое прозрачное окно в стиле приложения. Rust ставит
+<!-- Меню трея: маленькое прозрачное окно — мини-версия Главной. Rust ставит
      его над иконкой и прячет при потере фокуса (tray.rs). -->
 <script src="theme.js"></script>
 <style>
+  :root { --red: #ff6961; --orange: #ffb340; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; overflow: hidden; color: var(--text);
     font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-size: 13px;
     -webkit-font-smoothing: antialiased; user-select: none; cursor: default; }
+  button { font: inherit; color: inherit; }
   /* Поля вокруг карточки — место под тень: окно прозрачное. */
-  .wrap { width: 290px; padding: 10px; }
-  .card { background: var(--win); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
-    box-shadow: 0 16px 40px var(--shadow); animation: pop .15s cubic-bezier(.2,.7,.2,1); }
-  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
-  .head { display: flex; align-items: center; gap: 12px; padding: 14px; }
-  .power { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--card);
-    color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .25s; }
-  .power:active { transform: scale(.95); }
-  .power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); }
-  .power.busy { color: var(--orange, #ffb340); }
+  .wrap { width: 340px; padding: 10px; }
+  .card { background: var(--win); border: 1px solid var(--line); border-radius: 20px; overflow: hidden;
+    box-shadow: 0 18px 44px var(--shadow); animation: pop .18s cubic-bezier(.2,.7,.2,1); }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+  @keyframes busy { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes wave { 0% { transform: scale(.4); opacity: 0; } 10% { opacity: .9; } 70% { transform: scale(2.6); opacity: 0; } 100% { transform: scale(2.6); opacity: 0; } }
   .ic { display: block; flex: none; background: currentColor; -webkit-mask: var(--i) center/contain no-repeat; mask: var(--i) center/contain no-repeat; }
-  .power .ic { width: 20px; height: 20px; }
+
+  /* ── Шапка: статус, кнопка, таймер ── */
+  .hero { position: relative; padding: 14px 16px 16px; }
+  /* Свечение уходит под следующие блоки и гаснет само — без резкого края. */
+  .hero ~ * { position: relative; z-index: 1; }
+  .hero .dots { position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle, var(--dots) 1px, transparent 1.5px); background-size: 12px 12px;
+    -webkit-mask-image: radial-gradient(circle 130px at 48px 86px, #000, transparent); mask-image: radial-gradient(circle 130px at 48px 86px, #000, transparent); }
+  .hero .glow { position: absolute; left: 0; top: 0; width: 100%; height: 190px; pointer-events: none; opacity: 0; transition: opacity .4s;
+    --g: var(--accent); background: radial-gradient(circle 120px at 48px 86px, color-mix(in srgb, var(--g) 24%, transparent), transparent); }
+  .hero.ok .glow { opacity: 1; }
+  .hero.warn .glow { opacity: .8; --g: var(--orange); }
+  .hero.bad .glow { opacity: .8; --g: var(--red); }
+  .top { position: relative; display: flex; align-items: center; gap: 8px; height: 22px; }
+  .brand { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--text2); letter-spacing: .2px; }
+  .brand .ic { width: 14px; height: 14px; color: var(--accent); }
+  .brand b { color: var(--accent); }
+  .pingpill { margin-left: auto; height: 22px; padding: 0 9px; border-radius: 11px; display: flex; align-items: center; gap: 6px;
+    background: color-mix(in srgb, var(--card) 85%, transparent); border: 1px solid var(--line); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pingpill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .main { position: relative; display: flex; align-items: center; gap: 16px; margin-top: 14px; }
+  .power { position: relative; flex: none; width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--line); background: var(--card);
+    color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .25s, border-color .25s, color .25s, transform .12s; }
+  .power:hover { border-color: var(--ring); color: var(--text); }
+  .power:active { transform: scale(.94); }
+  .power .ic { width: 26px; height: 26px; }
+  .power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); animation: pulse 2.2s ease-out infinite; }
+  .power.on::before, .power.on::after { content: ""; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    animation: wave 3.6s cubic-bezier(.3,.6,.4,1) infinite; pointer-events: none; }
+  .power.on::after { animation-delay: 1.8s; }
+  .power.busy { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, var(--line)); animation: busy 1.2s ease-in-out infinite; }
+  .power.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
+  .power:disabled { opacity: .5; cursor: default; }
   .ht { min-width: 0; flex: 1; }
   .state { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
   .state i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim2); }
   .ok .state { color: var(--accent); } .ok .state i { background: var(--accent); }
-  .warn .state { color: #ffb340; } .warn .state i { background: #ffb340; }
-  .bad .state { color: #ff6961; } .bad .state i { background: #ff6961; }
-  .name { margin-top: 3px; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .meta { display: flex; gap: 6px; font-size: 12px; color: var(--dim); margin-top: 1px; white-space: nowrap; overflow: hidden; }
-  .meta .ms { color: var(--accent); font-variant-numeric: tabular-nums; }
-  .sep { height: 1px; background: var(--line); }
-  .items { padding: 5px; }
-  .item { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 10px;
-    background: transparent; font: inherit; color: var(--text); text-align: left; cursor: default; }
-  .item:hover { background: var(--hover); }
-  .item .ic { width: 16px; height: 16px; color: var(--dim); }
-  .item .chev { margin-left: auto; width: 14px; height: 14px; transition: transform .15s; }
-  .item.open .chev { transform: rotate(90deg); }
-  .item.danger, .item.danger .ic { color: #ff6961; }
-  .sub { padding: 0 0 4px 26px; max-height: 260px; overflow-y: auto; }
-  .sub::-webkit-scrollbar { width: 0; }
-  .sub .item { height: 32px; font-size: 12.5px; color: var(--text2); }
-  .sub .item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub .item .mark { margin-left: auto; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-  .foot { display: flex; justify-content: space-between; padding: 9px 14px 11px; font-size: 11px; color: var(--dim2); }
+  .warn .state { color: var(--orange); } .warn .state i { background: var(--orange); animation: busy 1.2s ease-in-out infinite; }
+  .bad .state { color: var(--red); } .bad .state i { background: var(--red); }
+  .big { margin-top: 2px; font-size: 26px; font-weight: 500; letter-spacing: .4px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .big.name { font-size: 17px; font-weight: 600; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { font-size: 12px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Скорость ── */
+  .speed { position: relative; margin: 0 12px; border-radius: 14px; background: var(--card); overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; }
+  .sp { position: relative; z-index: 1; padding: 10px 12px 28px; }
+  .sp + .sp { border-left: 1px solid var(--line); }
+  .sp .k { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+  .sp .k .ic { width: 14px; height: 14px; }
+  .sp .v { margin-top: 3px; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sp .v small { font-size: 11px; font-weight: 500; color: var(--dim); margin-left: 3px; }
+  .spark { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 36px; }
+  .spark .a { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .spark .l { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .spark .u { fill: none; stroke: var(--dim2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+  /* ── Разделы ── */
+  .sec { padding: 12px 12px 0; }
+  .lbl { display: flex; align-items: center; justify-content: space-between; height: 22px; padding: 0 4px; margin-bottom: 6px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
+  .mini { height: 22px; padding: 0 9px; border: 0; border-radius: 11px; background: var(--card); color: var(--text2); font-size: 11px; text-transform: none; letter-spacing: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .mini:hover { background: var(--elem); color: var(--text); }
+  .mini .ic { width: 11px; height: 11px; }
+  .mini.spin .ic { animation: spin 1s linear infinite; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 2px; }
+  .chips::-webkit-scrollbar { height: 0; }
+  .chip { flex: none; height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--dim);
+    font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: background .15s, color .15s; }
+  .chip:hover { color: var(--text); background: var(--hover); }
+  .chip.on { background: var(--raised); border-color: var(--raised); color: var(--text); }
+  .chip .live { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .list { border-radius: 14px; background: var(--card); padding: 4px; max-height: 176px; overflow-y: auto; }
+  .list::-webkit-scrollbar { width: 0; }
+  .srv { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; transition: background .15s; }
+  .srv:hover { background: var(--hover); }
+  .srv.on { background: var(--hover); }
+  .srv .r { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--ring); display: flex; align-items: center; justify-content: center; }
+  .srv.on .r { border-color: var(--accent); }
+  .srv.on .r::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .srv .n { flex: 1; min-width: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srv .ms { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+  /* ── Kill Switch ── */
+  .ks { display: flex; align-items: center; gap: 10px; margin: 12px 12px 0; padding: 10px 12px; border-radius: 14px; background: var(--card); cursor: pointer; transition: background .15s; }
+  .ks:hover { background: var(--cardHover); }
+  .ks .ki { flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--elem); color: var(--dim); display: flex; align-items: center; justify-content: center; }
+  .ks.on .ki { background: color-mix(in srgb, var(--accent) 16%, var(--elem)); color: var(--accent); }
+  .ks .ki svg { width: 16px; height: 16px; }
+  .ks .t { font-size: 13px; font-weight: 600; }
+  .ks .d { font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+  .tg { flex: none; margin-left: auto; width: 38px; height: 22px; border-radius: 11px; background: var(--raised); position: relative; transition: background .2s; }
+  .tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: transform .2s; }
+  .ks.on .tg { background: var(--accent); }
+  .ks.on .tg::after { transform: translateX(16px); }
+
+  /* ── Низ ── */
+  .foot { display: flex; gap: 8px; padding: 12px; }
+  .btn { height: 38px; border: 0; border-radius: 12px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: background .15s, transform .12s; }
+  .btn:hover { background: var(--elem); }
+  .btn:active { transform: scale(.97); }
+  .btn .ic { width: 16px; height: 16px; }
+  .btn.open { flex: 1; }
+  .btn.quit { flex: none; width: 38px; color: var(--red); }
+  .btn.quit:hover { background: color-mix(in srgb, var(--red) 14%, var(--card)); }
+  .ver { display: flex; justify-content: space-between; padding: 0 16px 11px; margin-top: -2px; font-size: 10.5px; color: var(--dim2); }
 </style>
 </head>
 <body>

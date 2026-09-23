@@ -76,6 +76,17 @@ static LOG: Lazy<Mutex<VecDeque<LogEntry>>> = Lazy::new(|| Mutex::new(VecDeque::
 static PENDING: Lazy<Mutex<Vec<LogEntry>>> = Lazy::new(|| Mutex::new(vec![]));
 static LOG_FILE: Lazy<Mutex<Option<std::fs::File>>> = Lazy::new(|| Mutex::new(None));
 static TRAFFIC: Lazy<Mutex<Traffic>> = Lazy::new(|| Mutex::new(Traffic::default()));
+/// Последние замеры задержки: подключение → сервер → мс (None — не ответил).
+/// Меню трея показывает их сразу, без нового замера.
+static PINGS: Lazy<Mutex<HashMap<String, HashMap<String, Option<u32>>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn cached_pings(profile_id: &str) -> HashMap<String, Option<u32>> {
+    PINGS.lock().unwrap().get(profile_id).cloned().unwrap_or_default()
+}
+
+fn remember_pings(profile_id: &str, m: &HashMap<String, Option<u32>>) {
+    PINGS.lock().unwrap().entry(profile_id.to_string()).or_default().extend(m.iter().map(|(k, v)| (k.clone(), *v)));
+}
 const LOG_MAX: usize = 500;
 
 pub fn status() -> Status {
@@ -613,7 +624,13 @@ fn check_health(app: &AppHandle, gen: u64) {
         note("INFO", "Сервер снова отвечает");
     }
     // Сервер, через который идёт трафик, — для задержки на карточке.
-    let server = STATUS.lock().unwrap().server.clone();
+    let (server, pid) = {
+        let st = STATUS.lock().unwrap();
+        (st.server.clone(), st.profile_id.clone())
+    };
+    if let (Some(server), Some(pid)) = (&server, &pid) {
+        remember_pings(pid, &HashMap::from([(server.clone(), h.ms)]));
+    }
     if let (Some(ms), Some(server)) = (h.ms, server) {
         let _ = app.emit("pings", HashMap::from([(server, ms)]));
     }
@@ -636,6 +653,7 @@ pub fn ping_profile(app: &AppHandle, id: &str) -> Result<HashMap<String, Option<
         let ms = measured.get(&n).copied();
         (n, ms)
     }).collect();
+    remember_pings(id, &result);
     Ok(result)
 }
 

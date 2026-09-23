@@ -12,7 +12,7 @@ use tauri::{
 };
 
 use crate::core;
-use crate::state::{AppState, Mode};
+use crate::state::{AppState, Mode, RouteMode};
 
 pub const TRAY_ID: &str = "klick-tray";
 pub const POPUP: &str = "tray-menu";
@@ -63,6 +63,8 @@ const ICONS_OK: [(i32, &[u8]); 8] = icon_set!("ok");
 const ICONS_WARN: [(i32, &[u8]); 8] = icon_set!("warn");
 const ICONS_BAD: [(i32, &[u8]); 8] = icon_set!("bad");
 const ICONS_IDLE: [(i32, &[u8]); 8] = icon_set!("idle");
+/// Второй кадр мигания, пока идёт подключение.
+const ICONS_WARN2: [(i32, &[u8]); 8] = icon_set!("warn2");
 
 /// Иконка ровно под SM_CXSMICON (16 при 100 %, 20 при 125 %…), а не ужатая.
 #[cfg(target_os = "windows")]
@@ -78,12 +80,15 @@ fn small_icon_px() -> i32 {
 }
 
 fn icon_bytes(l: Look) -> &'static [u8] {
-    let set: &[(i32, &'static [u8])] = match l {
+    pick(match l {
         Look::Ok => &ICONS_OK,
         Look::Warn => &ICONS_WARN,
         Look::Bad => &ICONS_BAD,
         Look::Idle => &ICONS_IDLE,
-    };
+    })
+}
+
+fn pick(set: &[(i32, &'static [u8])]) -> &'static [u8] {
     let want = small_icon_px();
     set.iter().find(|(px, _)| *px >= want).or_else(|| set.last()).map(|(_, b)| *b).unwrap_or(&[])
 }
@@ -129,6 +134,17 @@ fn tooltip(s: &core::Status) -> String {
 pub struct ServerRow {
     name: String,
     active: bool,
+    /// Последний замер: поля нет — не мерили, null — не ответил.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ms: Option<Option<u32>>,
+}
+
+#[derive(Serialize)]
+pub struct ProfileRow {
+    id: String,
+    name: String,
+    active: bool,
+    live: bool,
 }
 
 #[derive(Serialize)]
@@ -141,8 +157,16 @@ pub struct TrayMenuState {
     server: Option<String>,
     ms: Option<u32>,
     mode: &'static str,
+    route_mode: &'static str,
+    since: Option<u64>,
+    traffic: core::Traffic,
+    profiles: Vec<ProfileRow>,
     servers: Vec<ServerRow>,
+    kill_switch: bool,
+    ks_apps: usize,
+    ks_sites: usize,
     version: String,
+    mihomo: Option<String>,
 }
 
 static ANCHOR: Lazy<Mutex<Option<(f64, f64, f64, f64)>>> = Lazy::new(|| Mutex::new(None));
@@ -166,7 +190,7 @@ fn open_popup(app: &AppHandle, rect: tauri::Rect) {
     }
     let built = tauri::WebviewWindowBuilder::new(app, POPUP, tauri::WebviewUrl::App("tray-menu.html".into()))
         .title("kl!ck")
-        .inner_size(300.0, 420.0)
+        .inner_size(340.0, 520.0)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -193,20 +217,36 @@ pub fn hide_popup(app: &AppHandle) {
 pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
     let s = core::status();
     let st = app.state::<AppState>();
-    let mode = st.settings.lock().unwrap().mode;
+    let settings = st.settings.lock().unwrap().clone();
+    let mode = settings.mode;
     let active = st.active_profile();
     let chosen = active.as_ref().and_then(|p| p.active_proxy()).and_then(|v| v.get("name")).and_then(Value::as_str).map(String::from);
+    let live_id = matches!(s.state, "on" | "connecting" | "reconnecting").then(|| s.profile_id.clone()).flatten();
+    let pings = active.as_ref().map(|p| core::cached_pings(&p.id)).unwrap_or_default();
     let servers = active
         .as_ref()
         .map(|p| {
             p.proxies
                 .iter()
                 .filter_map(|v| v.get("name").and_then(Value::as_str))
-                .take(15)
-                .map(|n| ServerRow { name: n.to_string(), active: Some(n) == chosen.as_deref() })
+                .take(30)
+                .map(|n| ServerRow { name: n.to_string(), active: Some(n) == chosen.as_deref(), ms: pings.get(n).copied() })
                 .collect()
         })
         .unwrap_or_default();
+    let profiles = st
+        .vault
+        .lock()
+        .unwrap()
+        .profiles
+        .iter()
+        .map(|p| ProfileRow {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            active: active.as_ref().map(|a| a.id == p.id).unwrap_or(false),
+            live: live_id.as_deref() == Some(p.id.as_str()),
+        })
+        .collect();
     TrayMenuState {
         look: look(&s).key(),
         label: label(&s),
@@ -219,8 +259,20 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             Mode::Proxy => "Proxy",
             Mode::Sysproxy => "Системный proxy",
         },
+        route_mode: match settings.route_mode {
+            RouteMode::Rule => "по правилам",
+            RouteMode::Global => "всё через VPN",
+            RouteMode::Direct => "всё напрямую",
+        },
+        since: s.since,
+        traffic: core::traffic(),
+        profiles,
         servers,
+        kill_switch: settings.kill_switch,
+        ks_apps: settings.ks_apps.iter().filter(|a| a.on).count(),
+        ks_sites: settings.ks_sites.iter().filter(|a| a.on).count(),
         version: app.package_info().version.to_string(),
+        mihomo: crate::commands::mihomo_version(&app),
     }
 }
 
@@ -259,9 +311,13 @@ pub fn tray_menu_hide(app: AppHandle) {
 
 #[tauri::command]
 pub fn tray_menu_action(app: AppHandle, id: String) {
-    hide_popup(&app);
+    // Меню остаётся открытым: подключение, смена сервера и Kill Switch видны
+    // в нём же. Прячется только на «Открыть» и «Выйти».
     match id.as_str() {
-        "open" => show_window(&app),
+        "open" => {
+            hide_popup(&app);
+            show_window(&app);
+        }
         "toggle" => {
             std::thread::spawn(move || {
                 if matches!(core::status().state, "on" | "connecting" | "reconnecting") {
@@ -271,14 +327,49 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
                 }
             });
         }
+        "ping" => {
+            std::thread::spawn(move || {
+                let Some(pid) = app.state::<AppState>().active_profile().map(|p| p.id) else { return };
+                if let Ok(m) = core::ping_profile(&app, &pid) {
+                    let ok = m.values().filter(|v| v.is_some()).count();
+                    core::note("INFO", &format!("Проверка задержки: ответили {ok} из {}", m.len()));
+                    let _ = app.emit("pings", &m);
+                }
+                refresh(&app);
+            });
+        }
+        "killswitch" => {
+            std::thread::spawn(move || {
+                let st = app.state::<AppState>();
+                let s = {
+                    let mut s = st.settings.lock().unwrap();
+                    s.kill_switch = !s.kill_switch;
+                    s.clone()
+                };
+                st.save_settings();
+                core::ks_apply(&app, s.kill_switch && !core::is_on(), &s.ks_apps, &s.ks_sites);
+                let _ = app.emit("profiles-changed", ());
+                refresh(&app);
+            });
+        }
         "quit" => {
+            hide_popup(&app);
             std::thread::spawn(move || {
                 core::shutdown(&app);
                 app.exit(0);
             });
         }
         other => {
-            if let Some(server) = other.strip_prefix("server:") {
+            if let Some(id) = other.strip_prefix("profile:") {
+                let id = id.to_string();
+                std::thread::spawn(move || {
+                    if let Err(e) = core::select_profile(&app, &id) {
+                        crate::notify::send(&app, "Не удалось переключить подключение", &e, true);
+                    }
+                    let _ = app.emit("profiles-changed", ());
+                    refresh(&app);
+                });
+            } else if let Some(server) = other.strip_prefix("server:") {
                 let server = server.to_string();
                 std::thread::spawn(move || {
                     let pid = app.state::<AppState>().active_profile().map(|p| p.id);
@@ -288,6 +379,7 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
                         }
                     }
                     let _ = app.emit("profiles-changed", ());
+                    refresh(&app);
                 });
             }
         }
@@ -295,6 +387,44 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
 }
 
 static LAST_ICON: Lazy<Mutex<Option<Look>>> = Lazy::new(|| Mutex::new(None));
+/// Идёт ли мигание «подключаюсь» — им занят отдельный поток.
+static BLINK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn busy(s: &core::Status) -> bool {
+    matches!(s.state, "connecting" | "reconnecting")
+}
+
+fn set_icon(app: &AppHandle, bytes: &[u8]) {
+    if let (Some(tray), Ok(img)) = (app.tray_by_id(TRAY_ID), tauri::image::Image::from_bytes(bytes)) {
+        let _ = tray.set_icon(Some(img));
+    }
+}
+
+/// Пока идёт подключение, иконка мигает; как только оно закончилось —
+/// встаёт иконка итогового состояния.
+fn start_blink(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if BLINK.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut dim = false;
+        loop {
+            std::thread::sleep(Duration::from_millis(450));
+            let s = core::status();
+            if !busy(&s) {
+                let l = look(&s);
+                set_icon(&app, icon_bytes(l));
+                *LAST_ICON.lock().unwrap() = Some(l);
+                BLINK.store(false, Ordering::SeqCst);
+                return;
+            }
+            dim = !dim;
+            set_icon(&app, if dim { pick(&ICONS_WARN2) } else { icon_bytes(Look::Warn) });
+        }
+    });
+}
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let s = core::status();
@@ -321,8 +451,11 @@ pub fn refresh(app: &AppHandle) {
     let s = core::status();
     let _ = tray.set_tooltip(Some(tooltip(&s)));
     let l = look(&s);
+    if busy(&s) {
+        start_blink(app);
+    }
     let mut last = LAST_ICON.lock().unwrap();
-    if *last != Some(l) {
+    if !BLINK.load(std::sync::atomic::Ordering::SeqCst) && *last != Some(l) {
         if let Ok(img) = tauri::image::Image::from_bytes(icon_bytes(l)) {
             let _ = tray.set_icon(Some(img));
             *last = Some(l);

@@ -75,6 +75,11 @@ pub struct Overview {
 
 static MIHOMO_VERSION: once_cell::sync::OnceCell<Option<String>> = once_cell::sync::OnceCell::new();
 
+/// Версия ядра — один раз за запуск: `mihomo -v` — это отдельный процесс.
+pub fn mihomo_version(app: &AppHandle) -> Option<String> {
+    MIHOMO_VERSION.get_or_init(|| core::mihomo_version(app)).clone()
+}
+
 #[tauri::command(async)]
 pub fn get_overview(app: AppHandle, state: State<AppState>) -> Overview {
     let settings = state.settings.lock().unwrap().clone();
