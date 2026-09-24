@@ -412,7 +412,7 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
                 core::set_route_mode(next.route_mode.as_str())?;
                 core::note("INFO", &format!("Режим маршрутизации: {}", next.route_mode.as_str()));
             }
-            if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps {
+            if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route {
                 core::apply_config(&app)?;
             }
         }

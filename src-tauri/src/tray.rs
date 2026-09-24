@@ -12,7 +12,7 @@ use tauri::{
 };
 
 use crate::core;
-use crate::state::{AppState, Mode, RouteMode};
+use crate::state::{AppState, DefaultRoute, Mode, RouteMode};
 
 pub const TRAY_ID: &str = "klick-tray";
 pub const POPUP: &str = "tray-menu";
@@ -269,6 +269,7 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             Mode::Sysproxy => "Системный proxy",
         },
         route_mode: match settings.route_mode {
+            RouteMode::Rule if settings.default_route == DefaultRoute::Direct => "только выбранное",
             RouteMode::Rule => "по правилам",
             RouteMode::Global => "всё через VPN",
             RouteMode::Direct => "всё напрямую",

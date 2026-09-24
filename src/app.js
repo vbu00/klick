@@ -100,10 +100,12 @@ function timerText() {
   const h = isOn() && status.since ? Math.max(0, Math.floor(Date.now() / 1000 - status.since)) : 0;
   return `${Math.floor(h / 3600)}:${String(Math.floor(h / 60) % 60).padStart(2, '0')}:${String(h % 60).padStart(2, '0')}`;
 }
+// «Только выбранное через VPN»: по умолчанию напрямую, через VPN — отмеченное.
+const onlyChosen = () => S().defaultRoute === 'direct';
 function modeLabel() {
   const s = S();
   const m = s.mode === 'proxy' ? `Proxy · порт ${s.proxyPort}` : MODE_NAMES[s.mode];
-  return `${m} · ${ROUTE_NAMES[s.routeMode]}`;
+  return `${m} · ${s.routeMode === 'rule' && onlyChosen() ? 'только выбранное' : ROUTE_NAMES[s.routeMode]}`;
 }
 
 // ─────────── Тосты ───────────
@@ -390,9 +392,16 @@ function renderAdd() {
 
 function renderRules() {
   const s = S();
-  const summary = s.routeMode === 'global' ? 'Сейчас режим «Глобально»: всё идёт через VPN, исключения ниже не применяются. Изменить — в настройках режима.'
+  const chosen = onlyChosen();
+  const viaVpn = s.sites.filter((r) => r.action === 'proxy').length + s.apps.filter((r) => r.action === 'proxy').length;
+  const summary = s.routeMode === 'global' ? 'Сейчас режим «Глобально»: всё идёт через VPN, правила ниже не применяются. Изменить — в настройках режима.'
     : s.routeMode === 'direct' ? 'Сейчас режим «Напрямую»: VPN не используется ни для чего. Правила ниже сохраняются, но не действуют.'
+    : chosen ? (viaVpn ? 'Всё идёт напрямую. Через VPN — только сайты и программы с пометкой «Через VPN» ниже. Правила для приложений важнее правил для сайтов.'
+      : 'Всё идёт напрямую, а через VPN пока ничего не выбрано. Добавьте ниже сайт или программу — они пойдут через VPN.')
     : 'По умолчанию весь трафик идёт через VPN. Ниже — что должно идти напрямую или блокироваться. Правила для приложений важнее правил для сайтов.';
+  const summaryDot = s.routeMode === 'rule' && chosen && !viaVpn ? ORANGE : isOn() ? GREEN : DIM;
+  const defaults = `<div class="label">Что по умолчанию</div>
+    <div class="seg" style="margin-top:10px"><button class="press${chosen ? '' : ' on'}" data-act="defaultRoute" data-v="proxy">Всё через VPN</button><button class="press${chosen ? ' on' : ''}" data-act="defaultRoute" data-v="direct">Только выбранное</button></div>`;
   const geoDate = info?.geo?.updated ? ' · база от ' + fmtDay(info.geo.updated) : '';
   const presets = [['ru', 'Домены .ru и .рф — напрямую', 'Госуслуги, банки, Яндекс без VPN'], ['lan', 'Локальная сеть — напрямую', 'Принтеры, NAS, 192.168.x.x'], ['geoip', 'Российские IP — напрямую', 'По базе GeoIP, даже без .ru в адресе' + geoDate]];
   const seg = (kind, i, cur) => `<div class="seg small">${ACTIONS.map(([v, l]) => `<button class="press${cur === v ? ' on' : ''}" data-act="ruleAction" data-kind="${kind}" data-i="${i}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -404,9 +413,10 @@ function renderRules() {
         <div style="flex:1;min-width:0"><div class="t14" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div><div class="mono" style="font-size:11px;color:var(--dim2)">${esc(r.exe)}</div></div>
         <button class="xbtn press" data-act="removeRule" data-kind="apps" data-i="${i}">${ic('close', 14)}</button></div>${seg('apps', i, r.action)}</div>`).join('') || '<div class="empty-note">Своих правил для приложений пока нет.</div>'}</div>`;
   return `<div class="h1">Маршрутизация</div>
-    <div class="summary"><div class="dot" style="background:${isOn() ? GREEN : DIM}"></div><div class="tx">${summary}</div></div>
-    <div class="label">Быстрые исключения</div>
-    <div class="card mt">${presets.map(([k, t, d], i) => `${i ? '<div class="divider"></div>' : ''}<div class="row"><div class="grow"><div class="t14">${t}</div><div class="t12">${d}</div></div><div class="toggle${s.presets[k] ? ' on' : ''}" data-act="preset" data-v="${k}"></div></div>`).join('')}</div>
+    <div class="summary"><div class="dot" style="background:${summaryDot}"></div><div class="tx">${summary}</div></div>
+    ${defaults}
+    ${chosen ? '' : `<div class="label">Быстрые исключения</div>
+    <div class="card mt">${presets.map(([k, t, d], i) => `${i ? '<div class="divider"></div>' : ''}<div class="row"><div class="grow"><div class="t14">${t}</div><div class="t12">${d}</div></div><div class="toggle${s.presets[k] ? ' on' : ''}" data-act="preset" data-v="${k}"></div></div>`).join('')}</div>`}
     <div class="seg" style="margin-top:22px"><button class="press${ui.rulesTab === 'sites' ? ' on' : ''}" data-act="rulesTab" data-v="sites">Сайты</button><button class="press${ui.rulesTab === 'apps' ? ' on' : ''}" data-act="rulesTab" data-v="apps">Приложения</button></div>
     <div class="hint">${ui.rulesTab === 'sites' ? 'Домен и все его поддомены. Начните с точки (.ru), чтобы задать правило для всей зоны.' : 'Правило действует на весь трафик программы, независимо от сайтов. Надёжнее всего — в режиме VPN (TUN).'}</div>
     ${list}`;
@@ -499,7 +509,9 @@ const MODE_DEFS = [
 function renderMode() {
   const s = S();
   const routeDesc = {
-    rule: 'Рекомендуется. Трафик идёт через VPN, кроме исключений на экране «Маршрутизация»: .ru-сайты, локальная сеть и выбранные вами сайты и приложения.',
+    rule: onlyChosen()
+      ? 'Через VPN идут только сайты и программы, отмеченные на экране «Маршрутизация» как «Через VPN», остальное — напрямую.'
+      : 'Рекомендуется. Трафик идёт через VPN, кроме исключений на экране «Маршрутизация»: .ru-сайты, локальная сеть и выбранные вами сайты и приложения.',
     global: 'Абсолютно всё через VPN — правила и исключения игнорируются. Полезно, если что-то не открывается.',
     direct: 'Ничего не идёт через VPN, но ядро работает и Kill Switch продолжает действовать. Для отладки.',
   };
@@ -606,7 +618,7 @@ const MODE_INFO = {
   sysproxy: { top: ['Большинство', 'браузеры, Telegram'], bot: ['Игры', 'и часть программ'], pill: () => 'Системный прокси', split: true,
     points: [['var(--accent)', () => 'Windows сама передаёт адрес прокси программам — большинство подхватывает его без настройки.'], ['var(--dim)', () => 'Игры, UDP-трафик и программы, игнорирующие настройки системы, идут напрямую.']] },
   tun: { top: ['Все программы', 'включая игры'], bot: ['Службы', 'и UDP-трафик'], pill: () => 'TUN-адаптер', split: false,
-    points: [['var(--accent)', () => 'Виртуальный сетевой адаптер перехватывает трафик всех программ — ничего не нужно настраивать.'], ['var(--accent)', () => 'Исключения из «Маршрутизации» (например, .ru) по-прежнему идут напрямую.']] },
+    points: [['var(--accent)', () => 'Виртуальный сетевой адаптер перехватывает трафик всех программ — ничего не нужно настраивать.'], ['var(--accent)', () => (onlyChosen() ? 'Через туннель при этом идёт только то, что выбрано в «Маршрутизации», — остальное напрямую.' : 'Исключения из «Маршрутизации» (например, .ru) по-прежнему идут напрямую.')]] },
 };
 
 function modeInfoHtml() {
@@ -944,12 +956,18 @@ const actions = {
   addLink: doAddLink,
   addFile: async () => { const p = await kl.pickConfig(); if (p) addFromPath(p); },
   rulesTab: (el) => { ui.rulesTab = el.dataset.v; render(); },
+  defaultRoute: (el) => {
+    const v = el.dataset.v;
+    if (v === S().defaultRoute) return;
+    save({ defaultRoute: v }).then((ok) => ok && toast(v === 'direct' ? 'Только выбранное через VPN' : 'Всё через VPN', v === 'direct' ? 'Остальное пойдёт напрямую.' : 'Правила ниже — исключения.', GREEN));
+  },
   preset: (el) => { const k = el.dataset.v; save({ presets: { ...S().presets, [k]: !S().presets[k] } }); },
   addSite: () => {
     const v = ui.siteInput.trim();
     if (!v) return $('siteInput')?.focus();
     ui.siteInput = '';
-    save({ sites: [{ pattern: v, action: 'direct' }, ...S().sites.filter((r) => r.pattern !== v.toLowerCase())] });
+    // Новое правило — противоположное умолчанию: иначе оно ничего не меняло бы.
+    save({ sites: [{ pattern: v, action: onlyChosen() ? 'proxy' : 'direct' }, ...S().sites.filter((r) => r.pattern !== v.toLowerCase())] });
   },
   ruleAction: (el) => {
     const kind = el.dataset.kind, i = +el.dataset.i;

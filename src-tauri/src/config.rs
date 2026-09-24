@@ -7,7 +7,7 @@
 
 use serde_json::{json, Value};
 
-use crate::state::{Action, Mode, Profile, Settings};
+use crate::state::{Action, DefaultRoute, Mode, Profile, Settings};
 
 pub const GROUP: &str = "PROXY";
 
@@ -94,7 +94,13 @@ fn target(a: Action) -> &'static str {
 
 /// Порядок важен — mihomo берёт первое совпавшее: программы важнее сайтов,
 /// свои правила важнее быстрых исключений.
+///
+/// «Что по умолчанию» решает последнее правило: всё через VPN (правила —
+/// исключения) или только выбранное через VPN (остальное напрямую). Во
+/// втором случае быстрые исключения .ru / локальная сеть / GeoIP не нужны:
+/// напрямую и так всё, что не выбрано.
 pub fn rules(s: &Settings) -> Vec<String> {
+    let only_chosen = s.default_route == DefaultRoute::Direct;
     let mut r = vec![];
     for a in &s.apps {
         let exe = a.exe.trim();
@@ -107,6 +113,10 @@ pub fn rules(s: &Settings) -> Vec<String> {
         if !p.is_empty() && !p.contains(',') {
             r.push(format!("DOMAIN-SUFFIX,{p},{}", target(site.action)));
         }
+    }
+    if only_chosen {
+        r.push("MATCH,DIRECT".into());
+        return r;
     }
     if s.presets.lan {
         r.push(format!("DOMAIN-SUFFIX,local,DIRECT"));
@@ -231,6 +241,19 @@ mod tests {
             println!("{name}: {}", text.trim());
             assert!(out.status.success() && text.contains("successful"), "{name}: {text}");
         }
+    }
+
+    #[test]
+    fn только_выбранное_через_vpn() {
+        let s = Settings {
+            default_route: DefaultRoute::Direct,
+            apps: vec![AppRule { name: "Discord".into(), exe: "Discord.exe".into(), action: Action::Proxy }, AppRule { name: "CS2".into(), exe: "cs2.exe".into(), action: Action::Direct }],
+            sites: vec![SiteRule { pattern: "youtube.com".into(), action: Action::Proxy }],
+            presets: Presets { ru: true, lan: true, geoip: true },
+            ..Default::default()
+        };
+        let r = rules(&s);
+        assert_eq!(r, vec!["PROCESS-NAME,Discord.exe,PROXY", "PROCESS-NAME,cs2.exe,DIRECT", "DOMAIN-SUFFIX,youtube.com,PROXY", "MATCH,DIRECT"]);
     }
 
     #[test]

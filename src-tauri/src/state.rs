@@ -43,6 +43,17 @@ impl RouteMode {
     }
 }
 
+/// Куда идёт то, что не попало ни под одно правило (режим «По правилам»).
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultRoute {
+    /// Всё через VPN, правила — исключения.
+    #[default]
+    Proxy,
+    /// Только выбранное через VPN, остальное напрямую.
+    Direct,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
@@ -105,6 +116,7 @@ pub struct Settings {
     pub active_profile: Option<String>,
     pub mode: Mode,
     pub route_mode: RouteMode,
+    pub default_route: DefaultRoute,
     pub proxy_port: u16,
     pub presets: Presets,
     pub sites: Vec<SiteRule>,
@@ -124,6 +136,7 @@ impl Default for Settings {
             active_profile: None,
             mode: Mode::Tun,
             route_mode: RouteMode::Rule,
+            default_route: DefaultRoute::Proxy,
             proxy_port: 7890,
             presets: Presets::default(),
             sites: vec![],
@@ -326,5 +339,6 @@ mod tests {
         assert_eq!(s.mode, Mode::Proxy);
         assert_eq!(s.proxy_port, 7890);
         assert!(s.presets.ru && s.presets.lan && !s.presets.geoip);
+        assert_eq!(s.default_route, DefaultRoute::Proxy, "старые настройки — как раньше: всё через VPN");
     }
 }

@@ -17,7 +17,7 @@
     { id: 'p2', kind: 'single', name: 'grpc', hasUrl: true, active: 'grpc', updatedAt: now(), info: null, servers: [{ name: 'grpc', proto: 'VLESS · gRPC', host: '198.51.100.81:443' }] },
   ];
   const settings = {
-    activeProfile: 'p1', mode: 'tun', routeMode: 'rule', proxyPort: 7890, presets: { ru: true, lan: true, geoip: false },
+    activeProfile: 'p1', mode: 'tun', routeMode: 'rule', defaultRoute: 'proxy', proxyPort: 7890, presets: { ru: true, lan: true, geoip: false },
     sites: [{ pattern: 'gosuslugi.ru', action: 'direct' }, { pattern: 'youtube.com', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }],
     apps: [{ name: 'Telegram', exe: 'Telegram.exe', action: 'proxy' }, { name: 'Steam', exe: 'steam.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }],
     killSwitch: true,
