@@ -400,8 +400,9 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
     // Проблемы Kill Switch окно узнаёт событием «killswitch» — здесь не дублируем.
     let warning = None;
     let on = core::is_on();
-    if before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites {
-        core::ks_apply(&app, next.kill_switch && !on, &next.ks_apps, &next.ks_sites);
+    let ks_changed = before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites;
+    if ks_changed || (on && before.route_mode != next.route_mode) {
+        core::ks_apply(&app, core::ks_engaged(&next, on), &next.ks_apps, &next.ks_sites);
     }
     if on {
         if before.mode != next.mode || (before.proxy_port != next.proxy_port && next.mode != Mode::Tun) {
@@ -412,7 +413,8 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
                 core::set_route_mode(next.route_mode.as_str())?;
                 core::note("INFO", &format!("Режим маршрутизации: {}", next.route_mode.as_str()));
             }
-            if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route {
+            // Защищённое Kill Switch тоже попадает в правила: только через VPN.
+            if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route || ks_changed {
                 core::apply_config(&app)?;
             }
         }
@@ -424,12 +426,9 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
 /// «Повторить» на экране Kill Switch.
 #[tauri::command(async)]
 pub fn retry_kill_switch(app: AppHandle, state: State<AppState>) -> Option<String> {
-    let (ks, apps, sites) = {
-        let s = state.settings.lock().unwrap();
-        (s.kill_switch, s.ks_apps.clone(), s.ks_sites.clone())
-    };
+    let s = state.settings.lock().unwrap().clone();
     let before = killswitch::issue();
-    let w = killswitch::retry(ks && !core::is_on(), &apps, &sites);
+    let w = killswitch::retry(core::ks_engaged(&s, core::is_on()), &s.ks_apps, &s.ks_sites);
     if w != before {
         let _ = app.emit("killswitch", w.clone());
     }

@@ -357,7 +357,11 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
                     s.clone()
                 };
                 st.save_settings();
-                core::ks_apply(&app, s.kill_switch && !core::is_on(), &s.ks_apps, &s.ks_sites);
+                core::ks_apply(&app, core::ks_engaged(&s, core::is_on()), &s.ks_apps, &s.ks_sites);
+                // Защищённое Kill Switch — в правилах «только через VPN».
+                if let Err(e) = core::apply_config(&app) {
+                    core::note("WARN", &e);
+                }
                 let _ = app.emit("profiles-changed", ());
                 refresh(&app);
             });

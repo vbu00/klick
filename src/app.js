@@ -513,7 +513,7 @@ function renderMode() {
       ? 'Через VPN идут только сайты и программы, отмеченные на экране «Маршрутизация» как «Через VPN», остальное — напрямую.'
       : 'Рекомендуется. Трафик идёт через VPN, кроме исключений на экране «Маршрутизация»: .ru-сайты, локальная сеть и выбранные вами сайты и приложения.',
     global: 'Абсолютно всё через VPN — правила и исключения игнорируются. Полезно, если что-то не открывается.',
-    direct: 'Ничего не идёт через VPN, но ядро работает и Kill Switch продолжает действовать. Для отладки.',
+    direct: 'Ничего не идёт через VPN. Kill Switch при этом держит защищённые программы и сайты без интернета. Для отладки.',
   };
   return `${backBtn()}
     <div class="h1" style="margin-top:12px">Режим подключения</div>
@@ -526,6 +526,12 @@ function renderMode() {
     <div class="label" style="margin-top:26px">Куда направлять трафик</div>
     <div class="seg" style="margin-top:10px">${[['rule', 'По правилам'], ['global', 'Глобально'], ['direct', 'Напрямую']].map(([k, l]) => `<button class="press${s.routeMode === k ? ' on' : ''}" data-act="routeMode" data-v="${k}">${l}</button>`).join('')}</div>
     <div class="note" style="margin-top:10px">${routeDesc[s.routeMode]}</div>`;
+}
+
+// Что делает Kill Switch в текущем режиме — одной фразой.
+function ksSummary(s) {
+  if (s.mode === 'tun') return 'Выбранные программы и сайты ходят только через VPN. Если VPN выключен или соединение оборвалось — остаются без интернета, их данные не уйдут напрямую через провайдера.';
+  return `Выбранные программы выходят в интернет только через прокси kl!ck (127.0.0.1:${s.proxyPort}) — и при включённом VPN тоже. Игры, торренты и всё, что прокси не поддерживает, работают только в режиме VPN (TUN).`;
 }
 
 function renderKill() {
@@ -554,7 +560,7 @@ function renderKill() {
     <div class="h1row"><div class="h1" style="margin:0">Kill Switch</div>${infoBtn('ksInfo', 22, 'style="width:28px;height:28px"')}</div>
     ${ksIssue ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div style="flex:1;min-width:0">${esc(ksIssue)}</div><button class="retry press" data-act="retryKs">Повторить</button></div>` : ''}
     <div class="card" style="margin-top:16px;padding:14px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">Если VPN выключен или соединение оборвалось, выбранные программы и сайты остаются без интернета — их данные не уйдут напрямую через провайдера.</div></div>
+      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">${ksSummary(s)}</div></div>
       <div class="toggle big${s.killSwitch ? ' on' : ''}" data-act="toggleKill"></div>
     </div>
     <div class="seg" style="margin-top:22px"><button class="press${apps ? ' on' : ''}" data-act="ksTab" data-v="apps">Приложения</button><button class="press${!apps ? ' on' : ''}" data-act="ksTab" data-v="sites">Сайты</button></div>
@@ -656,7 +662,11 @@ function ksInfoHtml() {
       ${node(84, 50, ic('globe', 18), 'Интернет', 'сайты', '', 76)}
     </div></div>
     <div class="points"><div><span style="background:${on ? 'var(--accent)' : 'var(--red)'}"></span><div>${on
-      ? 'Все программы и сайты идут через VPN. Провайдер видит только зашифрованное соединение с сервером.'
+      ? (s.mode === 'tun'
+        ? (s.routeMode === 'direct'
+          ? 'Режим «Напрямую»: туннелем ничего не пользуется, поэтому защищённые программы и сайты остаются без интернета, как при выключенном VPN.'
+          : 'Защищённые программы и сайты идут только через VPN — даже если по правилам маршрутизации пошли бы напрямую. Провайдер видит лишь зашифрованное соединение с сервером.')
+        : `В режиме ${s.mode === 'proxy' ? 'Proxy' : '«Системный proxy»'} защищённые программы выходят только через прокси kl!ck. Не умеют ходить через прокси (игры, торренты) — остаются без интернета, а не уходят к провайдеру.`)
       : 'Защищённые программы и сайты остаются без интернета — их данные не уйдут через провайдера. Остальные работают напрямую.'}</div></div></div>
     <button class="mbtn press" style="width:100%;margin-top:16px" data-act="closeModal">Понятно</button>`, 'closeModal');
 }
@@ -756,7 +766,7 @@ async function addPicked(apps) {
     toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'По умолчанию — через VPN. Измените в карточке.', GREEN);
   } else {
     await save({ ksApps: [...s.ksApps, ...apps.map((a) => ({ name: a.name, exe: a.exe, path: a.path, on: true }))] });
-    toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'Kill Switch защищает их при выключенном VPN.', GREEN);
+    toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'Теперь они ходят только через VPN.', GREEN);
   }
   ui.picker = null;
   renderSheet();
@@ -814,10 +824,19 @@ async function refresh() {
   render();
 }
 
+// Ядро применяет новые правила к новым соединениям — уже открытые (игра,
+// звонок в Discord) живут по старым, пока программу не перезапустят.
+const RULE_KEYS = ['sites', 'apps', 'presets', 'defaultRoute', 'routeMode', 'killSwitch', 'ksApps', 'ksSites'];
+let ruleHintShown = false;
+
 async function save(patch) {
   try {
     const r = await kl.updateSettings(patch);
     ov.settings = r.settings;
+    if (!ruleHintShown && isOn() && RULE_KEYS.some((k) => k in patch)) {
+      ruleHintShown = true;
+      setTimeout(() => toast('Правила применены', 'Уже открытые соединения идут по-старому — перезапустите игру или программу, чтобы сразу по-новому.', DIM), 900);
+    }
     return true;
   } catch (e) {
     toast('Не сохранилось', errText(e), RED);

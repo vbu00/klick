@@ -7,6 +7,8 @@
 
 use serde_json::{json, Value};
 
+use std::net::IpAddr;
+
 use crate::state::{Action, DefaultRoute, Mode, Profile, Settings};
 
 pub const GROUP: &str = "PROXY";
@@ -33,13 +35,16 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
     let rule_count = rules.len();
     let tun = settings.mode == Mode::Tun;
 
-    let config = json!({
-        "mixed-port": settings.proxy_port,
+    let mut config = json!({
         "allow-lan": false,
         "bind-address": "127.0.0.1",
         "mode": settings.route_mode.as_str(),
         "log-level": "info",
-        "ipv6": false,
+        // IPv6 включён ради TUN: адаптер забирает и маршрут ::/0, и прямые
+        // IPv6-соединения (торрент-пиры, WebRTC) идут через туннель или не
+        // проходят, а не уходят к провайдеру. DNS при этом отдаёт только
+        // IPv4 (dns.ipv6: false) — сайты открываются как раньше.
+        "ipv6": true,
         "unified-delay": true,
         "tcp-concurrent": true,
         "find-process-mode": "always",
@@ -50,7 +55,9 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
         "geo-auto-update": settings.presets.geoip,
         "geo-update-interval": crate::geo::INTERVAL_HOURS,
         "geox-url": { "mmdb": crate::geo::MMDB_URL },
-        "profile": { "store-selected": false, "store-fake-ip": false },
+        // fake-ip переживают перезапуск ядра: программа, запомнившая
+        // 198.18.x.x, после переподключения попадёт туда же.
+        "profile": { "store-selected": false, "store-fake-ip": true },
         "tun": {
             "enable": tun,
             "stack": "gvisor",
@@ -74,13 +81,35 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
             "nameserver": ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"],
             // Адреса самих серверов — напрямую, иначе сервер, заданный
             // доменом, не подключится: для этого нужен уже работающий туннель.
-            "proxy-server-nameserver": ["https://77.88.8.8/dns-query", "https://1.1.1.1/dns-query"],
-            "direct-nameserver": ["https://77.88.8.8/dns-query", "77.88.8.8"],
+            // Яндекс по голому IP DoH не отдаёт (пустой ответ), а DoT — да.
+            "proxy-server-nameserver": ["tls://77.88.8.8:853", "https://1.1.1.1/dns-query"],
+            "direct-nameserver": ["tls://77.88.8.8:853", "77.88.8.8"],
+        },
+        // Домен из самого соединения (SNI, Host): правила по сайтам работают,
+        // даже если программа резолвила имя сама — своим DoH, через hosts или
+        // зашитым адресом. Адрес назначения не подменяем, только сверяем правила.
+        "sniffer": {
+            "enable": true,
+            "force-dns-mapping": true,
+            "parse-pure-ip": true,
+            "override-destination": false,
+            "sniff": { "HTTP": { "ports": [80, 8080] }, "TLS": { "ports": [443, 8443] }, "QUIC": { "ports": [443, 8443] } },
         },
         "proxies": profile.proxies,
-        "proxy-groups": [{ "name": GROUP, "type": "select", "proxies": members }],
+        "proxy-groups": [
+            { "name": GROUP, "type": "select", "proxies": members },
+            // В режиме «Глобально» mihomo ходит через встроенную группу
+            // GLOBAL, а у неё без выбранного участника первым стоит DIRECT —
+            // «всё через VPN» превращалось во «всё напрямую». Задаём её сами.
+            { "name": "GLOBAL", "type": "select", "proxies": [GROUP] },
+        ],
         "rules": rules,
     });
+    // В TUN порт прокси не нужен, а занятый чужой программой не дал бы
+    // ядру стартовать.
+    if !tun {
+        config["mixed-port"] = json!(settings.proxy_port);
+    }
     Ok(Built { config, rules: rule_count })
 }
 
@@ -101,17 +130,53 @@ fn target(a: Action) -> &'static str {
 /// напрямую и так всё, что не выбрано.
 pub fn rules(s: &Settings) -> Vec<String> {
     let only_chosen = s.default_route == DefaultRoute::Direct;
-    let mut r = vec![];
+    // Замер задержки другого подключения (временный mihomo) — напрямую, а не
+    // через текущий сервер. Собственные соединения ядра в TUN не попадают,
+    // так что правило задевает только этот зонд.
+    let mut r = vec!["PROCESS-NAME,mihomo.exe,DIRECT".to_string()];
+    let mut exes = vec![];
     for a in &s.apps {
         let exe = a.exe.trim();
         if !exe.is_empty() && !exe.contains(',') {
             r.push(format!("PROCESS-NAME,{exe},{}", target(a.action)));
+            exes.push(exe.to_lowercase());
         }
     }
+    // Под защитой Kill Switch — только через VPN, даже если трафик попал бы
+    // под «напрямую» (.ru, GeoIP, «Только выбранное»). Явное правило для той
+    // же программы или сайта выше — важнее.
+    if s.kill_switch {
+        for a in s.ks_apps.iter().filter(|a| a.on) {
+            let exe = a.path.rsplit(['\\', '/']).next().unwrap_or("").trim();
+            if !exe.is_empty() && !exe.contains(',') && !exes.contains(&exe.to_lowercase()) {
+                r.push(format!("PROCESS-NAME,{exe},{GROUP}"));
+                exes.push(exe.to_lowercase());
+            }
+        }
+    }
+    let mut domains = vec![];
     for site in &s.sites {
         let p = site.pattern.trim().trim_start_matches('.');
-        if !p.is_empty() && !p.contains(',') {
-            r.push(format!("DOMAIN-SUFFIX,{p},{}", target(site.action)));
+        if p.is_empty() || p.contains(',') {
+            continue;
+        }
+        // Адрес вместо домена: DOMAIN-SUFFIX на него никогда не сработал бы.
+        match p.parse::<IpAddr>() {
+            Ok(IpAddr::V4(ip)) => r.push(format!("IP-CIDR,{ip}/32,{},no-resolve", target(site.action))),
+            Ok(IpAddr::V6(ip)) => r.push(format!("IP-CIDR6,{ip}/128,{},no-resolve", target(site.action))),
+            Err(_) => {
+                r.push(format!("DOMAIN-SUFFIX,{p},{}", target(site.action)));
+                domains.push(p.to_lowercase());
+            }
+        }
+    }
+    if s.kill_switch {
+        for site in s.ks_sites.iter().filter(|x| x.on) {
+            let p = site.pattern.trim().trim_start_matches('.').to_lowercase();
+            if !p.is_empty() && !p.contains(',') && !domains.contains(&p) {
+                r.push(format!("DOMAIN-SUFFIX,{p},{GROUP}"));
+                domains.push(p);
+            }
         }
     }
     if only_chosen {
@@ -160,7 +225,7 @@ pub fn probe(proxies: &[Value], controller_port: u16, secret: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppRule, Kind, Presets, RouteMode, SiteRule};
+    use crate::state::{AppRule, Kind, KsApp, KsSite, Presets, RouteMode, SiteRule};
 
     fn prof() -> Profile {
         Profile {
@@ -186,6 +251,37 @@ mod tests {
         assert_eq!(b.config["tun"]["enable"], true);
         assert_eq!(b.config["tun"]["stack"], "gvisor");
         assert_eq!(b.config["dns"]["enhanced-mode"], "fake-ip");
+        assert_eq!(b.config["ipv6"], true, "иначе IPv6 идёт мимо TUN");
+        assert_eq!(b.config["dns"]["ipv6"], false);
+        assert_eq!(b.config["sniffer"]["enable"], true);
+        assert!(b.config.get("mixed-port").is_none(), "в TUN порт не нужен");
+    }
+
+    #[test]
+    fn защищённое_kill_switch_только_через_vpn() {
+        let s = Settings {
+            default_route: DefaultRoute::Direct,
+            kill_switch: true,
+            apps: vec![AppRule { name: "Steam".into(), exe: "steam.exe".into(), action: Action::Direct }],
+            ks_apps: vec![
+                KsApp { name: "Roblox".into(), exe: "RobloxPlayerBeta.exe".into(), path: r"C:\Roblox\RobloxPlayerBeta.exe".into(), on: true },
+                KsApp { name: "Steam".into(), exe: "steam.exe".into(), path: r"C:\Steam\Steam.exe".into(), on: true },
+                KsApp { name: "Off".into(), exe: "off.exe".into(), path: r"C:\off.exe".into(), on: false },
+            ],
+            sites: vec![SiteRule { pattern: "1.2.3.4".into(), action: Action::Proxy }],
+            ks_sites: vec![KsSite { pattern: "sberbank.ru".into(), on: true }],
+            ..Default::default()
+        };
+        assert_eq!(rules(&s), vec![
+            "PROCESS-NAME,mihomo.exe,DIRECT",
+            "PROCESS-NAME,steam.exe,DIRECT",
+            "PROCESS-NAME,RobloxPlayerBeta.exe,PROXY",
+            "IP-CIDR,1.2.3.4/32,PROXY,no-resolve",
+            "DOMAIN-SUFFIX,sberbank.ru,PROXY",
+            "MATCH,DIRECT",
+        ]);
+        let off = Settings { kill_switch: false, ..s };
+        assert_eq!(rules(&off).len(), 4);
     }
 
     #[test]
@@ -199,15 +295,19 @@ mod tests {
             ..Default::default()
         };
         let r = rules(&s);
-        assert_eq!(r[0], "PROCESS-NAME,Telegram.exe,PROXY");
-        assert_eq!(r[1], "DOMAIN-SUFFIX,ru,REJECT");
-        assert_eq!(r[2], "DOMAIN-SUFFIX,gosuslugi.ru,DIRECT");
+        assert_eq!(r[0], "PROCESS-NAME,mihomo.exe,DIRECT");
+        assert_eq!(r[1], "PROCESS-NAME,Telegram.exe,PROXY");
+        assert_eq!(r[2], "DOMAIN-SUFFIX,ru,REJECT");
+        assert_eq!(r[3], "DOMAIN-SUFFIX,gosuslugi.ru,DIRECT");
         assert!(r.contains(&"DOMAIN-SUFFIX,xn--p1ai,DIRECT".to_string()));
         assert!(!r.iter().any(|x| x.starts_with("IP-CIDR")));
         assert_eq!(r[r.len() - 2], "GEOIP,RU,DIRECT");
         assert_eq!(r.last().unwrap(), "MATCH,PROXY");
         let c = build(&prof(), &s, 1, "").unwrap().config;
         assert_eq!(c["mode"], "global");
+        // Без своей GLOBAL «Глобально» уходило бы в DIRECT.
+        assert_eq!(c["proxy-groups"][1], json!({"name": "GLOBAL", "type": "select", "proxies": ["PROXY"]}));
+        assert_eq!(c["mixed-port"], 7890);
         assert_eq!(c["tun"]["enable"], false);
         assert_eq!(c["dns"]["enhanced-mode"], "redir-host");
     }
@@ -253,7 +353,7 @@ mod tests {
             ..Default::default()
         };
         let r = rules(&s);
-        assert_eq!(r, vec!["PROCESS-NAME,Discord.exe,PROXY", "PROCESS-NAME,cs2.exe,DIRECT", "DOMAIN-SUFFIX,youtube.com,PROXY", "MATCH,DIRECT"]);
+        assert_eq!(r, vec!["PROCESS-NAME,mihomo.exe,DIRECT", "PROCESS-NAME,Discord.exe,PROXY", "PROCESS-NAME,cs2.exe,DIRECT", "DOMAIN-SUFFIX,youtube.com,PROXY", "MATCH,DIRECT"]);
     }
 
     #[test]

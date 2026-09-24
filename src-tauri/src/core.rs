@@ -354,9 +354,6 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
         Err(e) => return fail(app, e),
     };
 
-    // Kill Switch снимаем до старта: в TUN трафик защищённых программ
-    // пойдёт через туннель, а правило блокировало бы и его.
-    ks_apply(app, false, &settings.ks_apps, &settings.ks_sites);
     let mut warning = None;
 
     *LOG_FILE.lock().unwrap() = std::fs::File::create(state.dir.join("mihomo.log")).ok();
@@ -407,6 +404,13 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
             return fail(app, explain_failure(&logs()));
         }
         std::thread::sleep(Duration::from_millis(150));
+    }
+
+    // Kill Switch снимаем только теперь, когда туннель поднят: раньше
+    // защищённые программы на эти секунды уходили бы напрямую. Снимаем
+    // лишь там, где он мешал бы (см. ks_engaged).
+    if let Some(w) = ks_apply(app, ks_engaged(&settings, true), &settings.ks_apps, &settings.ks_sites) {
+        note("WARN", &w);
     }
 
     if settings.mode == Mode::Sysproxy {
@@ -485,6 +489,37 @@ fn after_down(app: &AppHandle) {
         note("WARN", &w);
     }
     crate::sysproxy::disable(&state.dir, port);
+    // В кэше DNS Windows остались ответы fake-ip (198.18.x.x) — без туннеля
+    // они ведут в никуда.
+    flush_dns();
+}
+
+fn flush_dns() {
+    let mut cmd = Command::new("ipconfig");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(crate::sys::CREATE_NO_WINDOW);
+    }
+    let _ = cmd.arg("/flushdns").stdout(Stdio::null()).stderr(Stdio::null()).status();
+}
+
+/// Должен ли Kill Switch блокировать прямо сейчас. Выключен VPN — да.
+/// Включён — снимается только в TUN, где трафик защищённых программ и так
+/// идёт в туннель, а правило брандмауэра закрыло бы и его. В Proxy и
+/// «Системном proxy» программа, которая прокси игнорирует (игры, торренты),
+/// иначе ушла бы напрямую; loopback брандмауэр не фильтрует, так что
+/// ходящие через 127.0.0.1 продолжают работать. В режиме «Напрямую» ядро
+/// ничего не заворачивает в туннель — защита остаётся.
+pub fn ks_engaged(s: &crate::state::Settings, on: bool) -> bool {
+    use crate::state::RouteMode;
+    s.kill_switch && !(on && s.mode == Mode::Tun && s.route_mode != RouteMode::Direct)
+}
+
+/// Привести Kill Switch к текущим настройкам и состоянию.
+pub fn ks_sync(app: &AppHandle) -> Option<String> {
+    let s = app.state::<AppState>().settings.lock().unwrap().clone();
+    ks_apply(app, ks_engaged(&s, is_on()), &s.ks_apps, &s.ks_sites)
 }
 
 /// Kill Switch с отчётом окну: проблема появилась или ушла — событие
@@ -721,18 +756,12 @@ pub fn start_monitor(app: AppHandle) {
                 last_health = Instant::now();
                 spawn_health(app.clone(), GEN.load(Ordering::SeqCst));
             }
-            // Сайты Kill Switch: пока VPN выключен, их адреса резолвим заново.
-            if !is_on() && crate::killswitch::resolve_due() {
-                let (ks, apps, sites) = {
-                    let s = app.state::<AppState>().settings.lock().unwrap().clone();
-                    (s.kill_switch, s.ks_apps, s.ks_sites)
-                };
+            // Сайты Kill Switch: пока защита действует, их адреса резолвим заново.
+            if crate::killswitch::resolve_due() {
                 let app = app.clone();
                 std::thread::spawn(move || {
                     let _op = OP.lock().unwrap();
-                    if !is_on() {
-                        ks_apply(&app, ks, &apps, &sites);
-                    }
+                    ks_sync(&app);
                 });
             }
         }
