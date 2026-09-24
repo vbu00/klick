@@ -1,0 +1,41 @@
+[package]
+name = "klick-setup"
+version = "0.0.0"
+description = "Установщик kl!ck"
+authors = ["vbu00", "Dmitriy Medvedev (дизайн)"]
+license = "MIT"
+repository = "https://github.com/vbu00/klick"
+edition = "2021"
+
+[[bin]]
+name = "klick-setup"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+serde_json = "1"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Networking_WinInet",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Registry",
+] }
+
+[features]
+# Сборка через tauri CLI включает её сама: фронтенд вшивается в exe.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Окно установщика: события прогресса и свои команды",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

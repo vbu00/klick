@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "build:setup": "node tools/build-setup.mjs",
     "core": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/fetch-core.ps1",
     "screenshots": "bash tools/screenshots.sh"
   },

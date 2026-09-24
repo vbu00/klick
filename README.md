@@ -175,9 +175,19 @@ JSON-ом (YAML его читает как есть), управление — �
 
 ```bash
 npm install
-npm run core     # mihomo v1.19.31 и country.mmdb — со сверкой sha256
-npm run build    # установщик: src-tauri/target/release/bundle/nsis/
+npm run core          # mihomo v1.19.31 и country.mmdb — со сверкой sha256
+npm run build         # NSIS-установщик: src-tauri/target/release/bundle/nsis/
+npm run build:setup   # установщик kl!ck с интерфейсом: dist/klick-<версия>-x64-setup.exe
 ```
+
+**Установщик** (`setup/`) — отдельное маленькое приложение на Tauri по
+макету: приветствие с папкой и двумя переключателями, прогресс, «Готово» с
+запуском; если kl!ck уже стоит — обновить, переустановить или удалить. Сами
+файлы ставит вшитый NSIS-установщик в тихом режиме (со всеми хуками), вокруг
+него — выбор ярлыка и автозапуска, откат при отмене, удаление данных по
+галочке. «Удалить» в параметрах Windows открывает этот же интерфейс.
+Вёрстку можно смотреть без сборки: `setup/ui/index.html` на стенде, сценарии
+`#old`, `#same`, `#new`, `#uninstall`, `#fail`, `#nospace`.
 
 Ядро и GeoIP-база не хранятся в git: `tools/fetch-core.ps1` скачивает
 официальный релиз MetaCubeX/mihomo и базу из MetaCubeX/meta-rules-dat,
