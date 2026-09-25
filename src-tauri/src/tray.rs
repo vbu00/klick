@@ -12,7 +12,7 @@ use tauri::{
 };
 
 use crate::core;
-use crate::state::{AppState, DefaultRoute, Mode, RouteMode};
+use crate::state::{AppState, DefaultRoute, Mode};
 
 pub const TRAY_ID: &str = "klick-tray";
 pub const POPUP: &str = "tray-menu";
@@ -268,11 +268,9 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             Mode::Proxy => "Proxy",
             Mode::Sysproxy => "Системный proxy",
         },
-        route_mode: match settings.route_mode {
-            RouteMode::Rule if settings.default_route == DefaultRoute::Direct => "только выбранное",
-            RouteMode::Rule => "по правилам",
-            RouteMode::Global => "всё через VPN",
-            RouteMode::Direct => "всё напрямую",
+        route_mode: match settings.default_route {
+            DefaultRoute::Direct => "только выбранное",
+            DefaultRoute::Proxy => "всё через VPN",
         },
         since: s.since,
         traffic: core::traffic(),
@@ -358,10 +356,6 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
                 };
                 st.save_settings();
                 core::ks_apply(&app, core::ks_engaged(&s, core::is_on()), &s.ks_apps, &s.ks_sites);
-                // Защищённое Kill Switch — в правилах «только через VPN».
-                if let Err(e) = core::apply_config(&app) {
-                    core::note("WARN", &e);
-                }
                 let _ = app.emit("profiles-changed", ());
                 refresh(&app);
             });

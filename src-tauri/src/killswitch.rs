@@ -1,8 +1,14 @@
 //! Kill Switch: пока VPN выключен (или оборвался), отмеченные программы
 //! остаются без интернета — правило брандмауэра Windows на их exe, — а
 //! отмеченные сайты не открываются ни в одной программе. Остальное работает
-//! как обычно. При включённом VPN правила снимаются только в TUN — когда
-//! именно их держать, решает core::ks_engaged.
+//! как обычно. При включённом VPN правила сняты (core::ks_engaged): куда
+//! идёт трафик тогда — дело «Маршрутизации».
+//!
+//! Чем Kill Switch может положить сеть сам — и что от этого страхует:
+//! системная программа в списке (svchost.exe — это DNS-клиент Windows) —
+//! такие не принимаем; сайт за общим CDN — его адреса у Cloudflare и
+//! подобных общие с тысячами других сайтов, их не закрываем, а в окне
+//! помечаем, что сайт так не защитить.
 //!
 //! Брандмауэр Windows не умеет правила по имени домена, только по адресам.
 //! Поэтому сайт — это адреса, в которые сейчас резолвятся он и www.-вариант:
@@ -44,6 +50,8 @@ static NEXT_RESOLVE: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None
 const MAX_IPS_PER_SITE: usize = 64;
 /// Адресов в одном правиле.
 const IPS_PER_RULE: usize = 200;
+/// Сайты, часть адресов которых общая с чужими — не закрыты.
+static SHARED: Lazy<Mutex<BTreeSet<String>>> = Lazy::new(|| Mutex::new(BTreeSet::new()));
 /// Последняя проблема: окно показывает её тостом, точкой на «Настройках» и
 /// на строке Kill Switch, пока она не уйдёт.
 static ISSUE: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
@@ -112,6 +120,76 @@ fn blockable(ip: &IpAddr) -> bool {
     }
 }
 
+/// Адреса больших CDN, общие для множества сайтов: закрыть такой — значит
+/// закрыть и всех соседей. Cloudflare и Fastly (github, reddit и др.).
+const SHARED_V4: [(u32, u8); 17] = [
+    (0xADF5_3000, 20), // 173.245.48.0/20
+    (0x6715_F400, 22), // 103.21.244.0/22
+    (0x6716_C800, 22), // 103.22.200.0/22
+    (0x671F_0400, 22), // 103.31.4.0/22
+    (0x8D65_4000, 18), // 141.101.64.0/18
+    (0x6CA2_C000, 18), // 108.162.192.0/18
+    (0xBE5D_F000, 20), // 190.93.240.0/20
+    (0xBC72_6000, 20), // 188.114.96.0/20
+    (0xC5EA_F000, 22), // 197.234.240.0/22
+    (0xC629_8000, 17), // 198.41.128.0/17
+    (0xA29E_0000, 15), // 162.158.0.0/15
+    (0x6810_0000, 13), // 104.16.0.0/13
+    (0x6818_0000, 14), // 104.24.0.0/14
+    (0xAC40_0000, 13), // 172.64.0.0/13
+    (0x8300_4800, 22), // 131.0.72.0/22
+    (0x9765_0000, 16), // 151.101.0.0/16 Fastly
+    (0xC7E8_0000, 16), // 199.232.0.0/16 Fastly
+];
+/// Первые 32 бита IPv6-префиксов Cloudflare и Fastly.
+const SHARED_V6: [(u32, u8); 8] = [
+    (0x2606_4700, 32),
+    (0x2400_CB00, 32),
+    (0x2803_F800, 32),
+    (0x2405_B500, 32),
+    (0x2405_8100, 32),
+    (0x2A06_98C0, 29),
+    (0x2C0F_F248, 32),
+    (0x2A04_4E40, 32), // Fastly
+];
+
+fn in_net(addr: u32, (net, bits): (u32, u8)) -> bool {
+    let mask = if bits == 0 { 0 } else { u32::MAX << (32 - bits) };
+    addr & mask == net & mask
+}
+
+fn shared(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => SHARED_V4.iter().any(|n| in_net(u32::from(*v), *n)),
+        IpAddr::V6(v) => {
+            let s = v.segments();
+            SHARED_V6.iter().any(|n| in_net(((s[0] as u32) << 16) | s[1] as u32, *n))
+        }
+    }
+}
+
+pub fn shared_sites() -> Vec<String> {
+    SHARED.lock().unwrap().iter().cloned().collect()
+}
+
+/// Программа, без которой сеть не работает целиком, — ей интернет не
+/// закрываем. Возвращает, почему нельзя.
+pub fn protected_app(path_or_exe: &str) -> Option<String> {
+    let low = path_or_exe.trim().to_lowercase().replace('/', "\\");
+    let exe = low.rsplit('\\').next().unwrap_or(&low).to_string();
+    let windir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase();
+    let system = low.starts_with(&(windir + "\\"))
+        || ["svchost.exe", "lsass.exe", "services.exe", "wininit.exe", "csrss.exe", "smss.exe", "system", "dnscache", "spoolsv.exe"].contains(&exe.as_str());
+    if system {
+        return Some(format!("{exe} — часть Windows: через неё работают DNS и сеть всех программ. Закрыть ей интернет — значит отключить его у всего компьютера."));
+    }
+    match exe.as_str() {
+        "klick.exe" | "mihomo.exe" => Some("Самому kl!ck и его ядру закрывать интернет нельзя — VPN перестанет подключаться.".into()),
+        "msedgewebview2.exe" => Some("msedgewebview2.exe — общий движок окон множества программ (в том числе kl!ck). Закройте интернет самой программе, а не ему.".into()),
+        _ => None,
+    }
+}
+
 fn resolve(host: &str) -> Vec<IpAddr> {
     (host, 443).to_socket_addrs().map(|it| it.map(|a| a.ip()).filter(blockable).collect()).unwrap_or_default()
 }
@@ -136,9 +214,15 @@ fn site_ips(sites: &[KsSite]) -> Vec<String> {
     });
     let mut known = SITE_IPS.lock().unwrap();
     known.retain(|d, _| domains.contains(d));
+    let mut shared_now = SHARED.lock().unwrap();
+    shared_now.retain(|d| domains.contains(d));
     for (d, ips) in fresh {
+        let (common, own): (Vec<IpAddr>, Vec<IpAddr>) = ips.into_iter().partition(shared);
+        if !common.is_empty() {
+            shared_now.insert(d.clone());
+        }
         let set = known.entry(d).or_default();
-        for ip in ips {
+        for ip in own {
             if set.len() >= MAX_IPS_PER_SITE {
                 break;
             }
@@ -263,6 +347,25 @@ mod tests {
         assert_eq!(normalize_domain("1.2.3.4"), None);
         assert_eq!(normalize_domain("bad_domain.com"), None);
         assert_eq!(normalize_domain("-x.com"), None);
+    }
+
+    #[test]
+    fn общие_адреса_cdn() {
+        for ip in ["104.16.132.229", "172.67.1.1", "151.101.1.140", "2606:4700::6810:84e5"] {
+            assert!(shared(&ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["140.82.121.4", "87.250.250.242", "2a00:1450:4010::65"] {
+            assert!(!shared(&ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    #[test]
+    fn системное_не_закрываем() {
+        assert!(protected_app(r"C:\Windows\System32\svchost.exe").is_some());
+        assert!(protected_app("svchost.exe").is_some());
+        assert!(protected_app(r"C:\Program Files (x86)\Microsoft\EdgeWebView\Application\1\msedgewebview2.exe").is_some());
+        assert!(protected_app(r"C:\Games\Roblox\RobloxPlayerBeta.exe").is_none());
+        assert!(protected_app("qbittorrent.exe").is_none());
     }
 
     #[test]

@@ -21,7 +21,7 @@
   if (promo) base.ms = PINGS[servers.indexOf(active)];
   const now = Math.floor(Date.now() / 1000);
   const state = () => ({
-    ...base, profile: 'Remnawave · Alex', server: active, mode: 'VPN (TUN)', routeMode: 'по правилам',
+    ...base, profile: 'Remnawave · Alex', server: active, mode: 'VPN (TUN)', routeMode: 'всё через VPN',
     since: st === 'on' || st === 'bad' ? now - 2 * 3600 - 17 * 60 : null,
     traffic: { down: st === 'on' ? 3.4e6 : 0, up: st === 'on' ? 0.41e6 : 0, downTotal: 1.9e9, upTotal: 0.21e9 },
     killSwitch: true, ksApps: 3, ksSites: 2,

@@ -81,15 +81,6 @@ impl Api {
     }
 
     /// rule / global / direct — на лету.
-    pub fn set_mode(&self, mode: &str) -> Result<(), String> {
-        Self::agent(Duration::from_secs(3))
-            .request("PATCH", &self.url("/configs"))
-            .set("Authorization", &self.auth())
-            .send_json(serde_json::json!({ "mode": mode }))
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-
     /// Перечитать конфиг с диска без перезапуска ядра.
     pub fn reload(&self, path: &std::path::Path) -> Result<(), String> {
         Self::agent(Duration::from_secs(15))

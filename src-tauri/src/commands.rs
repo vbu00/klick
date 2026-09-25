@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::state::{now_secs, AppState, Kind, Mode, Profile, Settings, SubInfo};
+use crate::state::{now_secs, AppState, Kind, Profile, Settings, SubInfo};
 use crate::{autostart, core, killswitch, links, procs, sub};
 
 #[derive(Serialize)]
@@ -71,6 +71,9 @@ pub struct Overview {
     app_version: String,
     mihomo_version: Option<String>,
     kill_switch_issue: Option<String>,
+    ks_shared: Vec<String>,
+    /// Один раз после запуска: что поменялось в настройках при обновлении.
+    notice: Option<String>,
 }
 
 static MIHOMO_VERSION: once_cell::sync::OnceCell<Option<String>> = once_cell::sync::OnceCell::new();
@@ -94,6 +97,8 @@ pub fn get_overview(app: AppHandle, state: State<AppState>) -> Overview {
         app_version: app.package_info().version.to_string(),
         mihomo_version: MIHOMO_VERSION.get_or_init(|| core::mihomo_version(&app)).clone(),
         kill_switch_issue: killswitch::issue(),
+        ks_shared: killswitch::shared_sites(),
+        notice: state.notice.lock().unwrap().take(),
     }
 }
 
@@ -366,11 +371,12 @@ pub fn profile_link(state: State<AppState>, id: String) -> Result<String, String
 pub struct SettingsResult {
     settings: Settings,
     warning: Option<String>,
+    /// Сайты Kill Switch, чьи адреса общие с чужими (Cloudflare и т. п.).
+    ks_shared: Vec<String>,
 }
 
-/// Частичное обновление. Каждое изменение сразу вступает в силу: режим
-/// маршрутизации и правила — на лету, режим подключения и порт — с
-/// переподключением.
+/// Частичное обновление. Каждое изменение сразу вступает в силу: правила —
+/// на лету, режим подключения и порт — с переподключением.
 #[tauri::command(async)]
 pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> Result<SettingsResult, String> {
     let before = state.settings.lock().unwrap().clone();
@@ -394,33 +400,37 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
         .filter_map(|s| killswitch::normalize_domain(&s.pattern).map(|pattern| crate::state::KsSite { pattern, on: s.on }))
         .filter(|s| seen.insert(s.pattern.clone()))
         .collect();
+    // Системное, без чего не работает сеть целиком, — не отрезаем. Проверяем
+    // только новое: старые настройки должны открываться как есть.
+    for a in next.ks_apps.iter().filter(|a| !before.ks_apps.iter().any(|b| b.path == a.path)) {
+        if let Some(why) = killswitch::protected_app(&a.path) {
+            return Err(why);
+        }
+    }
+    for a in next.apps.iter().filter(|a| a.action == crate::state::Action::Block && !before.apps.contains(a)) {
+        if let Some(why) = killswitch::protected_app(&a.exe) {
+            return Err(why);
+        }
+    }
     *state.settings.lock().unwrap() = next.clone();
     state.save_settings();
 
     // Проблемы Kill Switch окно узнаёт событием «killswitch» — здесь не дублируем.
     let warning = None;
     let on = core::is_on();
-    let ks_changed = before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites;
-    if ks_changed || (on && before.route_mode != next.route_mode) {
+    if before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites {
         core::ks_apply(&app, core::ks_engaged(&next, on), &next.ks_apps, &next.ks_sites);
     }
     if on {
-        if before.mode != next.mode || (before.proxy_port != next.proxy_port && next.mode != Mode::Tun) {
+        if before.mode != next.mode || before.proxy_port != next.proxy_port {
             core::note("INFO", "Режим подключения изменён — переподключаюсь");
             core::reconnect(&app)?;
-        } else {
-            if before.route_mode != next.route_mode {
-                core::set_route_mode(next.route_mode.as_str())?;
-                core::note("INFO", &format!("Режим маршрутизации: {}", next.route_mode.as_str()));
-            }
-            // Защищённое Kill Switch тоже попадает в правила: только через VPN.
-            if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route || ks_changed {
-                core::apply_config(&app)?;
-            }
+        } else if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route {
+            core::apply_config(&app)?;
         }
     }
     crate::tray::refresh(&app);
-    Ok(SettingsResult { settings: next, warning })
+    Ok(SettingsResult { settings: next, warning, ks_shared: killswitch::shared_sites() })
 }
 
 /// «Повторить» на экране Kill Switch.

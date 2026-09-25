@@ -23,27 +23,12 @@ pub enum Mode {
     Tun,
 }
 
-/// Режим маршрутизации самого mihomo.
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum RouteMode {
-    #[default]
-    Rule,
-    Global,
-    Direct,
-}
-
-impl RouteMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RouteMode::Rule => "rule",
-            RouteMode::Global => "global",
-            RouteMode::Direct => "direct",
-        }
-    }
-}
-
-/// Куда идёт то, что не попало ни под одно правило (режим «По правилам»).
+/// Куда идёт то, что не попало ни под одно правило.
+///
+/// До 0.3.1 был ещё режим mihomo «По правилам / Глобально / Напрямую».
+/// Убран: «Глобально» дублировало «Всё через VPN» (и несколько версий
+/// молча шло напрямую), а «Напрямую» показывало «Подключено», ничего не
+/// пуская в туннель. Куда идёт трафик — только здесь и в правилах.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultRoute {
@@ -98,15 +83,15 @@ pub struct KsSite {
 pub struct Presets {
     /// Домены .ru, .su и .рф — напрямую.
     pub ru: bool,
-    /// Локальная сеть — напрямую.
-    pub lan: bool,
     /// Российские IP по базе GeoIP — напрямую.
     pub geoip: bool,
+    // Локальная сеть с 0.3.1 напрямую всегда: слать 192.168.x.x на
+    // зарубежный сервер незачем, а выключенный тумблер ронял принтеры и NAS.
 }
 
 impl Default for Presets {
     fn default() -> Self {
-        Presets { ru: true, lan: true, geoip: false }
+        Presets { ru: true, geoip: false }
     }
 }
 
@@ -115,7 +100,6 @@ impl Default for Presets {
 pub struct Settings {
     pub active_profile: Option<String>,
     pub mode: Mode,
-    pub route_mode: RouteMode,
     pub default_route: DefaultRoute,
     pub proxy_port: u16,
     pub presets: Presets,
@@ -135,7 +119,6 @@ impl Default for Settings {
         Settings {
             active_profile: None,
             mode: Mode::Tun,
-            route_mode: RouteMode::Rule,
             default_route: DefaultRoute::Proxy,
             proxy_port: 7890,
             presets: Presets::default(),
@@ -214,6 +197,17 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     pub vault: Mutex<Vault>,
     pub dir: PathBuf,
+    /// Сообщение окну один раз после запуска (переезд настроек).
+    pub notice: Mutex<Option<String>>,
+}
+
+/// Что сказать человеку о переезде настроек из прошлых версий.
+fn migration_notice(raw: &Value) -> Option<String> {
+    match raw.get("routeMode").and_then(Value::as_str) {
+        Some("global") => Some("Режим «Глобально» убран. Сейчас: всё через VPN, кроме исключений на экране «Маршрутизация» — их можно выключить там же.".into()),
+        Some("direct") => Some("Режим «Напрямую» убран: чтобы ничего не шло через VPN, просто выключите его. Сейчас трафик идёт по правилам «Маршрутизации».".into()),
+        _ => None,
+    }
 }
 
 pub fn now_secs() -> u64 {
@@ -233,16 +227,20 @@ impl AppState {
     pub fn load(app: &AppHandle) -> AppState {
         let dir = data_dir(app);
         let _ = std::fs::create_dir_all(&dir);
-        let settings = std::fs::read_to_string(dir.join("settings.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let raw: Option<Value> = std::fs::read_to_string(dir.join("settings.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let notice = raw.as_ref().and_then(migration_notice);
+        let settings = raw.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         let vault = std::fs::read(dir.join("profiles.dat"))
             .ok()
             .and_then(|enc| dpapi::unprotect(&enc).ok())
             .and_then(|plain| serde_json::from_slice(&plain).ok())
             .unwrap_or_default();
-        AppState { settings: Mutex::new(settings), vault: Mutex::new(vault), dir }
+        let state = AppState { settings: Mutex::new(settings), vault: Mutex::new(vault), dir, notice: Mutex::new(notice) };
+        // Переписать без полей, которых больше нет, — сообщение один раз.
+        if state.notice.lock().unwrap().is_some() {
+            state.save_settings();
+        }
+        state
     }
 
     pub fn save_settings(&self) {
@@ -338,7 +336,17 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"mode":"proxy"}"#).unwrap();
         assert_eq!(s.mode, Mode::Proxy);
         assert_eq!(s.proxy_port, 7890);
-        assert!(s.presets.ru && s.presets.lan && !s.presets.geoip);
+        assert!(s.presets.ru && !s.presets.geoip);
         assert_eq!(s.default_route, DefaultRoute::Proxy, "старые настройки — как раньше: всё через VPN");
+    }
+
+    #[test]
+    fn переезд_с_режимов_маршрутизации() {
+        let old: Value = serde_json::from_str(r#"{"mode":"tun","routeMode":"global","presets":{"ru":true,"lan":false,"geoip":true}}"#).unwrap();
+        assert!(migration_notice(&old).unwrap().contains("Глобально"));
+        let s: Settings = serde_json::from_value(old).unwrap();
+        assert!(s.presets.ru && s.presets.geoip, "старые поля не мешают читать настройки");
+        assert!(!serde_json::to_string(&s).unwrap().contains("routeMode"));
+        assert!(migration_notice(&serde_json::json!({"routeMode": "rule"})).is_none());
     }
 }

@@ -81,6 +81,8 @@ pub fn run() {
                     let _ = w.hide();
                 }
             }
+            #[cfg(target_os = "windows")]
+            session_end::watch(&handle);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -139,4 +141,38 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Выключение компьютера или выход из учётки, пока подключено в режиме
+/// «Системный proxy»: Windows завершит kl!ck без спроса, и прокси остался бы
+/// указывать на мёртвый 127.0.0.1:7890 — после входа браузеры без сети, пока
+/// kl!ck не запустится. Поэтому возвращаем прокси по WM_ENDSESSION.
+/// Kill Switch не трогаем: его правила и должны пережить перезагрузку.
+#[cfg(target_os = "windows")]
+mod session_end {
+    use once_cell::sync::OnceCell;
+    use tauri::{AppHandle, Manager};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows_sys::Win32::UI::WindowsAndMessaging::WM_ENDSESSION;
+
+    static APP: OnceCell<AppHandle> = OnceCell::new();
+
+    unsafe extern "system" fn on_message(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+        if msg == WM_ENDSESSION && wp != 0 {
+            if let Some(app) = APP.get() {
+                let state = app.state::<crate::state::AppState>();
+                let port = state.settings.lock().map(|s| s.proxy_port).unwrap_or(7890);
+                crate::sysproxy::disable(&state.dir, port);
+            }
+        }
+        DefSubclassProc(hwnd, msg, wp, lp)
+    }
+
+    pub fn watch(app: &AppHandle) {
+        let Some(w) = app.get_webview_window("main") else { return };
+        let Ok(hwnd) = w.hwnd() else { return };
+        let _ = APP.set(app.clone());
+        unsafe { SetWindowSubclass(hwnd.0 as HWND, Some(on_message), 1, 0) };
+    }
 }

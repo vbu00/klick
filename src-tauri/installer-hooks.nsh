@@ -7,7 +7,7 @@
 !macro NSIS_HOOK_PREINSTALL
   ; Tauri закрывает klick.exe, но mihomo — его дочерний процесс в
   ; $INSTDIR\bin; пока он работает, файл занят и не перезаписывается.
-  nsExec::ExecToLog 'taskkill /F /IM mihomo.exe'
+  nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "Get-Process mihomo -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force"`
   Pop $R0
 !macroend
 
@@ -59,6 +59,6 @@
 
   ${EndIf}
 
-  nsExec::ExecToLog 'taskkill /F /IM mihomo.exe'
+  nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "Get-Process mihomo -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force"`
   Pop $R0
 !macroend

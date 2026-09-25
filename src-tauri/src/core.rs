@@ -290,7 +290,10 @@ fn spawn(app: &AppHandle, home: &std::path::Path, cfg: &std::path::Path, quiet: 
 fn write_config(app: &AppHandle, profile: &Profile, port: u16, secret: &str) -> Result<(PathBuf, usize), String> {
     let state = app.state::<AppState>();
     let settings = state.settings.lock().unwrap().clone();
-    let built = config::build(profile, &settings, port, secret)?;
+    // Путь, каким его увидит mihomo у процесса-зонда (без \\?\ и с регистром диска).
+    let exe = mihomo_exe(app);
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let built = config::build(profile, &settings, port, secret, &exe.to_string_lossy())?;
     let path = home(app).join("config.yaml");
     std::fs::write(&path, serde_json::to_vec_pretty(&built.config).unwrap_or_default()).map_err(|e| format!("не удалось записать конфиг: {e}"))?;
     Ok((path, built.rules))
@@ -354,7 +357,12 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
         Err(e) => return fail(app, e),
     };
 
-    let mut warning = None;
+    // Второй VPN-клиент рядом — частая причина «ничего не открывается»:
+    // оба рулят маршрутами, DNS и системным прокси.
+    let mut warning = other_vpn().map(|name| format!("Работает ещё {name}. Два VPN одновременно мешают друг другу — если сайты не открываются, закройте его."));
+    if let Some(w) = &warning {
+        note("WARN", w);
+    }
 
     *LOG_FILE.lock().unwrap() = std::fs::File::create(state.dir.join("mihomo.log")).ok();
     *TRAFFIC.lock().unwrap() = Traffic::default();
@@ -362,14 +370,13 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
     note(
         "INFO",
         &format!(
-            "Подключение → {} [{}/{}], правил: {rules}",
+            "Подключение → {} [{}], правил: {rules}",
             server_name(&profile).unwrap_or_default(),
             match settings.mode {
                 Mode::Tun => "tun",
                 Mode::Proxy => "proxy",
                 Mode::Sysproxy => "sysproxy",
             },
-            settings.route_mode.as_str()
         ),
     );
 
@@ -504,16 +511,44 @@ fn flush_dns() {
     let _ = cmd.arg("/flushdns").stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
-/// Должен ли Kill Switch блокировать прямо сейчас. Выключен VPN — да.
-/// Включён — снимается только в TUN, где трафик защищённых программ и так
-/// идёт в туннель, а правило брандмауэра закрыло бы и его. В Proxy и
-/// «Системном proxy» программа, которая прокси игнорирует (игры, торренты),
-/// иначе ушла бы напрямую; loopback брандмауэр не фильтрует, так что
-/// ходящие через 127.0.0.1 продолжают работать. В режиме «Напрямую» ядро
-/// ничего не заворачивает в туннель — защита остаётся.
+/// Должен ли Kill Switch блокировать прямо сейчас: только пока VPN нет.
+/// Куда идёт трафик при включённом VPN — дело «Маршрутизации», Kill Switch
+/// в неё не вмешивается. Для прокси-режимов окно честно предупреждает, что
+/// программы, игнорирующие прокси, при включённом VPN идут напрямую.
 pub fn ks_engaged(s: &crate::state::Settings, on: bool) -> bool {
-    use crate::state::RouteMode;
-    s.kill_switch && !(on && s.mode == Mode::Tun && s.route_mode != RouteMode::Direct)
+    s.kill_switch && !on
+}
+
+/// Другие VPN/прокси-клиенты среди запущенных программ (кроме нас).
+fn other_vpn() -> Option<String> {
+    const KNOWN: [(&str, &str); 16] = [
+        ("hiddify.exe", "Hiddify"),
+        ("hiddifycli.exe", "Hiddify"),
+        ("sing-box.exe", "sing-box"),
+        ("xray.exe", "Xray"),
+        ("v2rayn.exe", "v2rayN"),
+        ("clash-verge.exe", "Clash Verge"),
+        ("verge-mihomo.exe", "Clash Verge"),
+        ("flclash.exe", "FlClash"),
+        ("flclashcore.exe", "FlClash"),
+        ("nekoray.exe", "NekoRay"),
+        ("nekobox.exe", "NekoBox"),
+        ("amneziavpn.exe", "AmneziaVPN"),
+        ("karing.exe", "Karing"),
+        ("happ.exe", "Happ"),
+        ("klutzbox.exe", "KlutzBOX"),
+        ("singboxgui.exe", "SingBoxGUI"),
+    ];
+    let ours = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().to_lowercase()));
+    crate::procs::running().into_iter().find_map(|p| {
+        let exe = p.exe.to_lowercase();
+        if exe == "mihomo.exe" {
+            // Чужое ядро mihomo — не из нашей папки.
+            let mine = ours.as_deref().is_some_and(|d| p.path.to_lowercase().starts_with(d));
+            return (!mine && !p.path.to_lowercase().contains(r"\src-tauri\bin\")).then(|| "другой клиент на mihomo".to_string());
+        }
+        KNOWN.iter().find(|(e, _)| *e == exe).map(|(_, n)| n.to_string())
+    })
 }
 
 /// Привести Kill Switch к текущим настройкам и состоянию.
@@ -628,13 +663,6 @@ pub fn apply_config(app: &AppHandle) -> Result<(), String> {
     // После перезагрузки группа снова на первом — это и есть выбранный.
     note("INFO", &format!("Правила обновлены: {rules}"));
     Ok(())
-}
-
-pub fn set_route_mode(mode: &str) -> Result<(), String> {
-    match api() {
-        Some(api) => api.set_mode(mode),
-        None => Ok(()),
-    }
 }
 
 fn spawn_health(app: AppHandle, gen: u64) {

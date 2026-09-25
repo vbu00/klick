@@ -52,9 +52,43 @@ pub fn disable(dir: &Path, port: u16) {
         .unwrap_or_default();
     // Прежний сервер — наш же (двойное включение без бэкапа) → просто выключить.
     let prev = if prev.server.as_deref() == Some(&ours(port)) { Saved { enable: 0, ..prev } } else { prev };
+    // Прежний прокси — локальный порт другой программы (Hiddify, Clash),
+    // которая уже закрыта: вернуть его — значит оставить браузеры без сети.
+    // Адрес сохраняем, но выключенным.
+    let prev = if prev.enable == 1 && prev.server.as_deref().is_some_and(dead_local) { Saved { enable: 0, ..prev } } else { prev };
     if write(&prev).is_ok() {
         let _ = std::fs::remove_file(&backup_path);
         notify();
+    }
+}
+
+/// «127.0.0.1:12334» или «http=127.0.0.1:1;https=…»: все локальные адреса
+/// в строке не отвечают. Нелокальный прокси не проверяем — не наше дело.
+fn dead_local(server: &str) -> bool {
+    let locals: Vec<std::net::SocketAddr> = server
+        .split(';')
+        .map(|part| part.rsplit('=').next().unwrap_or(part).trim())
+        .filter_map(|hp| {
+            let (host, port) = hp.rsplit_once(':')?;
+            let port: u16 = port.parse().ok()?;
+            let ip: std::net::IpAddr = if host.eq_ignore_ascii_case("localhost") { [127, 0, 0, 1].into() } else { host.parse().ok()? };
+            ip.is_loopback().then(|| std::net::SocketAddr::new(ip, port))
+        })
+        .collect();
+    !locals.is_empty() && locals.iter().all(|a| std::net::TcpStream::connect_timeout(a, std::time::Duration::from_millis(400)).is_err())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn мёртвый_локальный_прокси() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let alive = format!("127.0.0.1:{}", l.local_addr().unwrap().port());
+        assert!(!super::dead_local(&alive));
+        drop(l);
+        assert!(super::dead_local(&alive));
+        assert!(super::dead_local("http=localhost:1;https=127.0.0.1:1"));
+        assert!(!super::dead_local("proxy.corp.local:3128"), "чужой сетевой прокси не трогаем");
     }
 }
 

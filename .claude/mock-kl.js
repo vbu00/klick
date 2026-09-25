@@ -17,7 +17,7 @@
     { id: 'p2', kind: 'single', name: 'grpc', hasUrl: true, active: 'grpc', updatedAt: now(), info: null, servers: [{ name: 'grpc', proto: 'VLESS · gRPC', host: '198.51.100.81:443' }] },
   ];
   const settings = {
-    activeProfile: 'p1', mode: 'tun', routeMode: 'rule', defaultRoute: 'proxy', proxyPort: 7890, presets: { ru: true, lan: true, geoip: false },
+    activeProfile: 'p1', mode: 'tun', defaultRoute: 'proxy', proxyPort: 7890, presets: { ru: true, geoip: false },
     sites: [{ pattern: 'gosuslugi.ru', action: 'direct' }, { pattern: 'youtube.com', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }],
     apps: [{ name: 'Telegram', exe: 'Telegram.exe', action: 'proxy' }, { name: 'Steam', exe: 'steam.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }],
     killSwitch: true,
@@ -55,7 +55,7 @@
     connect: async () => {
       const p = act();
       set({ state: 'connecting', error: null, profileId: p.id, server: p.active, mode: settings.mode });
-      log('INFO', `Подключение → ${p.active} [${settings.mode}/${settings.routeMode}]`);
+      log('INFO', `Подключение → ${p.active} [${settings.mode}]`);
       await new Promise((r) => setTimeout(r, 1000));
       if (window.__mock.scenario === 'fail') { set({ state: 'error', error: 'Не удалось создать VPN-адаптер: нет прав администратора. Запустите kl!ck от администратора или выберите режим Proxy.' }); throw 'fail'; }
       set({ state: 'on', since: now(), health: null });

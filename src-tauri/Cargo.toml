@@ -1,6 +1,6 @@
 [package]
 name = "klick"
-version = "0.3.0"
+version = "0.3.1"
 description = "kl!ck — VPN-клиент на mihomo"
 authors = ["vbu00", "Dmitriy Medvedev (дизайн)"]
 license = "MIT"
@@ -50,6 +50,7 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 

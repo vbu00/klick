@@ -14,7 +14,6 @@ const RED = 'var(--red)', ORANGE = 'var(--orange)', GREEN = 'var(--accent)', DIM
 const TINTS = ['#a8c7fa', '#f5c26b', '#c4b5fd', '#9ad9c0', '#f4a7b9', '#b8c4d0'];
 const ACTIONS = [['proxy', 'Через VPN'], ['direct', 'Напрямую'], ['block', 'Блок']];
 const MODE_NAMES = { proxy: 'Proxy · порт', sysproxy: 'Системный proxy', tun: 'VPN (TUN)' };
-const ROUTE_NAMES = { rule: 'по правилам', global: 'всё через VPN', direct: 'всё напрямую' };
 
 // ─────────── Состояние ───────────
 
@@ -105,7 +104,7 @@ const onlyChosen = () => S().defaultRoute === 'direct';
 function modeLabel() {
   const s = S();
   const m = s.mode === 'proxy' ? `Proxy · порт ${s.proxyPort}` : MODE_NAMES[s.mode];
-  return `${m} · ${s.routeMode === 'rule' && onlyChosen() ? 'только выбранное' : ROUTE_NAMES[s.routeMode]}`;
+  return `${m} · ${onlyChosen() ? 'только выбранное' : 'всё через VPN'}`;
 }
 
 // ─────────── Тосты ───────────
@@ -394,16 +393,14 @@ function renderRules() {
   const s = S();
   const chosen = onlyChosen();
   const viaVpn = s.sites.filter((r) => r.action === 'proxy').length + s.apps.filter((r) => r.action === 'proxy').length;
-  const summary = s.routeMode === 'global' ? 'Сейчас режим «Глобально»: всё идёт через VPN, правила ниже не применяются. Изменить — в настройках режима.'
-    : s.routeMode === 'direct' ? 'Сейчас режим «Напрямую»: VPN не используется ни для чего. Правила ниже сохраняются, но не действуют.'
-    : chosen ? (viaVpn ? 'Всё идёт напрямую. Через VPN — только сайты и программы с пометкой «Через VPN» ниже. Правила для приложений важнее правил для сайтов.'
+  const summary = chosen ? (viaVpn ? 'Всё идёт напрямую. Через VPN — только сайты и программы с пометкой «Через VPN» ниже. Правила для приложений важнее правил для сайтов.'
       : 'Всё идёт напрямую, а через VPN пока ничего не выбрано. Добавьте ниже сайт или программу — они пойдут через VPN.')
     : 'По умолчанию весь трафик идёт через VPN. Ниже — что должно идти напрямую или блокироваться. Правила для приложений важнее правил для сайтов.';
-  const summaryDot = s.routeMode === 'rule' && chosen && !viaVpn ? ORANGE : isOn() ? GREEN : DIM;
+  const summaryDot = chosen && !viaVpn ? ORANGE : isOn() ? GREEN : DIM;
   const defaults = `<div class="label">Что по умолчанию</div>
     <div class="seg" style="margin-top:10px"><button class="press${chosen ? '' : ' on'}" data-act="defaultRoute" data-v="proxy">Всё через VPN</button><button class="press${chosen ? ' on' : ''}" data-act="defaultRoute" data-v="direct">Только выбранное</button></div>`;
   const geoDate = info?.geo?.updated ? ' · база от ' + fmtDay(info.geo.updated) : '';
-  const presets = [['ru', 'Домены .ru и .рф — напрямую', 'Госуслуги, банки, Яндекс без VPN'], ['lan', 'Локальная сеть — напрямую', 'Принтеры, NAS, 192.168.x.x'], ['geoip', 'Российские IP — напрямую', 'По базе GeoIP, даже без .ru в адресе' + geoDate]];
+  const presets = [['ru', 'Домены .ru и .рф — напрямую', 'Госуслуги, банки, Яндекс без VPN'], ['geoip', 'Российские IP — напрямую', 'По базе GeoIP, даже без .ru в адресе' + geoDate]];
   const seg = (kind, i, cur) => `<div class="seg small">${ACTIONS.map(([v, l]) => `<button class="press${cur === v ? ' on' : ''}" data-act="ruleAction" data-kind="${kind}" data-i="${i}" data-v="${v}">${l}</button>`).join('')}</div>`;
   const list = ui.rulesTab === 'sites'
     ? `<div class="addline"><input class="field" id="siteInput" placeholder="domain.com  или  .ru" value="${esc(ui.siteInput)}" spellcheck="false" /><button class="sq press" data-act="addSite">${ic('plus', 22)}</button></div>
@@ -508,13 +505,6 @@ const MODE_DEFS = [
 
 function renderMode() {
   const s = S();
-  const routeDesc = {
-    rule: onlyChosen()
-      ? 'Через VPN идут только сайты и программы, отмеченные на экране «Маршрутизация» как «Через VPN», остальное — напрямую.'
-      : 'Рекомендуется. Трафик идёт через VPN, кроме исключений на экране «Маршрутизация»: .ru-сайты, локальная сеть и выбранные вами сайты и приложения.',
-    global: 'Абсолютно всё через VPN — правила и исключения игнорируются. Полезно, если что-то не открывается.',
-    direct: 'Ничего не идёт через VPN. Kill Switch при этом держит защищённые программы и сайты без интернета. Для отладки.',
-  };
   return `${backBtn()}
     <div class="h1" style="margin-top:12px">Режим подключения</div>
     <div class="lead">Определяет, какие программы будут ходить через подключение.</div>
@@ -523,16 +513,30 @@ function renderMode() {
         <div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px"><div class="ti">${t}</div>${infoBtn('modeInfo', 18, `data-v="${k}"`)}</div><div class="ds">${d(s)}</div><div class="hn">${h}</div></div></div>`).join('')}
     </div>
     ${s.mode !== 'tun' ? `<div class="card mt" style="margin-top:8px"><div class="row"><div class="grow"><div class="t14">Порт прокси</div><div class="t12">SOCKS5 и HTTP на 127.0.0.1</div></div><input class="field" id="portInput" type="number" min="1024" max="65535" value="${s.proxyPort}" style="width:96px;height:36px;text-align:right;background:var(--elem)" /></div></div>` : ''}
-    <div class="label" style="margin-top:26px">Куда направлять трафик</div>
-    <div class="seg" style="margin-top:10px">${[['rule', 'По правилам'], ['global', 'Глобально'], ['direct', 'Напрямую']].map(([k, l]) => `<button class="press${s.routeMode === k ? ' on' : ''}" data-act="routeMode" data-v="${k}">${l}</button>`).join('')}</div>
-    <div class="note" style="margin-top:10px">${routeDesc[s.routeMode]}</div>`;
+    <div class="note" style="margin-top:14px">Куда пойдёт трафик — через VPN или напрямую — задаётся на экране «Маршрутизация».</div>`;
 }
 
-// Что делает Kill Switch в текущем режиме — одной фразой.
-function ksSummary(s) {
-  if (s.mode === 'tun') return 'Выбранные программы и сайты ходят только через VPN. Если VPN выключен или соединение оборвалось — остаются без интернета, их данные не уйдут напрямую через провайдера.';
-  return `Выбранные программы выходят в интернет только через прокси kl!ck (127.0.0.1:${s.proxyPort}) — и при включённом VPN тоже. Игры, торренты и всё, что прокси не поддерживает, работают только в режиме VPN (TUN).`;
+// Куда защищённое идёт при включённом VPN — решает «Маршрутизация».
+// Если там оно уходит напрямую, Kill Switch это не исправит: говорим прямо.
+const RU_ZONES = ['ru', 'su', 'xn--p1ai', 'xn--d1acj3b', 'рф', 'дети'];
+function ksAppNote(a) {
+  const s = S(), exe = (a.exe || '').toLowerCase();
+  const rule = s.apps.find((r) => (r.exe || '').toLowerCase() === exe);
+  if (rule?.action === 'direct') return 'При включённом VPN идёт напрямую — так задано в «Маршрутизации».';
+  if (!rule && onlyChosen()) return 'При включённом VPN идёт напрямую: включено «Только выбранное», а её там нет.';
+  return '';
 }
+function ksSiteNote(p) {
+  const s = S(), notes = [];
+  if ((ov?.ksShared || []).includes(p)) notes.push('Часть адресов общая с другими сайтами (Cloudflare и т. п.) — их не закрываем, иначе пропадут и соседи.');
+  const match = (r) => { const q = r.pattern.replace(/^\./, ''); return p === q || p.endsWith('.' + q); };
+  const rule = s.sites.find(match);
+  if (rule?.action === 'direct') notes.push('При включённом VPN идёт напрямую — так задано в «Маршрутизации».');
+  else if (!rule && onlyChosen()) notes.push('При включённом VPN идёт напрямую: включено «Только выбранное», а его там нет.');
+  else if (!rule && s.presets.ru && RU_ZONES.includes(p.split('.').pop())) notes.push('При включённом VPN идёт напрямую — исключение «.ru» в «Маршрутизации».');
+  return notes.join(' ');
+}
+const noteLine = (t) => (t ? `<div class="t12" style="color:var(--orange);white-space:normal;line-height:1.4">${esc(t)}</div>` : '');
 
 function renderKill() {
   const s = S();
@@ -542,7 +546,7 @@ function renderKill() {
   const body = apps
     ? `<div class="card mt ks-list" style="opacity:${s.killSwitch ? 1 : 0.45}">
       ${s.ksApps.map((a, i) => `${i ? '<div class="divider"></div>' : ''}<div class="row"><div class="tile-ic" style="background:${TINTS[(i + 2) % TINTS.length]}">${esc((a.name || a.exe)[0].toUpperCase())}</div>
-        <div class="grow"><div class="t14">${esc(a.name)}</div><div class="mono" style="font-size:11px;color:var(--dim2)">${esc(a.exe)}</div></div>
+        <div class="grow"><div class="t14">${esc(a.name)}</div><div class="mono" style="font-size:11px;color:var(--dim2)">${esc(a.exe)}</div>${noteLine(ksAppNote(a))}</div>
         <div class="toggle${a.on ? ' on' : ''}" data-act="ksApp" data-i="${i}"></div>
         <button class="rmbtn press" data-act="removeKs" data-i="${i}" aria-label="Удалить">${ic('close', 14)}</button></div>`).join('')}
       ${s.ksApps.length ? '<div class="divider"></div>' : ''}
@@ -551,7 +555,7 @@ function renderKill() {
     : `<div class="addline" style="margin-top:10px"><input class="field" id="ksSiteInput" placeholder="domain.com" value="${esc(ui.ksSiteInput)}" spellcheck="false" /><button class="sq press" data-act="addKsSite">${ic('plus', 22)}</button></div>
     <div class="card ks-list" style="margin-top:8px;opacity:${s.killSwitch ? 1 : 0.45}">
       ${list.map((a, i) => `${i ? '<div class="divider"></div>' : ''}<div class="row">${favTile(a.pattern, true)}
-        <div class="grow mono t14" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.pattern)}</div>
+        <div class="grow" style="min-width:0"><div class="mono t14" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.pattern)}</div>${noteLine(ksSiteNote(a.pattern))}</div>
         <div class="toggle${a.on ? ' on' : ''}" data-act="ksSite" data-i="${i}"></div>
         <button class="rmbtn press" data-act="removeKsSite" data-i="${i}" aria-label="Удалить">${ic('close', 14)}</button></div>`).join('')
         || '<div class="empty-note">Пока пусто. Добавьте домен выше.</div>'}
@@ -560,9 +564,10 @@ function renderKill() {
     <div class="h1row"><div class="h1" style="margin:0">Kill Switch</div>${infoBtn('ksInfo', 22, 'style="width:28px;height:28px"')}</div>
     ${ksIssue ? `<div class="errbox warn"><div class="dot" style="background:var(--orange);margin-top:5px"></div><div style="flex:1;min-width:0">${esc(ksIssue)}</div><button class="retry press" data-act="retryKs">Повторить</button></div>` : ''}
     <div class="card" style="margin-top:16px;padding:14px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">${ksSummary(s)}</div></div>
+      <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">${s.killSwitch ? 'Включён' : 'Выключен'}</div><div style="font-size:12px;color:var(--text3);margin-top:4px;line-height:1.45;text-wrap:pretty">Если VPN выключен или соединение оборвалось, выбранные программы и сайты остаются без интернета — их данные не уйдут напрямую через провайдера.</div></div>
       <div class="toggle big${s.killSwitch ? ' on' : ''}" data-act="toggleKill"></div>
     </div>
+    ${s.mode !== 'tun' && s.killSwitch ? `<div class="summary" style="margin-top:10px"><div class="dot" style="background:var(--orange)"></div><div class="tx">Режим «${s.mode === 'proxy' ? 'Proxy' : 'Системный proxy'}»: программы, которые не ходят через прокси (игры, торренты), при включённом VPN идут напрямую. Чтобы и они шли через VPN, нужен режим VPN (TUN).</div></div>` : ''}
     <div class="seg" style="margin-top:22px"><button class="press${apps ? ' on' : ''}" data-act="ksTab" data-v="apps">Приложения</button><button class="press${!apps ? ' on' : ''}" data-act="ksTab" data-v="sites">Сайты</button></div>
     <div class="listhead"><div class="label" style="margin:0">${apps ? 'Защищённые приложения' : 'Защищённые сайты'}</div><div>${list.length ? `${n} из ${list.length}` : ''}</div></div>
     ${body}
@@ -662,11 +667,7 @@ function ksInfoHtml() {
       ${node(84, 50, ic('globe', 18), 'Интернет', 'сайты', '', 76)}
     </div></div>
     <div class="points"><div><span style="background:${on ? 'var(--accent)' : 'var(--red)'}"></span><div>${on
-      ? (s.mode === 'tun'
-        ? (s.routeMode === 'direct'
-          ? 'Режим «Напрямую»: туннелем ничего не пользуется, поэтому защищённые программы и сайты остаются без интернета, как при выключенном VPN.'
-          : 'Защищённые программы и сайты идут только через VPN — даже если по правилам маршрутизации пошли бы напрямую. Провайдер видит лишь зашифрованное соединение с сервером.')
-        : `В режиме ${s.mode === 'proxy' ? 'Proxy' : '«Системный proxy»'} защищённые программы выходят только через прокси kl!ck. Не умеют ходить через прокси (игры, торренты) — остаются без интернета, а не уходят к провайдеру.`)
+      ? 'Пока VPN включён, Kill Switch не вмешивается: защищённые программы и сайты идут так, как задано в «Маршрутизации».' + (s.mode === 'tun' ? '' : ' В режимах Proxy программы, не умеющие ходить через прокси, при этом идут напрямую.')
       : 'Защищённые программы и сайты остаются без интернета — их данные не уйдут через провайдера. Остальные работают напрямую.'}</div></div></div>
     <button class="mbtn press" style="width:100%;margin-top:16px" data-act="closeModal">Понятно</button>`, 'closeModal');
 }
@@ -766,7 +767,7 @@ async function addPicked(apps) {
     toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'По умолчанию — через VPN. Измените в карточке.', GREEN);
   } else {
     await save({ ksApps: [...s.ksApps, ...apps.map((a) => ({ name: a.name, exe: a.exe, path: a.path, on: true }))] });
-    toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'Теперь они ходят только через VPN.', GREEN);
+    toast(apps.length === 1 ? 'Приложение добавлено' : 'Добавлено приложений: ' + apps.length, 'Kill Switch защищает их при выключенном VPN.', GREEN);
   }
   ui.picker = null;
   renderSheet();
@@ -819,6 +820,8 @@ $('nav').addEventListener('click', (e) => { const b = e.target.closest('[data-na
 async function refresh() {
   ov = await kl.overview();
   if ((ov.killSwitchIssue || null) !== ksIssue) setKsIssue(ov.killSwitchIssue);
+  // Один раз после обновления: что поменялось в настройках.
+  if (ov.notice) toast('Настройки обновлены', ov.notice, DIM);
   status = ov.status;
   traffic = ov.traffic || traffic;
   render();
@@ -826,13 +829,14 @@ async function refresh() {
 
 // Ядро применяет новые правила к новым соединениям — уже открытые (игра,
 // звонок в Discord) живут по старым, пока программу не перезапустят.
-const RULE_KEYS = ['sites', 'apps', 'presets', 'defaultRoute', 'routeMode', 'killSwitch', 'ksApps', 'ksSites'];
+const RULE_KEYS = ['sites', 'apps', 'presets', 'defaultRoute'];
 let ruleHintShown = false;
 
 async function save(patch) {
   try {
     const r = await kl.updateSettings(patch);
     ov.settings = r.settings;
+    if (r.ksShared) ov.ksShared = r.ksShared;
     if (!ruleHintShown && isOn() && RULE_KEYS.some((k) => k in patch)) {
       ruleHintShown = true;
       setTimeout(() => toast('Правила применены', 'Уже открытые соединения идут по-старому — перезапустите игру или программу, чтобы сразу по-новому.', DIM), 900);
@@ -1063,7 +1067,6 @@ const actions = {
     } else save({ [k]: !S()[k] });
   },
   mode: (el) => { if (el.dataset.v !== S().mode) save({ mode: el.dataset.v }); },
-  routeMode: (el) => { if (el.dataset.v !== S().routeMode) save({ routeMode: el.dataset.v }); },
   toggleKill: () => save({ killSwitch: !S().killSwitch }),
   retryKs: async (el) => {
     el.disabled = true;
