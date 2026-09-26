@@ -8,6 +8,7 @@ mod api;
 mod autostart;
 mod commands;
 mod config;
+mod conns;
 mod core;
 mod favicon;
 mod geo;
@@ -122,6 +123,8 @@ pub fn run() {
             commands::routing_view,
             commands::check_route,
             commands::routing_preview,
+            commands::connections_view,
+            commands::check_ip,
             commands::favicon,
             commands::app_info,
             commands::update_geo,

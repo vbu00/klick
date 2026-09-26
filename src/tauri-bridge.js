@@ -23,6 +23,8 @@
     routingView: () => invoke('routing_view'),
     checkRoute: (input) => invoke('check_route', { input }),
     routingPreview: (routing, defaultRoute) => invoke('routing_preview', { routing, defaultRoute }),
+    connectionsView: () => invoke('connections_view'),
+    checkIp: () => invoke('check_ip'),
     favicon: (host) => invoke('favicon', { host }),
     appInfo: () => invoke('app_info'),
     updateGeo: () => invoke('update_geo'),

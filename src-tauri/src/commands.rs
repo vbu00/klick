@@ -461,6 +461,24 @@ pub fn routing_preview(state: State<AppState>, routing: bool, default_route: cra
     crate::route::preview(&s, routing, default_route)
 }
 
+// ─────────── Страница «Соединение» ───────────
+
+/// Что сейчас в сети, что не открылось. Окно спрашивает раз в пару секунд,
+/// пока страница открыта.
+#[tauri::command(async)]
+pub fn connections_view(state: State<AppState>) -> crate::conns::View {
+    let s = state.settings.lock().unwrap().clone();
+    let raw = core::api().and_then(|a| a.connections());
+    crate::conns::view(&s, raw.as_ref())
+}
+
+/// «Как тебя видят сайты» — только по кнопке.
+#[tauri::command(async)]
+pub fn check_ip(state: State<AppState>) -> crate::conns::IpView {
+    let port = state.settings.lock().unwrap().proxy_port;
+    crate::conns::check_ip(core::is_on().then_some(port))
+}
+
 /// «Повторить» на экране Kill Switch.
 #[tauri::command(async)]
 pub fn retry_kill_switch(app: AppHandle, state: State<AppState>) -> Option<String> {

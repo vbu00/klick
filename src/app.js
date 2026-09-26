@@ -29,6 +29,8 @@ const ui = {
   picker: null, pickerQuery: '', pickerSel: [], pickerApps: null,
   // Маршрутизация: объяснения от бэкенда (route.rs), проверка адреса, подтверждение.
   rv: null, checkInput: '', checkRes: null, routeAsk: null,
+  // Соединение: живой список из ядра, проверка IP, окно правила.
+  net: null, netOpen: {}, ip: null, ipBusy: false, netSheet: null,
   pinging: false, refreshing: false, adding: false, powerBusy: false,
   // Какое подключение открыто на Главной. Пока VPN работает, можно смотреть
   // другое, не разрывая текущее; переключение — кнопкой питания.
@@ -473,6 +475,113 @@ function routeAskHtml() {
     <div class="mbtns"><button class="mbtn press" data-act="closeModal">Отмена</button><button class="mbtn accent press" data-act="confirmRoute">${esc(a.p.cta)}</button></div>`, 'closeModal');
 }
 
+// ─────────── Соединение ───────────
+
+const ROUTE_TXT = { vpn: 'через VPN', direct: 'напрямую', block: 'блок', mixed: 'по-разному', ks: 'только через VPN' };
+const ROUTE_CHIP = { vpn: 'Через VPN', direct: 'Напрямую', block: 'Блок', mixed: 'По-разному', ks: 'Только VPN' };
+const agoTxt = (sec) => (sec < 60 ? 'только что' : Math.round(sec / 60) + ' мин назад');
+const kbRate = (b) => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1).replace('.', ',') + ' МБ/с' : Math.round(b / 1024) + ' КБ/с');
+
+async function loadNet() {
+  try { ui.net = await kl.connectionsView(); } catch { ui.net = null; }
+  if (ui.screen === 'net' && !ui.netSheet) render();
+}
+
+function renderNet() {
+  const s = S(), n = ui.net, on = isOn();
+  const status = on ? `Подключено · ${modeLabel()}` : 'Выключено';
+  const sys = on && s.mode !== 'tun';
+  const tot = n ? n.nVpn + n.nDirect + n.nBlock : 0;
+  const bar = (k, c) => (n && n[k] ? `<span style="flex:${n[k]} 0 0;background:${c}"></span>` : '');
+  const failed = n?.failures || [];
+  const fixOf = (f) => (f.route === 'block' ? ['unblock', 'Убрать блок'] : f.route === 'vpn' ? ['direct', 'Напрямую'] : ['vpn', 'Через VPN']);
+  const apps = n?.apps || [];
+  const ip = ui.ip;
+  const ipCell = (x, err) => (x ? null : err ? 'не ответил' : '—');
+  const ipRows = ip ? [
+    ['IP', ip.vpn?.ip || ipCell(ip.vpn, ip.vpnError), ip.direct?.ip || ipCell(ip.direct, ip.directError)],
+    ['Где', ip.vpn?.place || ipCell(ip.vpn, ip.vpnError), ip.direct?.place || ipCell(ip.direct, ip.directError)],
+    ['Сеть', ip.vpn?.org || ipCell(ip.vpn, ip.vpnError), ip.direct?.org || ipCell(ip.direct, ip.directError)],
+    ['Похоже на VPN', ip.vpn ? (ip.vpn.hosting ? 'да — адрес хостинга' : 'по названию — нет') : '—', ip.direct ? (ip.direct.hosting ? 'да' : 'нет') : '—'],
+    ['IPv6', on ? (ip.ipv6 ? 'идёт мимо VPN' : 'нет') : '—', ip.ipv6 ? esc(ip.ipv6) : 'нет'],
+  ] : [];
+  return `<div class="h1">Соединение</div>
+    <div class="netstat"><span class="dot" style="background:${on ? GREEN : 'var(--dim2)'}"></span>${esc(status)}</div>
+    ${sys ? `<div class="summary"><div class="dot" style="background:${ORANGE}"></div><div class="tx">Системный прокси: здесь видны только программы, которые ходят через прокси. Игр и торрентов тут не будет — их трафик идёт мимо kl!ck.</div></div>` : ''}
+    ${!on ? `<div class="card mt" style="padding:20px 16px;text-align:center"><div class="t14" style="font-weight:600">VPN выключен</div><div class="t12" style="line-height:1.45;margin-top:4px">Соединения видны, пока VPN включён. «Как тебя видят сайты» можно проверить и сейчас — покажет только прямое подключение.</div></div>` : `
+    <div class="card mt" style="padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="t14" style="font-weight:600">Куда идёт трафик</div><div class="t12">${tot} адресов</div></div>
+      <div class="netbar">${bar('nVpn', 'var(--accent)')}${bar('nDirect', 'var(--dim)')}${bar('nBlock', 'var(--red)')}</div>
+      <div class="netlegend"><span><b class="t-vpn">${n?.nVpn ?? 0}</b> через VPN</span><span><b class="t-direct">${n?.nDirect ?? 0}</b> напрямую</span><span><b class="t-block">${n?.nBlock ?? 0}</b> блок</span></div>
+    </div>`}
+    ${failed.length ? `<div class="label" style="color:var(--orange)">Не открывается? · ${failed.length}<span class="t12" style="float:right;text-transform:none;letter-spacing:0">за 10 минут</span></div>
+    <div class="card mt">${failed.map((f, i) => { const [fx, fl] = fixOf(f); return `${i ? '<div class="divider"></div>' : ''}<div class="netfail">
+      <div class="top"><div class="grow"><div class="mono t14 ell">${esc(f.host)}</div><div class="t12">${esc(f.app || 'программа не определена')} · ${agoTxt(f.ago)}</div></div>
+        <button class="rchip c-vpn press" data-act="netFix" data-i="${i}" data-v="${fx}">${fl}</button></div>
+      <div class="t12" style="color:var(--text2)"><b class="t-${f.route}">${ROUTE_TXT[f.route]}</b> · ${esc(f.why)}</div></div>`; }).join('')}</div>` : ''}
+    ${on ? `<div class="label">Сейчас в сети · ${apps.length}<span class="t12" style="float:right;text-transform:none;letter-spacing:0">по скорости</span></div>
+    <div class="card mt">${apps.map((a, i) => { const open = !!ui.netOpen[a.exe]; return `${i ? '<div class="divider"></div>' : ''}<div class="netapp">
+      <div class="top"><button class="netexp press" data-act="netToggle" data-v="${esc(a.exe)}" aria-expanded="${open}"><div class="tile-ic" style="background:${TINTS[i % TINTS.length]}">${esc((a.name || a.exe)[0].toUpperCase())}</div>
+        <div class="grow"><div class="t14 ell">${esc(a.name)}</div><div class="t12">${a.conns} соедин. · ${kbRate(a.speed)}</div></div><span class="caret${open ? ' open' : ''}">${ic('chevron', 14)}</span></button>
+        <button class="rchip c-${a.route === 'mixed' ? 'mixed' : a.route} press" data-act="netRule" data-kind="app" data-v="${esc(a.exe)}">${ROUTE_CHIP[a.route]}</button></div>
+      ${open ? `<div class="nethosts"><div class="t12" style="line-height:1.4;padding-bottom:6px">${esc(a.why)}</div>${a.hosts.slice(0, 12).map((h) => `<div class="nethost"><div class="grow"><div class="mono ell" style="font-size:12px">${esc(h.host)}${h.count > 1 ? ` <span class="t12">×${h.count}</span>` : ''}</div><div class="t12"><b class="t-${h.route}">${ROUTE_TXT[h.route]}</b> · ${esc(h.why)}</div></div>
+          ${/ · UDP$/.test(h.host) ? '' : `<button class="netrulebtn press" data-act="netRule" data-kind="site" data-v="${esc(h.host)}" data-app="${esc(a.exe)}">Правило</button>`}</div>`).join('')}${a.hosts.length > 12 ? `<div class="t12" style="padding-top:6px">и ещё ${a.hosts.length - 12}</div>` : ''}</div>` : ''}
+    </div>`; }).join('') || '<div class="empty-note">Пока тихо: ни одна программа не в сети.</div>'}</div>` : ''}
+    <div class="card mt" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:10px"><div class="grow"><div class="t14" style="font-weight:600">Как тебя видят сайты</div><div class="t12" style="line-height:1.4">Через VPN спрашиваем ipinfo.io, напрямую — ipwho.is. Только когда нажмёте «Проверить».</div></div>
+        <button class="mbtn press" style="height:36px;padding:0 14px;font-size:13px" data-act="netIp"${ui.ipBusy ? ' disabled' : ''}>${ui.ipBusy ? 'Проверяю…' : ip ? 'Ещё раз' : 'Проверить'}</button></div>
+      ${ip ? `<div class="ipgrid"><span></span><b class="t-vpn">Через VPN</b><b class="t-direct">Напрямую</b>${ipRows.map(([k, v, d]) => `<span class="t12">${k}</span><span>${esc(v)}</span><span>${esc(d)}</span>`).join('')}</div>
+      <div class="t12" style="line-height:1.4;margin-top:8px">«Похоже на VPN» — по названию сети; точно знают только базы самих сайтов. Утечку через WebRTC приложение не видит — её проверяют в браузере.</div>` : ''}
+    </div>`;
+}
+
+// Правило из строки соединения: окно с вариантами, как на макете.
+function netSheetHtml() {
+  const t = ui.netSheet;
+  if (!t) return '';
+  const s = S(), ex = s.defaultRoute === 'proxy';
+  const opts = [['vpn', 'Через VPN', ex ? 'В «VPN для всего» это и так по умолчанию — нужно, только чтобы перебить набор «Россия».' : 'Добавится в список того, что идёт через VPN.'],
+    ['direct', 'Напрямую', ex ? 'Добавится в список исключений.' : 'В «VPN для выбранного» это и так по умолчанию — нужно, только чтобы перебить набор.'],
+    ['block', 'Блок', 'Не пускать совсем.']];
+  if (t.kind === 'app' && t.path) opts.push(['ks', 'Только через VPN', 'Через VPN всегда, без VPN — без сети (Kill Switch).']);
+  const note = !s.routing ? 'Маршрутизация сейчас выключена — правило заработает, когда её включить.' : `Правило попадёт в список «${POS_NAMES[s.defaultRoute]}». Уже открытые соединения программа переоткроет сама — или перезапустите её.`;
+  return sheetWrap(`<div class="mt-title" style="overflow-wrap:anywhere">${esc(t.name)}</div>
+    <div class="mlead">Сейчас: <b class="t-${t.cur}">${ROUTE_TXT[t.cur] || t.cur}</b>${t.why ? ' · ' + esc(t.why) : ''}</div>
+    <div class="netopts">${opts.filter(([k]) => k !== t.cur).map(([k, l, d]) => `<button class="netopt press" data-act="netApply" data-v="${k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div>
+    <div class="t12" style="line-height:1.45;margin-top:12px">${note}</div>
+    <button class="mbtn press" style="width:100%;margin-top:14px" data-act="closeModal">Отмена</button>`, 'closeModal');
+}
+
+// Сайт для правила: без «www.», IP — как есть.
+const ruleHost = (h) => h.replace(/ · UDP$/, '').replace(/^www\./, '');
+
+async function netApply(v) {
+  const t = ui.netSheet, s = S();
+  closeModal();
+  ui.netSheet = null;
+  if (!t) return;
+  const before = { lists: JSON.parse(JSON.stringify(s.lists)), ksApps: JSON.parse(JSON.stringify(s.ksApps)) };
+  const list = curList();
+  let patch;
+  if (t.kind === 'site') {
+    const pattern = ruleHost(t.name);
+    const rest = list.sites.filter((r) => r.pattern !== pattern);
+    patch = { lists: { ...s.lists, [s.defaultRoute]: { ...list, sites: v === 'unblock' ? rest : [{ pattern, action: ACTION_OF[v] }, ...rest] } } };
+  } else {
+    const rest = list.apps.filter((r) => r.exe.toLowerCase() !== t.key.toLowerCase());
+    const ks = s.ksApps.filter((a) => a.exe.toLowerCase() !== t.key.toLowerCase());
+    patch = v === 'ks'
+      ? { ksApps: [...ks, { name: t.name, exe: t.key, path: t.path, on: true }], lists: { ...s.lists, [s.defaultRoute]: { ...list, apps: rest } } }
+      : { ksApps: ks, lists: { ...s.lists, [s.defaultRoute]: { ...list, apps: [...rest, { name: t.name, exe: t.key, path: t.path || '', action: ACTION_OF[v] }] } } };
+  }
+  if (await save(patch)) {
+    const what = v === 'unblock' ? 'блок снят' : ROUTE_TXT[v];
+    toast('Правило добавлено', `${t.kind === 'app' ? t.name : ruleHost(t.name)} — ${what}.`, GREEN, { label: 'Отменить', run: () => save(before) });
+    if (v === 'ks' && !S().killSwitch) toast('Kill Switch выключен', 'Без VPN программа пойдёт напрямую, пока его не включить.', ORANGE, { label: 'Включить', run: () => save({ killSwitch: true }) });
+    loadNet();
+  }
+}
+
 // ─────────── Настройки ───────────
 
 const backBtn = () => `<button class="back press" data-act="back">${ic('chevron', 16)}Настройки</button>`;
@@ -742,7 +851,7 @@ function licensesHtml() {
 
 function renderModal() {
   const box = $('modal');
-  const html = ui.modal === 'mode' ? modeInfoHtml() : ui.modal === 'ks' ? ksInfoHtml() : ui.modal === 'switch' ? switchHtml() : ui.modal === 'route' ? routeAskHtml() : ui.modal === 'licenses' ? licensesHtml() : '';
+  const html = ui.modal === 'mode' ? modeInfoHtml() : ui.modal === 'ks' ? ksInfoHtml() : ui.modal === 'switch' ? switchHtml() : ui.modal === 'route' ? routeAskHtml() : ui.modal === 'netrule' ? netSheetHtml() : ui.modal === 'licenses' ? licensesHtml() : '';
   // Переключение вкладок внутри шторки — без повторного выезда.
   const same = !!html && box.dataset.kind === ui.modal;
   box.innerHTML = html;
@@ -820,10 +929,10 @@ async function addPicked(apps) {
 
 // ─────────── Навигация и отрисовка ───────────
 
-const NAV = [['home', 'home', 'Главная'], ['rules', 'rules2', 'Маршрутизация'], ['add', 'plus', 'Добавить'], ['settings', 'settings', 'Настройки']];
+const NAV = [['home', 'home', 'Главная'], ['rules', 'rules2', 'Маршрутизация'], ['net', 'pulse', 'Соединение'], ['add', 'plus', 'Добавить'], ['settings', 'settings', 'Настройки']];
 function render() {
   if (!ov) return;
-  const html = ui.screen === 'home' ? renderHome() : ui.screen === 'add' ? renderAdd() : ui.screen === 'rules' ? renderRules() : renderSettings();
+  const html = ui.screen === 'home' ? renderHome() : ui.screen === 'add' ? renderAdd() : ui.screen === 'rules' ? renderRules() : ui.screen === 'net' ? renderNet() : renderSettings();
   $('screen').innerHTML = html;
   renderNav();
   if (ui.screen === 'add' && ui.addTab === 'link') updateAddDynamic();
@@ -853,6 +962,7 @@ function go(screen, sub = null) {
   ui.screen = screen; ui.sub = sub; ui.menuOpen = false; ui.confirmDel = false;
   if (sub === 'about' && !same) loadInfo();
   if (screen === 'rules' && !same) loadRouting();
+  if (screen === 'net' && !same) loadNet();
   if (!same) $('scroll').scrollTop = 0;
   // Анимация входа — только при смене экрана.
   $('screen').className = '';
@@ -1080,6 +1190,33 @@ const actions = {
     toast('Правило удалено', item.pattern || item.name, DIM, {
       label: 'Отменить', run: () => { if (S().defaultRoute !== pos) return; const arr = [...curList()[kind]]; arr.splice(Math.min(i, arr.length), 0, item); saveList({ [kind]: arr }); },
     });
+  },
+  netToggle: (el) => { ui.netOpen[el.dataset.v] = !ui.netOpen[el.dataset.v]; render(); },
+  netRule: (el) => {
+    const n = ui.net, kind = el.dataset.kind;
+    if (kind === 'app') {
+      const a = n?.apps.find((x) => x.exe === el.dataset.v);
+      if (!a) return;
+      ui.netSheet = { kind, key: a.exe, name: a.name, path: a.path, cur: a.route === 'mixed' ? 'mixed' : a.route, why: a.why };
+    } else {
+      const a = n?.apps.find((x) => x.exe === el.dataset.app);
+      const h = a?.hosts.find((x) => x.host === el.dataset.v);
+      ui.netSheet = { kind, key: el.dataset.v, name: el.dataset.v, cur: h?.route || 'vpn', why: h?.why || '' };
+    }
+    openModal('netrule');
+  },
+  netFix: (el) => {
+    const f = ui.net?.failures[+el.dataset.i];
+    if (!f) return;
+    ui.netSheet = { kind: 'site', key: f.host, name: f.host, cur: f.route, why: f.why };
+    if (el.dataset.v === 'unblock') return netApply('unblock');
+    openModal('netrule');
+  },
+  netApply: (el) => netApply(el.dataset.v),
+  netIp: async () => {
+    ui.ipBusy = true; render();
+    try { ui.ip = await kl.checkIp(); } catch (e) { toast('Не получилось проверить', errText(e), RED); }
+    ui.ipBusy = false; render();
   },
   checkRoute: async () => { try { ui.checkRes = await kl.checkRoute(ui.checkInput); } catch { ui.checkRes = null; } render(); },
   checkSample: async (el) => { ui.checkInput = el.dataset.v; actions.checkRoute(); },
@@ -1309,6 +1446,9 @@ kl.on('profiles-changed', refresh);
 kl.on('killswitch', (issue) => setKsIssue(issue));
 
 setInterval(() => { if (isOn() && ui.screen === 'home') updateLive(); }, 1000);
+// «Соединение»: живой список, пока страница открыта и окно не свернуло
+// правило в окошке.
+setInterval(() => { if (ui.screen === 'net' && isOn() && !ui.modal && !document.hidden) loadNet(); }, 2000);
 
 (async () => {
   await refresh();

@@ -108,6 +108,11 @@ impl Api {
             })
     }
 
+    /// Все открытые соединения, как их отдаёт mihomo.
+    pub fn connections(&self) -> Option<Value> {
+        self.get("/connections", Duration::from_secs(2)).ok()
+    }
+
     /// Сколько скачала каждая программа (по имени exe) за всё время её
     /// соединений — два замера подряд дают скорость.
     pub fn download_by_process(&self) -> HashMap<String, u64> {

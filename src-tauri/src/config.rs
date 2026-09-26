@@ -177,6 +177,10 @@ pub fn rules(s: &Settings, core_exe: &str) -> Vec<String> {
     if !core_exe.is_empty() && !core_exe.contains(',') {
         r.push(format!("PROCESS-PATH-REGEX,{},DIRECT", path_regex(core_exe)));
     }
+    // «Как тебя видят сайты»: один сервис всегда через VPN, другой всегда
+    // напрямую — при любом положении маршрутизации (см. conns.rs).
+    r.push(format!("DOMAIN,{},{GROUP}", crate::conns::IP_VPN_HOST));
+    r.push(format!("DOMAIN,{},DIRECT", crate::conns::IP_DIRECT_HOST));
     // Локальная сеть — всегда напрямую и раньше своих правил: программе
     // «через VPN» локальные адреса (соседи в торренте, принтер) тоже нужны.
     r.push("DOMAIN-SUFFIX,local,DIRECT".into());
@@ -274,7 +278,7 @@ mod tests {
 
     /// Правила без служебных (зонд, локальная сеть, проверка сети Windows).
     fn own(r: &[String]) -> Vec<String> {
-        r.iter().filter(|x| !x.contains("PROCESS-PATH-REGEX") && !x.ends_with("DIRECT,no-resolve") && !["local", "lan", "home.arpa", "msftconnecttest.com", "msftncsi.com"].iter().any(|d| *x == &format!("DOMAIN-SUFFIX,{d},DIRECT"))).cloned().collect()
+        r.iter().filter(|x| !x.contains("PROCESS-PATH-REGEX") && !x.starts_with("DOMAIN,") && !x.ends_with("DIRECT,no-resolve") && !["local", "lan", "home.arpa", "msftconnecttest.com", "msftncsi.com"].iter().any(|d| *x == &format!("DOMAIN-SUFFIX,{d},DIRECT"))).cloned().collect()
     }
 
     fn prof() -> Profile {

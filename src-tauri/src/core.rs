@@ -148,6 +148,7 @@ fn clock() -> String {
 }
 
 fn push(entry: LogEntry) {
+    crate::conns::on_log(&entry.text);
     if let Some(f) = LOG_FILE.lock().unwrap().as_mut() {
         let _ = writeln!(f, "{} {} {}", entry.time, entry.level, entry.text);
     }
@@ -366,6 +367,7 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
 
     *LOG_FILE.lock().unwrap() = std::fs::File::create(state.dir.join("mihomo.log")).ok();
     *TRAFFIC.lock().unwrap() = Traffic::default();
+    crate::conns::clear_failures();
     let gen = GEN.fetch_add(1, Ordering::SeqCst) + 1;
     note(
         "INFO",

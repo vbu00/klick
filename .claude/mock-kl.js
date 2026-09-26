@@ -162,6 +162,29 @@
       lines.push(keep);
       return s.routing ? { title: `Переключить на «${name}»?`, cta: 'Переключить', lines } : { title: `Включить маршрутизацию: «${name}»?`, cta: 'Включить', lines };
     },
+    connectionsView: async () => {
+      if (status.state !== 'on') return { on: false, apps: [], failures: [], nVpn: 0, nDirect: 0, nBlock: 0 };
+      const j = () => Math.round(Math.random() * 200 * 1024);
+      const ex = settings.defaultRoute === 'proxy';
+      const rest = ex ? 'всё остальное — «VPN для всего»' : 'всё остальное — «VPN для выбранного»';
+      return { on: true, nVpn: 9, nDirect: 4, nBlock: 1,
+        apps: [
+          { exe: 'qbittorrent.exe', name: 'qBittorrent', path: 'C:\qb\qbittorrent.exe', route: 'ks', conns: 41, speed: 3.8 * 1024 * 1024 + j(), why: 'Только через VPN (Kill Switch): без VPN — без сети.', hosts: [{ host: '41 соединение с пирами', route: 'vpn', why: 'только через VPN (Kill Switch)', count: 41 }] },
+          { exe: 'Discord.exe', name: 'Discord', path: 'C:\Discord\Discord.exe', route: 'vpn', conns: 8, speed: 1.2 * 1024 * 1024 + j(), why: 'Своего правила нет — каждый адрес идёт по своему правилу.',
+            hosts: [{ host: 'gateway.discord.gg', route: 'vpn', why: rest, count: 3 }, { host: 'media.discordapp.net', route: 'vpn', why: rest, count: 4 }, { host: '185.40.64.12 · UDP', route: 'vpn', why: rest, count: 1 }] },
+          { exe: 'chrome.exe', name: 'Google Chrome', path: 'C:\Chrome\chrome.exe', route: 'mixed', conns: 23, speed: 640 * 1024 + j(), why: 'Своего правила нет — каждый адрес идёт по своему правилу.',
+            hosts: [{ host: 'youtube.com', route: 'vpn', why: ex ? rest : 'набор «Заблокированные в РФ»', count: 9 }, { host: 'ozon.ru', route: 'direct', why: ex ? 'набор «Россия напрямую»' : rest, count: 6 }, { host: 'gosuslugi.ru', route: 'direct', why: 'правило сайта', count: 2 }] },
+          { exe: 'cs2.exe', name: 'Counter-Strike 2', path: 'C:\cs2\cs2.exe', route: 'direct', conns: 2, speed: 48 * 1024, why: 'Правило программы: напрямую.', hosts: [{ host: '155.133.248.34 · UDP', route: 'direct', why: 'правило программы', count: 1 }, { host: 'api.steampowered.com', route: 'direct', why: 'правило программы', count: 1 }] },
+        ],
+        failures: [
+          { host: 'psyonixapi.com', app: 'RocketLeague.exe', route: 'vpn', why: 'не ответил вовремя', ago: 130 },
+          { host: 'lk.mos.ru', app: 'chrome.exe', route: 'vpn', why: 'соединение сброшено', ago: 360 },
+          { host: 'ads.example.net', app: 'chrome.exe', route: 'block', why: 'заблокировано вашим правилом', ago: 480 },
+        ] };
+    },
+    checkIp: async () => { await new Promise((r) => setTimeout(r, 900)); const on = status.state === 'on';
+      return { vpn: on ? { ip: '203.0.113.10', place: 'NL, Amsterdam', org: 'Hosting B.V.', hosting: true } : null, vpnError: null,
+        direct: { ip: '198.51.100.7', place: 'RU, Moscow', org: 'Home ISP', hosting: false }, directError: null, ipv6: null }; },
     retryKillSwitch: async () => { await new Promise((r) => setTimeout(r, 600)); window.__mock.ksIssue = null; return null; },
     // Иконки в стенде — цветной квадрат с буквой: в сеть стенд не ходит.
     favicon: async (host) => {
