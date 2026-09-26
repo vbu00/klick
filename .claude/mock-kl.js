@@ -144,7 +144,7 @@
       steps.push({ title: 'Правила программ', note: 'Главнее сайтов: откроете в программе с правилом — решит оно.' }, { title: 'Правила сайтов', note: rule ? 'Найдено: ' + rule.pattern : 'Совпадений нет.' });
       const ex = s.defaultRoute === 'proxy';
       steps.push(ex ? { title: 'Набор «Россия напрямую»', note: s.sets.ru ? 'Включён: .ru, .su, .рф и российские адреса.' : 'Выключен.' } : { title: 'Набор «Заблокированные в РФ»', note: s.sets.blocked ? 'Включён: 1183 домена, обновляется сам.' : 'Выключен.' });
-      steps.push(ex ? { title: 'Всё остальное → через VPN', note: 'Положение «Всё, кроме списка».' } : { title: 'Всё остальное → напрямую', note: 'Положение «Только выбранное».' });
+      steps.push(ex ? { title: 'Всё остальное → через VPN', note: 'Положение «VPN для всего».' } : { title: 'Всё остальное → напрямую', note: 'Положение «VPN для выбранного».' });
       if (rule) return { host: h, steps, hit: 3, verdict: h + ' → ' + ({ proxy: 'через VPN', direct: 'напрямую', block: 'заблокирован' })[rule.action] + ' · правило сайта', tone: ({ proxy: 'vpn', direct: 'direct', block: 'block' })[rule.action] };
       if (ex && s.sets.ru && /\.(ru|su|рф)$/.test(h)) return { host: h, steps, hit: 4, verdict: h + ' → напрямую · набор «Россия»', tone: 'direct' };
       if (!ex && s.sets.blocked && ['youtube.com', 'discord.com', 'instagram.com'].some((b) => h === b || h.endsWith('.' + b))) return { host: h, steps, hit: 4, verdict: h + ' → через VPN · набор «Заблокированные»', tone: 'vpn' };
@@ -154,7 +154,7 @@
       const s = settings, l = s.lists[route], ks = s.ksApps.filter((a) => a.on).length;
       const n = (a) => l.apps.filter((x) => x.action === a).length + l.sites.filter((x) => x.action === a).length;
       const keep = { tone: 'muted', text: `Не меняется: «Только через VPN» (${ks}) и локальная сеть напрямую.` };
-      const name = route === 'proxy' ? 'Всё, кроме списка' : 'Только выбранное';
+      const name = route === 'proxy' ? 'VPN для всего' : 'VPN для выбранного';
       if (!routing) return { title: 'Выключить маршрутизацию?', cta: 'Выключить', lines: [{ tone: 'vpn', text: 'Весь трафик пойдёт через VPN, включая российские сайты.' }, { tone: 'muted', text: `Правила (${l.apps.length + l.sites.length}) сохранятся, но не будут действовать, блок тоже (${n('block')}).` }, keep] };
       const lines = route === 'proxy'
         ? [{ tone: 'vpn', text: 'Через VPN — всё, кроме:' }, { tone: 'muted', text: `${s.sets.ru ? 'набор «Россия напрямую»; ' : ''}${n('direct')} правил «напрямую»; блок: ${n('block')}.` }]

@@ -101,12 +101,12 @@ function timerText() {
   return `${Math.floor(h / 3600)}:${String(Math.floor(h / 60) % 60).padStart(2, '0')}:${String(h % 60).padStart(2, '0')}`;
 }
 // Маршрутизация: тумблер и два положения, у каждого свой список.
-const POS_NAMES = { proxy: 'Всё, кроме списка', direct: 'Только выбранное' };
+const POS_NAMES = { proxy: 'VPN для всего', direct: 'VPN для выбранного' };
 const onlyChosen = () => S().routing && S().defaultRoute === 'direct';
 const curList = () => S().lists[S().defaultRoute];
 function routeLabel() {
   const s = S();
-  return s.routing ? POS_NAMES[s.defaultRoute].toLowerCase() : 'всё через VPN';
+  return s.routing ? POS_NAMES[s.defaultRoute] : 'всё через VPN';
 }
 function modeLabel() {
   const s = S();
@@ -439,7 +439,7 @@ function renderRules() {
         <div class="t12" style="line-height:1.45">${on ? 'Включена: трафик идёт по положению ниже и списку.' : 'Выключена: весь трафик идёт через VPN. Списки сохранены и не действуют.'}</div></div>
         ${tog(on, 'routingToggle', 'Маршрутизация')}</div>
       <div class="seg pos${on ? '' : ' off'}">${['proxy', 'direct'].map((v) => `<button class="press${s.defaultRoute === v ? ' on' : ''}" data-act="routePos" data-v="${v}"${on ? '' : ' disabled'}>${POS_NAMES[v]}</button>`).join('')}</div>
-      ${on ? `<div class="t12" style="line-height:1.45;margin-top:10px">${ex ? 'Через VPN идёт всё. Ниже — что пустить напрямую или заблокировать.' : 'Напрямую идёт всё. Ниже — что пустить через VPN или заблокировать.'}</div>` : ''}
+      ${on ? `<div class="t12" style="line-height:1.45;margin-top:10px">${ex ? 'Через VPN идёт всё, кроме списка ниже: его — напрямую или в блок.' : 'Через VPN идёт только список ниже, остальное — напрямую.'}</div>` : ''}
     </div>
     ${on && s.mode !== 'tun' ? `<div class="summary"><div class="dot" style="background:${ORANGE}"></div><div class="tx">Режим «${s.mode === 'proxy' ? 'Proxy' : 'Системный proxy'}»: правила программ действуют только на те, что сами ходят через прокси. Игры и торренты идут мимо. <a href="#" data-act="goModeSub">Включить VPN (TUN)</a></div></div>` : ''}
     <div class="card mt${on ? '' : ' dimmed'}"><div class="row"><div class="grow"><div class="t14">${set[1]}</div><div class="t12" style="line-height:1.4">${set[2]}</div></div>${tog(s.sets[set[0]], 'toggleSet', set[1])}</div></div>

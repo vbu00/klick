@@ -272,8 +272,8 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             "всё через VPN"
         } else {
             match settings.default_route {
-                DefaultRoute::Direct => "только выбранное",
-                DefaultRoute::Proxy => "всё, кроме списка",
+                DefaultRoute::Direct => "VPN для выбранного",
+                DefaultRoute::Proxy => "VPN для всего",
             }
         },
         since: s.since,

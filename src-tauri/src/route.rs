@@ -14,8 +14,8 @@ use std::time::SystemTime;
 use crate::config::RU_ZONES;
 use crate::state::{Action, DefaultRoute, Mode, Settings};
 
-pub const NAME_PROXY: &str = "Всё, кроме списка";
-pub const NAME_DIRECT: &str = "Только выбранное";
+pub const NAME_PROXY: &str = "VPN для всего";
+pub const NAME_DIRECT: &str = "VPN для выбранного";
 
 pub fn position_name(r: DefaultRoute) -> &'static str {
     match r {

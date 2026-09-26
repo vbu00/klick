@@ -32,10 +32,10 @@ pub enum Mode {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultRoute {
-    /// «Всё, кроме списка»: через VPN, список — исключения.
+    /// «VPN для всего»: через VPN, список — исключения.
     #[default]
     Proxy,
-    /// «Только выбранное»: напрямую, через VPN — список.
+    /// «VPN для выбранного»: напрямую, через VPN — список.
     Direct,
 }
 
@@ -77,9 +77,9 @@ pub struct RuleList {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(default)]
 pub struct Lists {
-    /// «Всё, кроме списка»: что пустить напрямую или заблокировать.
+    /// «VPN для всего»: что пустить напрямую или заблокировать.
     pub proxy: RuleList,
-    /// «Только выбранное»: что пустить через VPN или заблокировать.
+    /// «VPN для выбранного»: что пустить через VPN или заблокировать.
     pub direct: RuleList,
 }
 
@@ -106,10 +106,10 @@ pub struct KsSite {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Sets {
-    /// «Всё, кроме списка»: Россия напрямую — .ru/.su/.рф и российские IP
+    /// «VPN для всего»: Россия напрямую — .ru/.su/.рф и российские IP
     /// по базе GeoIP.
     pub ru: bool,
-    /// «Только выбранное»: заблокированные в РФ и закрывшиеся для РФ
+    /// «VPN для выбранного»: заблокированные в РФ и закрывшиеся для РФ
     /// сервисы через VPN (список itdoginfo/allow-domains, качает mihomo).
     pub blocked: bool,
 }
@@ -240,8 +240,8 @@ pub struct AppState {
 
 /// Настройки до 0.4: один общий список, быстрые исключения, режим mihomo.
 /// Переносим так, чтобы в каждом положении всё работало как раньше:
-/// «напрямую» и «блок» — в список «Всё, кроме списка», «через VPN» и
-/// «блок» — в «Только выбранное». Маршрутизация у старого пользователя
+/// «напрямую» и «блок» — в список «VPN для всего», «через VPN» и
+/// «блок» — в «VPN для выбранного». Маршрутизация у старого пользователя
 /// включена (она у него была), кроме «Глобально» — это и есть «выключена».
 /// Возвращает сообщение окну, если было что переносить.
 fn migrate(raw: &mut Value) -> Option<String> {
@@ -436,5 +436,5 @@ fn переезд_файла() {
     let s: Settings = serde_json::from_value(raw).unwrap();
     let short = |l: &RuleList| format!("программ {}, сайтов {}", l.apps.len(), l.sites.len());
     println!("routing={} положение={:?} наборы={:?}", s.routing, s.default_route, s.sets);
-    println!("«Всё, кроме списка»: {}; «Только выбранное»: {}; Kill Switch: {} ({} программ)", short(&s.lists.proxy), short(&s.lists.direct), s.kill_switch, s.ks_apps.len());
+    println!("«VPN для всего»: {}; «VPN для выбранного»: {}; Kill Switch: {} ({} программ)", short(&s.lists.proxy), short(&s.lists.direct), s.kill_switch, s.ks_apps.len());
 }
