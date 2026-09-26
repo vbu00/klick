@@ -17,23 +17,29 @@
     { id: 'p2', kind: 'single', name: 'grpc', hasUrl: true, active: 'grpc', updatedAt: now(), info: null, servers: [{ name: 'grpc', proto: 'VLESS · gRPC', host: '198.51.100.81:443' }] },
   ];
   const settings = {
-    activeProfile: 'p1', mode: 'tun', defaultRoute: 'proxy', proxyPort: 7890, presets: { ru: true, geoip: false },
-    sites: [{ pattern: 'gosuslugi.ru', action: 'direct' }, { pattern: 'youtube.com', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }],
-    apps: [{ name: 'Telegram', exe: 'Telegram.exe', action: 'proxy' }, { name: 'Steam', exe: 'steam.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }],
+    activeProfile: 'p1', mode: 'tun', routing: true, defaultRoute: 'proxy', proxyPort: 7890, sets: { ru: true, blocked: true },
+    lists: {
+      proxy: { apps: [{ name: 'Steam', exe: 'steam.exe', path: 'C:\\Steam\\steam.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', path: 'C:\\Discord\\Discord.exe', action: 'proxy' }],
+        sites: [{ pattern: 'gosuslugi.ru', action: 'direct' }, { pattern: 'sberbank.ru', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }] },
+      direct: { apps: [{ name: 'Discord', exe: 'Discord.exe', path: 'C:\\Discord\\Discord.exe', action: 'proxy' }, { name: 'Counter-Strike 2', exe: 'cs2.exe', action: 'direct' }],
+        sites: [{ pattern: 'youtube.com', action: 'proxy' }, { pattern: 'chatgpt.com', action: 'proxy' }, { pattern: 'ads.example.net', action: 'block' }] },
+    },
     killSwitch: true,
     ksSites: [{ pattern: 'sberbank.ru', on: true }, { pattern: 'mail.google.com', on: true }, { pattern: 'github.com', on: false }],
-    ksApps: [{ name: 'qBittorrent', exe: 'qbittorrent.exe', path: 'C:\\x', on: true }, { name: 'Telegram', exe: 'Telegram.exe', path: 'C:\\x', on: true }, { name: 'Discord', exe: 'Discord.exe', path: 'C:\\x', on: true }, { name: 'Firefox', exe: 'firefox.exe', path: 'C:\\x', on: false }],
+    ksApps: [{ name: 'qBittorrent', exe: 'qbittorrent.exe', path: 'C:\\x', on: true }, { name: 'Firefox', exe: 'firefox.exe', path: 'C:\\x', on: false }],
     autoUpdate: true, notifyDrops: true, connectOnLaunch: true,
   };
   // ?promo=1 — данные для ролика (promo/): геймер, CS2 и Discord.
   //   &apps=after — правило для CS2 уже добавлено.
   const PQ = new URLSearchParams(location.search);
   if (PQ.get('promo')) {
-    settings.apps = PQ.get('apps') === 'after'
+    settings.lists.proxy.apps = PQ.get('apps') === 'after'
       ? [{ name: 'Counter-Strike 2', exe: 'cs2.exe', action: 'direct' }, { name: 'Discord', exe: 'Discord.exe', action: 'proxy' }]
       : [{ name: 'Discord', exe: 'Discord.exe', action: 'proxy' }];
-    settings.sites = [];
+    settings.lists.proxy.sites = [];
   }
+  // &routing=off|proxy|direct — маршрутизация на стенде.
+  if (PQ.get('routing')) { settings.routing = PQ.get('routing') !== 'off'; if (settings.routing) settings.defaultRoute = PQ.get('routing'); }
   // &mode=proxy|sysproxy|tun — режим подключения на стенде.
   if (PQ.get('mode')) settings.mode = PQ.get('mode');
   let status = { state: 'off', error: null, warning: null, profileId: 'p1', server: 'Нидерланды · Amsterdam', mode: 'tun', since: null, health: null };
@@ -106,6 +112,56 @@
       return { settings: clone(settings), warning: null };
     },
     setAutostart: async (v) => (autostart = v),
+    // Упрощённые объяснения маршрутизации (настоящие — route.rs).
+    routingView: async () => {
+      const s = settings, ex = s.defaultRoute === 'proxy', list = s.lists[s.defaultRoute];
+      const BL = ['youtube.com', 'discord.com', 'instagram.com', 'x.com', 'chatgpt.com'];
+      const ru = (h) => /\.(ru|su|рф)$/.test(h);
+      const row = (kind, key, state) => {
+        const r = { kind, key, state, result: '', tone: 'vpn', hint: null, warn: false };
+        if (state === 'ks') { r.result = 'через VPN всегда · без VPN — без сети'; r.hint = s.mode !== 'tun' ? 'Системный прокси: если программа не умеет ходить через прокси, она останется без сети.' : 'Действует в любом положении и при выключенной маршрутизации.'; r.warn = s.mode !== 'tun'; return r; }
+        if (!s.routing) { r.result = 'через VPN · маршрутизация выключена'; r.tone = 'muted'; r.hint = state === 'block' ? 'Блок сейчас не действует — включится вместе с маршрутизацией.' : 'Правило сохранено и заработает, когда маршрутизация включена.'; return r; }
+        if (state === 'block') { r.result = 'заблокировано'; r.tone = 'block'; }
+        else if (state === 'vpn') { r.result = 'через VPN'; if (kind === 'site' && ex && s.sets.ru && ru(key)) r.hint = 'Перебивает набор «Россия напрямую».'; else if (ex) { r.hint = 'Ничего не меняет: в этом положении всё и так идёт через VPN.'; r.warn = true; } else if (kind === 'site' && s.sets.blocked && BL.includes(key)) r.hint = 'Уже есть в наборе «Заблокированные в РФ».'; }
+        else { r.result = 'напрямую'; r.tone = 'direct'; if (!ex) { r.hint = 'Ничего не меняет: в этом положении всё и так идёт напрямую.'; r.warn = true; } else if (kind === 'site' && s.sets.ru && ru(key)) r.hint = 'Набор «Россия напрямую» и так ведёт его напрямую.'; }
+        if (kind === 'app' && s.mode !== 'tun') { r.hint = 'Системный прокси: сработает, только если программа ходит через прокси.'; r.warn = true; }
+        return r;
+      };
+      const st = { proxy: 'vpn', direct: 'direct', block: 'block' };
+      return {
+        apps: s.ksApps.filter((a) => a.on).map((a) => row('app', a.exe, 'ks')).concat(list.apps.map((a) => row('app', a.exe, st[a.action]))),
+        sites: list.sites.map((x) => row('site', x.pattern, st[x.action])),
+        blockedCount: 1183, blockedUpdated: now() - 5 * 3600,
+      };
+    },
+    checkRoute: async (input) => {
+      const h = input.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split('/')[0].replace(/^www\./, '');
+      if (!h) return null;
+      const s = settings, steps = [{ title: 'Локальная сеть — всегда напрямую', note: 'Роутер, принтер, NAS.' }, { title: 'Программы «Только через VPN»', note: 'Для сайта не срабатывает: решает программа, из которой его открыли.' }];
+      if (/\.(lan|local)$/.test(h)) return { host: h, steps, hit: 0, verdict: h + ' → напрямую · локальная сеть', tone: 'direct' };
+      if (!s.routing) { steps.push({ title: 'Маршрутизация выключена → через VPN', note: 'Списки и наборы ниже не действуют.' }); return { host: h, steps, hit: 2, verdict: h + ' → через VPN · маршрутизация выключена', tone: 'vpn' }; }
+      const rule = s.lists[s.defaultRoute].sites.find((r) => h === r.pattern || h.endsWith('.' + r.pattern));
+      steps.push({ title: 'Правила программ', note: 'Главнее сайтов: откроете в программе с правилом — решит оно.' }, { title: 'Правила сайтов', note: rule ? 'Найдено: ' + rule.pattern : 'Совпадений нет.' });
+      const ex = s.defaultRoute === 'proxy';
+      steps.push(ex ? { title: 'Набор «Россия напрямую»', note: s.sets.ru ? 'Включён: .ru, .su, .рф и российские адреса.' : 'Выключен.' } : { title: 'Набор «Заблокированные в РФ»', note: s.sets.blocked ? 'Включён: 1183 домена, обновляется сам.' : 'Выключен.' });
+      steps.push(ex ? { title: 'Всё остальное → через VPN', note: 'Положение «Всё, кроме списка».' } : { title: 'Всё остальное → напрямую', note: 'Положение «Только выбранное».' });
+      if (rule) return { host: h, steps, hit: 3, verdict: h + ' → ' + ({ proxy: 'через VPN', direct: 'напрямую', block: 'заблокирован' })[rule.action] + ' · правило сайта', tone: ({ proxy: 'vpn', direct: 'direct', block: 'block' })[rule.action] };
+      if (ex && s.sets.ru && /\.(ru|su|рф)$/.test(h)) return { host: h, steps, hit: 4, verdict: h + ' → напрямую · набор «Россия»', tone: 'direct' };
+      if (!ex && s.sets.blocked && ['youtube.com', 'discord.com', 'instagram.com'].some((b) => h === b || h.endsWith('.' + b))) return { host: h, steps, hit: 4, verdict: h + ' → через VPN · набор «Заблокированные»', tone: 'vpn' };
+      return { host: h, steps, hit: 5, verdict: h + (ex ? ' → через VPN · всё остальное' : ' → напрямую · всё остальное'), tone: ex ? 'vpn' : 'direct' };
+    },
+    routingPreview: async (routing, route) => {
+      const s = settings, l = s.lists[route], ks = s.ksApps.filter((a) => a.on).length;
+      const n = (a) => l.apps.filter((x) => x.action === a).length + l.sites.filter((x) => x.action === a).length;
+      const keep = { tone: 'muted', text: `Не меняется: «Только через VPN» (${ks}) и локальная сеть напрямую.` };
+      const name = route === 'proxy' ? 'Всё, кроме списка' : 'Только выбранное';
+      if (!routing) return { title: 'Выключить маршрутизацию?', cta: 'Выключить', lines: [{ tone: 'vpn', text: 'Весь трафик пойдёт через VPN, включая российские сайты.' }, { tone: 'muted', text: `Правила (${l.apps.length + l.sites.length}) сохранятся, но не будут действовать, блок тоже (${n('block')}).` }, keep] };
+      const lines = route === 'proxy'
+        ? [{ tone: 'vpn', text: 'Через VPN — всё, кроме:' }, { tone: 'muted', text: `${s.sets.ru ? 'набор «Россия напрямую»; ' : ''}${n('direct')} правил «напрямую»; блок: ${n('block')}.` }]
+        : [{ tone: 'direct', text: 'Напрямую — всё, кроме:' }, { tone: 'vpn', text: `${s.sets.blocked ? 'набор «Заблокированные в РФ»; ' : ''}${n('proxy')} правил «через VPN»; блок: ${n('block')}.` }, { tone: 'warn', text: 'Сайты, которых нет ни в наборе, ни в списке, откроются без VPN. Не открылся — добавьте его сюда.' }];
+      lines.push(keep);
+      return s.routing ? { title: `Переключить на «${name}»?`, cta: 'Переключить', lines } : { title: `Включить маршрутизацию: «${name}»?`, cta: 'Включить', lines };
+    },
     retryKillSwitch: async () => { await new Promise((r) => setTimeout(r, 600)); window.__mock.ksIssue = null; return null; },
     // Иконки в стенде — цветной квадрат с буквой: в сеть стенд не ходит.
     favicon: async (host) => {

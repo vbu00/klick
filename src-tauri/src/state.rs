@@ -23,19 +23,19 @@ pub enum Mode {
     Tun,
 }
 
-/// Куда идёт то, что не попало ни под одно правило.
+/// Положение включённой маршрутизации: куда идёт то, что не попало ни под
+/// одно правило. У каждого положения свой список правил.
 ///
-/// До 0.3.1 был ещё режим mihomo «По правилам / Глобально / Напрямую».
-/// Убран: «Глобально» дублировало «Всё через VPN» (и несколько версий
-/// молча шло напрямую), а «Напрямую» показывало «Подключено», ничего не
-/// пуская в туннель. Куда идёт трафик — только здесь и в правилах.
+/// Маршрутизация выключена (`Settings::routing`) — всё через VPN, списки
+/// не действуют. Режим mihomo «Глобально / Напрямую» убран: куда идёт
+/// трафик — только тумблер, положение и списки.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DefaultRoute {
-    /// Всё через VPN, правила — исключения.
+    /// «Всё, кроме списка»: через VPN, список — исключения.
     #[default]
     Proxy,
-    /// Только выбранное через VPN, остальное напрямую.
+    /// «Только выбранное»: напрямую, через VPN — список.
     Direct,
 }
 
@@ -58,6 +58,29 @@ pub struct AppRule {
     pub name: String,
     pub exe: String,
     pub action: Action,
+    /// Полный путь — нужен, чтобы перевести программу в «Только через VPN»
+    /// (правилу брандмауэра одного имени мало). У старых правил пуст.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+}
+
+/// Список правил одного положения.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct RuleList {
+    pub apps: Vec<AppRule>,
+    pub sites: Vec<SiteRule>,
+}
+
+/// Свой список у каждого положения: пока включено одно, список другого
+/// сохраняется.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Lists {
+    /// «Всё, кроме списка»: что пустить напрямую или заблокировать.
+    pub proxy: RuleList,
+    /// «Только выбранное»: что пустить через VPN или заблокировать.
+    pub direct: RuleList,
 }
 
 /// Программа под защитой Kill Switch. Правилу брандмауэра нужен полный
@@ -78,20 +101,22 @@ pub struct KsSite {
     pub on: bool,
 }
 
+/// Готовые наборы — по одному на положение. Локальная сеть напрямую
+/// всегда, без тумблера.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
-pub struct Presets {
-    /// Домены .ru, .su и .рф — напрямую.
+pub struct Sets {
+    /// «Всё, кроме списка»: Россия напрямую — .ru/.su/.рф и российские IP
+    /// по базе GeoIP.
     pub ru: bool,
-    /// Российские IP по базе GeoIP — напрямую.
-    pub geoip: bool,
-    // Локальная сеть с 0.3.1 напрямую всегда: слать 192.168.x.x на
-    // зарубежный сервер незачем, а выключенный тумблер ронял принтеры и NAS.
+    /// «Только выбранное»: заблокированные в РФ и закрывшиеся для РФ
+    /// сервисы через VPN (список itdoginfo/allow-domains, качает mihomo).
+    pub blocked: bool,
 }
 
-impl Default for Presets {
+impl Default for Sets {
     fn default() -> Self {
-        Presets { ru: true, geoip: false }
+        Sets { ru: true, blocked: true }
     }
 }
 
@@ -100,11 +125,13 @@ impl Default for Presets {
 pub struct Settings {
     pub active_profile: Option<String>,
     pub mode: Mode,
+    /// Маршрутизация включена. Выключена — всё через VPN, списки и блок
+    /// не действуют. У нового пользователя выключена.
+    pub routing: bool,
     pub default_route: DefaultRoute,
     pub proxy_port: u16,
-    pub presets: Presets,
-    pub sites: Vec<SiteRule>,
-    pub apps: Vec<AppRule>,
+    pub sets: Sets,
+    pub lists: Lists,
     pub kill_switch: bool,
     pub ks_apps: Vec<KsApp>,
     pub ks_sites: Vec<KsSite>,
@@ -114,16 +141,26 @@ pub struct Settings {
     pub connect_on_launch: bool,
 }
 
+impl Settings {
+    /// Список текущего положения.
+    pub fn list(&self) -> &RuleList {
+        match self.default_route {
+            DefaultRoute::Proxy => &self.lists.proxy,
+            DefaultRoute::Direct => &self.lists.direct,
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
             active_profile: None,
             mode: Mode::Tun,
+            routing: false,
             default_route: DefaultRoute::Proxy,
             proxy_port: 7890,
-            presets: Presets::default(),
-            sites: vec![],
-            apps: vec![],
+            sets: Sets::default(),
+            lists: Lists::default(),
             kill_switch: false,
             ks_apps: vec![],
             ks_sites: vec![],
@@ -201,13 +238,38 @@ pub struct AppState {
     pub notice: Mutex<Option<String>>,
 }
 
-/// Что сказать человеку о переезде настроек из прошлых версий.
-fn migration_notice(raw: &Value) -> Option<String> {
-    match raw.get("routeMode").and_then(Value::as_str) {
-        Some("global") => Some("Режим «Глобально» убран. Сейчас: всё через VPN, кроме исключений на экране «Маршрутизация» — их можно выключить там же.".into()),
-        Some("direct") => Some("Режим «Напрямую» убран: чтобы ничего не шло через VPN, просто выключите его. Сейчас трафик идёт по правилам «Маршрутизации».".into()),
-        _ => None,
+/// Настройки до 0.4: один общий список, быстрые исключения, режим mihomo.
+/// Переносим так, чтобы в каждом положении всё работало как раньше:
+/// «напрямую» и «блок» — в список «Всё, кроме списка», «через VPN» и
+/// «блок» — в «Только выбранное». Маршрутизация у старого пользователя
+/// включена (она у него была), кроме «Глобально» — это и есть «выключена».
+/// Возвращает сообщение окну, если было что переносить.
+fn migrate(raw: &mut Value) -> Option<String> {
+    let obj = raw.as_object_mut()?;
+    if obj.contains_key("routing") {
+        return None;
     }
+    let route = obj.remove("routeMode").and_then(|v| v.as_str().map(String::from));
+    let apps = obj.remove("apps").unwrap_or(Value::Null);
+    let sites = obj.remove("sites").unwrap_or(Value::Null);
+    let presets = obj.remove("presets").unwrap_or(Value::Null);
+    let pick = |list: &Value, keep: &[&str]| -> Value {
+        Value::Array(list.as_array().map(|a| a.iter().filter(|r| r.get("action").and_then(Value::as_str).is_some_and(|x| keep.contains(&x))).cloned().collect()).unwrap_or_default())
+    };
+    obj.insert("lists".into(), serde_json::json!({
+        "proxy": { "apps": pick(&apps, &["direct", "block"]), "sites": pick(&sites, &["direct", "block"]) },
+        "direct": { "apps": pick(&apps, &["proxy", "block"]), "sites": pick(&sites, &["proxy", "block"]) },
+    }));
+    let flag = |k: &str| presets.get(k).and_then(Value::as_bool);
+    let ru = flag("ru").unwrap_or(true) || flag("geoip").unwrap_or(false);
+    obj.insert("sets".into(), serde_json::json!({ "ru": ru, "blocked": true }));
+    let global = route.as_deref() == Some("global");
+    obj.insert("routing".into(), Value::Bool(!global));
+    Some(match route.as_deref() {
+        Some("global") => "Режим «Глобально» теперь называется «Маршрутизация выключена»: всё идёт через VPN. Правила сохранены — включите маршрутизацию, и они заработают.".into(),
+        Some("direct") => "Режим «Напрямую» убран: чтобы ничего не шло через VPN, просто выключите VPN. Правила перенесены на экран «Маршрутизация».".into(),
+        _ => "Маршрутизация обновилась: у каждого положения теперь свой список. Ваши правила перенесены — загляните на экран «Маршрутизация».".into(),
+    })
 }
 
 pub fn now_secs() -> u64 {
@@ -227,8 +289,8 @@ impl AppState {
     pub fn load(app: &AppHandle) -> AppState {
         let dir = data_dir(app);
         let _ = std::fs::create_dir_all(&dir);
-        let raw: Option<Value> = std::fs::read_to_string(dir.join("settings.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
-        let notice = raw.as_ref().and_then(migration_notice);
+        let mut raw: Option<Value> = std::fs::read_to_string(dir.join("settings.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let notice = raw.as_mut().and_then(migrate);
         let settings = raw.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
         let vault = std::fs::read(dir.join("profiles.dat"))
             .ok()
@@ -336,17 +398,43 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"mode":"proxy"}"#).unwrap();
         assert_eq!(s.mode, Mode::Proxy);
         assert_eq!(s.proxy_port, 7890);
-        assert!(s.presets.ru && !s.presets.geoip);
-        assert_eq!(s.default_route, DefaultRoute::Proxy, "старые настройки — как раньше: всё через VPN");
+        assert!(!s.routing, "у нового пользователя маршрутизация выключена");
+        assert!(s.sets.ru && s.sets.blocked);
     }
 
     #[test]
-    fn переезд_с_режимов_маршрутизации() {
-        let old: Value = serde_json::from_str(r#"{"mode":"tun","routeMode":"global","presets":{"ru":true,"lan":false,"geoip":true}}"#).unwrap();
-        assert!(migration_notice(&old).unwrap().contains("Глобально"));
-        let s: Settings = serde_json::from_value(old).unwrap();
-        assert!(s.presets.ru && s.presets.geoip, "старые поля не мешают читать настройки");
+    fn переезд_старых_правил() {
+        let mut old: Value = serde_json::from_str(r#"{"mode":"tun","routeMode":"rule","defaultRoute":"direct","presets":{"ru":false,"geoip":true},
+            "apps":[{"name":"Discord","exe":"Discord.exe","action":"proxy"},{"name":"Steam","exe":"steam.exe","action":"direct"}],
+            "sites":[{"pattern":"ads.example","action":"block"},{"pattern":"gosuslugi.ru","action":"direct"}]}"#).unwrap();
+        assert!(migrate(&mut old).is_some());
+        let s: Settings = serde_json::from_value(old.clone()).unwrap();
+        assert!(s.routing);
+        assert_eq!(s.default_route, DefaultRoute::Direct);
+        assert!(s.sets.ru, "GeoIP был включён — набор «Россия» включён");
+        let names = |l: &RuleList| l.apps.iter().map(|a| a.exe.clone()).chain(l.sites.iter().map(|x| x.pattern.clone())).collect::<Vec<_>>();
+        assert_eq!(names(&s.lists.proxy), ["steam.exe", "ads.example", "gosuslugi.ru"]);
+        assert_eq!(names(&s.lists.direct), ["Discord.exe", "ads.example"]);
+        assert!(migrate(&mut old).is_none(), "второй раз не переносим");
+        let mut global: Value = serde_json::json!({"routeMode": "global"});
+        assert!(migrate(&mut global).unwrap().contains("выключена"));
+        assert_eq!(global["routing"], false);
+        let s: Settings = serde_json::from_value(global).unwrap();
         assert!(!serde_json::to_string(&s).unwrap().contains("routeMode"));
-        assert!(migration_notice(&serde_json::json!({"routeMode": "rule"})).is_none());
     }
+}
+
+/// Переезд настоящих настроек, без записи на диск:
+/// KLICK_SETTINGS=путь cargo test --lib переезд_файла -- --ignored --nocapture
+#[cfg(test)]
+#[test]
+#[ignore]
+fn переезд_файла() {
+    let path = std::env::var("KLICK_SETTINGS").expect("KLICK_SETTINGS");
+    let mut raw: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    println!("сообщение: {:?}", migrate(&mut raw));
+    let s: Settings = serde_json::from_value(raw).unwrap();
+    let short = |l: &RuleList| format!("программ {}, сайтов {}", l.apps.len(), l.sites.len());
+    println!("routing={} положение={:?} наборы={:?}", s.routing, s.default_route, s.sets);
+    println!("«Всё, кроме списка»: {}; «Только выбранное»: {}; Kill Switch: {} ({} программ)", short(&s.lists.proxy), short(&s.lists.direct), s.kill_switch, s.ks_apps.len());
 }

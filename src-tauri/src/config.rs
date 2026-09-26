@@ -13,6 +13,15 @@ use crate::state::{Action, DefaultRoute, Mode, Profile, Settings};
 
 pub const GROUP: &str = "PROXY";
 
+/// Набор «Заблокированные в РФ»: заблокированные и закрывшиеся для РФ
+/// сервисы. Правила DOMAIN-SUFFIX, ~1200 доменов; mihomo качает его сам,
+/// через VPN, и обновляет раз в сутки. У репозитория нет лицензии, поэтому
+/// в установщик не вшиваем.
+pub const BLOCKED_URL: &str = "https://raw.githubusercontent.com/itdoginfo/allow-domains/main/Russia/inside-clashx.lst";
+/// Где mihomo держит скачанный набор (относительно своей папки).
+pub const BLOCKED_PATH: &str = "rulesets/ru-blocked.lst";
+const BLOCKED_SET: &str = "ru-blocked";
+
 /// Частные сети — «Локальная сеть напрямую».
 const LAN: [&str; 7] = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10", "224.0.0.0/4"];
 
@@ -55,7 +64,7 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
         "secret": secret,
         "geodata-mode": false,
         // Свежая база GeoIP — забота mihomo, пока пресет включён (см. geo.rs).
-        "geo-auto-update": settings.presets.geoip,
+        "geo-auto-update": settings.routing && settings.default_route == DefaultRoute::Proxy && settings.sets.ru,
         "geo-update-interval": crate::geo::INTERVAL_HOURS,
         "geox-url": { "mmdb": crate::geo::MMDB_URL },
         "profile": { "store-selected": false, "store-fake-ip": false },
@@ -110,6 +119,18 @@ pub fn build(profile: &Profile, settings: &Settings, controller_port: u16, secre
             { "name": "GLOBAL", "type": "select", "proxies": [GROUP] },
         ],
         "rules": rules,
+        "rule-providers": {
+            BLOCKED_SET: {
+                "type": "http",
+                "behavior": "classical",
+                "format": "text",
+                "url": BLOCKED_URL,
+                "path": BLOCKED_PATH,
+                "interval": 86400,
+                // С GitHub из России бывает плохо — качаем через VPN.
+                "proxy": GROUP,
+            },
+        },
     });
     Ok(Built { config, rules: rule_count })
 }
@@ -135,18 +156,18 @@ fn path_regex(path: &str) -> String {
     r
 }
 
-/// Порядок важен — mihomo берёт первое совпавшее: программы важнее сайтов,
-/// свои правила важнее быстрых исключений.
+/// Лесенка правил сверху вниз — mihomo берёт первое совпавшее:
 ///
-/// «Что по умолчанию» решает последнее правило: всё через VPN (правила —
-/// исключения) или только выбранное через VPN (остальное напрямую). Во
-/// втором случае быстрые исключения .ru / GeoIP не нужны: напрямую и так
-/// всё, что не выбрано.
+/// 1. служебное: зонд задержки, локальная сеть, проверка сети Windows —
+///    всегда напрямую;
+/// 2. «Только через VPN» (программы Kill Switch) — через VPN всегда;
+/// 3. маршрутизация выключена — всё остальное через VPN, дальше ничего;
+/// 4. список положения: программы, потом сайты;
+/// 5. готовый набор положения;
+/// 6. всё остальное — по положению.
 ///
-/// Kill Switch сюда не попадает: он о том, что делать, когда VPN нет, а
-/// куда идёт трафик при включённом — решают только эти правила.
+/// Тот же порядок объясняет окну `route.rs` — меняя здесь, меняйте и там.
 pub fn rules(s: &Settings, core_exe: &str) -> Vec<String> {
-    let only_chosen = s.default_route == DefaultRoute::Direct;
     let mut r = vec![];
     // Замер задержки другого подключения (временный mihomo из нашей же
     // папки) — напрямую, а не через текущий сервер. Собственные соединения
@@ -171,13 +192,27 @@ pub fn rules(s: &Settings, core_exe: &str) -> Vec<String> {
     // которые на него смотрят, не уйдут в офлайн.
     r.push("DOMAIN-SUFFIX,msftconnecttest.com,DIRECT".into());
     r.push("DOMAIN-SUFFIX,msftncsi.com,DIRECT".into());
-    for a in &s.apps {
+    let mut exes: Vec<String> = vec![];
+    // Список Kill Switch действует, только когда Kill Switch включён.
+    for a in s.ks_apps.iter().filter(|a| s.kill_switch && a.on) {
+        let exe = crate::route::exe_of(&a.path, &a.exe);
+        if !exe.is_empty() && !exe.contains(',') && !exes.contains(&exe.to_lowercase()) {
+            r.push(format!("PROCESS-NAME,{exe},{GROUP}"));
+            exes.push(exe.to_lowercase());
+        }
+    }
+    if !s.routing {
+        r.push(format!("MATCH,{GROUP}"));
+        return r;
+    }
+    let list = s.list();
+    for a in &list.apps {
         let exe = a.exe.trim();
-        if !exe.is_empty() && !exe.contains(',') {
+        if !exe.is_empty() && !exe.contains(',') && !exes.contains(&exe.to_lowercase()) {
             r.push(format!("PROCESS-NAME,{exe},{}", target(a.action)));
         }
     }
-    for site in &s.sites {
+    for site in &list.sites {
         let p = site.pattern.trim().trim_start_matches('.');
         if p.is_empty() || p.contains(',') {
             continue;
@@ -189,22 +224,29 @@ pub fn rules(s: &Settings, core_exe: &str) -> Vec<String> {
             Err(_) => r.push(format!("DOMAIN-SUFFIX,{p},{}", target(site.action))),
         }
     }
-    if only_chosen {
-        r.push("MATCH,DIRECT".into());
-        return r;
-    }
-    if s.presets.ru {
-        // .рф и .дети — в punycode.
-        for zone in ["ru", "su", "xn--p1ai", "xn--d1acj3b"] {
-            r.push(format!("DOMAIN-SUFFIX,{zone},DIRECT"));
+    match s.default_route {
+        DefaultRoute::Proxy => {
+            if s.sets.ru {
+                // .рф и .дети — в punycode.
+                for zone in RU_ZONES {
+                    r.push(format!("DOMAIN-SUFFIX,{zone},DIRECT"));
+                }
+                r.push("GEOIP,RU,DIRECT".into());
+            }
+            r.push(format!("MATCH,{GROUP}"));
+        }
+        DefaultRoute::Direct => {
+            if s.sets.blocked {
+                r.push(format!("RULE-SET,{BLOCKED_SET},{GROUP}"));
+            }
+            r.push("MATCH,DIRECT".into());
         }
     }
-    if s.presets.geoip {
-        r.push("GEOIP,RU,DIRECT".into());
-    }
-    r.push(format!("MATCH,{GROUP}"));
     r
 }
+
+/// Российские зоны набора «Россия» (.рф и .дети — в punycode).
+pub const RU_ZONES: [&str; 4] = ["ru", "su", "xn--p1ai", "xn--d1acj3b"];
 
 /// Конфиг для проверки задержки без подключения: те же серверы, никакого
 /// TUN, прокси и DNS — только API.
@@ -226,7 +268,7 @@ pub fn probe(proxies: &[Value], controller_port: u16, secret: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppRule, Kind, KsApp, KsSite, Presets, SiteRule};
+    use crate::state::{AppRule, Kind, KsApp, RuleList, SiteRule};
 
     const CORE: &str = r"C:\Program Files\kl!ck\bin\mihomo.exe";
 
@@ -276,31 +318,54 @@ mod tests {
         assert_eq!(r.last().unwrap(), "MATCH,PROXY");
     }
 
+    fn on(route: DefaultRoute, list: RuleList) -> Settings {
+        let mut s = Settings { routing: true, default_route: route, ..Default::default() };
+        match route {
+            DefaultRoute::Proxy => s.lists.proxy = list,
+            DefaultRoute::Direct => s.lists.direct = list,
+        }
+        s
+    }
+    fn app(exe: &str, action: Action) -> AppRule {
+        AppRule { name: exe.into(), exe: exe.into(), action, path: String::new() }
+    }
+    fn site(p: &str, action: Action) -> SiteRule {
+        SiteRule { pattern: p.into(), action }
+    }
+
     #[test]
-    fn kill_switch_не_меняет_маршруты() {
-        let base = Settings {
-            apps: vec![AppRule { name: "Steam".into(), exe: "steam.exe".into(), action: Action::Direct }],
-            sites: vec![SiteRule { pattern: "1.2.3.4".into(), action: Action::Proxy }],
-            ..Default::default()
-        };
-        let with_ks = Settings {
-            kill_switch: true,
-            ks_apps: vec![KsApp { name: "Roblox".into(), exe: "RobloxPlayerBeta.exe".into(), path: r"C:\Roblox\RobloxPlayerBeta.exe".into(), on: true }],
-            ks_sites: vec![KsSite { pattern: "sberbank.ru".into(), on: true }],
-            ..base.clone()
-        };
-        assert_eq!(rules(&with_ks, CORE), rules(&base, CORE));
-        assert_eq!(own(&rules(&base, CORE))[..2], ["PROCESS-NAME,steam.exe,DIRECT", "IP-CIDR,1.2.3.4/32,PROXY,no-resolve"]);
+    fn выключенная_маршрутизация_всё_через_vpn() {
+        let mut s = on(DefaultRoute::Proxy, RuleList { apps: vec![app("steam.exe", Action::Direct)], sites: vec![site("ads.example", Action::Block)] });
+        s.routing = false;
+        s.kill_switch = true;
+        s.ks_apps = vec![KsApp { name: "qB".into(), exe: "qbittorrent.exe".into(), path: r"C:\qB\qbittorrent.exe".into(), on: true }];
+        assert_eq!(own(&rules(&s, CORE)), ["PROCESS-NAME,qbittorrent.exe,PROXY", "MATCH,PROXY"], "ни списка, ни блока");
+    }
+
+    #[test]
+    fn только_через_vpn_выше_списка() {
+        let mut s = on(DefaultRoute::Direct, RuleList { apps: vec![app("qbittorrent.exe", Action::Direct), app("Discord.exe", Action::Proxy)], sites: vec![site("1.2.3.4", Action::Proxy)] });
+        s.ks_apps = vec![KsApp { name: "qB".into(), exe: "x".into(), path: r"C:\qB\qbittorrent.exe".into(), on: true }];
+        s.sets.blocked = false;
+        s.kill_switch = true;
+        assert_eq!(own(&rules(&s, CORE)), [
+            "PROCESS-NAME,qbittorrent.exe,PROXY",
+            "PROCESS-NAME,Discord.exe,PROXY",
+            "IP-CIDR,1.2.3.4/32,PROXY,no-resolve",
+            "MATCH,DIRECT",
+        ]);
+        s.kill_switch = false;
+        assert_eq!(own(&rules(&s, CORE))[0], "PROCESS-NAME,qbittorrent.exe,DIRECT", "Kill Switch выключен — список не действует");
     }
 
     #[test]
     fn порядок_правил() {
         let s = Settings {
             mode: Mode::Proxy,
-            apps: vec![AppRule { name: "Telegram".into(), exe: "Telegram.exe".into(), action: Action::Proxy }],
-            sites: vec![SiteRule { pattern: ".ru".into(), action: Action::Block }, SiteRule { pattern: "gosuslugi.ru".into(), action: Action::Direct }],
-            presets: Presets { ru: true, geoip: true },
-            ..Default::default()
+            ..on(DefaultRoute::Proxy, RuleList {
+                apps: vec![app("Telegram.exe", Action::Proxy)],
+                sites: vec![site(".ru", Action::Block), site("gosuslugi.ru", Action::Direct)],
+            })
         };
         let r = own(&rules(&s, CORE));
         assert_eq!(r[0], "PROCESS-NAME,Telegram.exe,PROXY");
@@ -313,6 +378,17 @@ mod tests {
         assert_eq!(c["mixed-port"], 7890);
         assert_eq!(c["tun"]["enable"], false);
         assert_eq!(c["dns"]["enhanced-mode"], "redir-host");
+        assert_eq!(c["geo-auto-update"], true);
+    }
+
+    #[test]
+    fn только_выбранное_через_vpn() {
+        let s = on(DefaultRoute::Direct, RuleList { apps: vec![app("Discord.exe", Action::Proxy), app("cs2.exe", Action::Direct)], sites: vec![site("youtube.com", Action::Proxy)] });
+        let r = own(&rules(&s, CORE));
+        assert_eq!(r, ["PROCESS-NAME,Discord.exe,PROXY", "PROCESS-NAME,cs2.exe,DIRECT", "DOMAIN-SUFFIX,youtube.com,PROXY", "RULE-SET,ru-blocked,PROXY", "MATCH,DIRECT"]);
+        let c = build(&prof(), &s, 1, "", CORE).unwrap().config;
+        assert_eq!(c["rule-providers"]["ru-blocked"]["behavior"], "classical");
+        assert_eq!(c["geo-auto-update"], false);
     }
 
     /// mihomo сам проверяет конфиг (`-t`): cargo test --lib mihomo_ -- --ignored
@@ -335,8 +411,9 @@ mod tests {
 ",
         )).unwrap();
         p.active = Some("T".into());
-        let s = Settings { presets: Presets { ru: true, geoip: true }, apps: vec![AppRule { name: "Telegram".into(), exe: "Telegram.exe".into(), action: Action::Proxy }], ..Default::default() };
-        for (name, cfg) in [("full", build(&p, &s, 9090, "s", exe.to_str().unwrap()).unwrap().config), ("probe", probe(&p.proxies, 9091, "s"))] {
+        let s = on(DefaultRoute::Proxy, RuleList { apps: vec![app("Telegram.exe", Action::Proxy)], sites: vec![] });
+        let only = on(DefaultRoute::Direct, RuleList { apps: vec![], sites: vec![site("youtube.com", Action::Proxy)] });
+        for (name, cfg) in [("full", build(&p, &s, 9090, "s", exe.to_str().unwrap()).unwrap().config), ("only", build(&p, &only, 9090, "s", exe.to_str().unwrap()).unwrap().config), ("probe", probe(&p.proxies, 9091, "s"))] {
             let f = dir.join(format!("{name}.yaml"));
             std::fs::write(&f, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
             let out = std::process::Command::new(&exe).arg("-t").arg("-d").arg(&dir).arg("-f").arg(&f).output().unwrap();
@@ -344,19 +421,6 @@ mod tests {
             println!("{name}: {}", text.trim());
             assert!(out.status.success() && text.contains("successful"), "{name}: {text}");
         }
-    }
-
-    #[test]
-    fn только_выбранное_через_vpn() {
-        let s = Settings {
-            default_route: DefaultRoute::Direct,
-            apps: vec![AppRule { name: "Discord".into(), exe: "Discord.exe".into(), action: Action::Proxy }, AppRule { name: "CS2".into(), exe: "cs2.exe".into(), action: Action::Direct }],
-            sites: vec![SiteRule { pattern: "youtube.com".into(), action: Action::Proxy }],
-            presets: Presets { ru: true, geoip: true },
-            ..Default::default()
-        };
-        let r = own(&rules(&s, CORE));
-        assert_eq!(r, vec!["PROCESS-NAME,Discord.exe,PROXY", "PROCESS-NAME,cs2.exe,DIRECT", "DOMAIN-SUFFIX,youtube.com,PROXY", "MATCH,DIRECT"]);
     }
 
     #[test]

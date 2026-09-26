@@ -389,10 +389,12 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
     if next.proxy_port < 1024 {
         return Err("Порт — от 1024 до 65535.".into());
     }
-    for s in &mut next.sites {
-        s.pattern = links::normalize_site(&s.pattern);
+    for list in [&mut next.lists.proxy, &mut next.lists.direct] {
+        for s in &mut list.sites {
+            s.pattern = links::normalize_site(&s.pattern);
+        }
+        list.sites.retain(|s| !s.pattern.is_empty());
     }
-    next.sites.retain(|s| !s.pattern.is_empty());
     let mut seen = std::collections::HashSet::new();
     next.ks_sites = next
         .ks_sites
@@ -407,9 +409,11 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
             return Err(why);
         }
     }
-    for a in next.apps.iter().filter(|a| a.action == crate::state::Action::Block && !before.apps.contains(a)) {
-        if let Some(why) = killswitch::protected_app(&a.exe) {
-            return Err(why);
+    for (list, was) in [(&next.lists.proxy, &before.lists.proxy), (&next.lists.direct, &before.lists.direct)] {
+        for a in list.apps.iter().filter(|a| a.action == crate::state::Action::Block && !was.apps.contains(a)) {
+            if let Some(why) = killswitch::protected_app(&a.exe) {
+                return Err(why);
+            }
         }
     }
     *state.settings.lock().unwrap() = next.clone();
@@ -418,14 +422,15 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
     // Проблемы Kill Switch окно узнаёт событием «killswitch» — здесь не дублируем.
     let warning = None;
     let on = core::is_on();
-    if before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites {
-        core::ks_apply(&app, core::ks_engaged(&next, on), &next.ks_apps, &next.ks_sites);
+    let ks_changed = before.kill_switch != next.kill_switch || before.ks_apps != next.ks_apps || before.ks_sites != next.ks_sites;
+    if ks_changed {
+        core::ks_apply(&app, core::ks_engaged(&next, on), &next.ks_apps, &core::ks_sites_for(&next, on));
     }
     if on {
         if before.mode != next.mode || before.proxy_port != next.proxy_port {
             core::note("INFO", "Режим подключения изменён — переподключаюсь");
             core::reconnect(&app)?;
-        } else if before.presets != next.presets || before.sites != next.sites || before.apps != next.apps || before.default_route != next.default_route {
+        } else if before.routing != next.routing || before.default_route != next.default_route || before.sets != next.sets || before.lists != next.lists || before.ks_apps != next.ks_apps {
             core::apply_config(&app)?;
         }
     }
@@ -433,12 +438,36 @@ pub fn update_settings(app: AppHandle, state: State<AppState>, patch: Value) -> 
     Ok(SettingsResult { settings: next, warning, ks_shared: killswitch::shared_sites() })
 }
 
+// ─────────── Маршрутизация: объяснения окну ───────────
+
+/// Итог каждой строки списка текущего положения.
+#[tauri::command(async)]
+pub fn routing_view(app: AppHandle, state: State<AppState>) -> crate::route::View {
+    let s = state.settings.lock().unwrap().clone();
+    crate::route::view(&s, &crate::route::blocked(&core::home(&app)))
+}
+
+/// Путь адреса по лесенке правил.
+#[tauri::command(async)]
+pub fn check_route(app: AppHandle, state: State<AppState>, input: String) -> Option<crate::route::Check> {
+    let s = state.settings.lock().unwrap().clone();
+    crate::route::check(&s, &crate::route::blocked(&core::home(&app)), &input)
+}
+
+/// Что изменится, если сделать маршрутизацию такой.
+#[tauri::command]
+pub fn routing_preview(state: State<AppState>, routing: bool, default_route: crate::state::DefaultRoute) -> crate::route::Preview {
+    let s = state.settings.lock().unwrap().clone();
+    crate::route::preview(&s, routing, default_route)
+}
+
 /// «Повторить» на экране Kill Switch.
 #[tauri::command(async)]
 pub fn retry_kill_switch(app: AppHandle, state: State<AppState>) -> Option<String> {
     let s = state.settings.lock().unwrap().clone();
     let before = killswitch::issue();
-    let w = killswitch::retry(core::ks_engaged(&s, core::is_on()), &s.ks_apps, &s.ks_sites);
+    let on = core::is_on();
+    let w = killswitch::retry(core::ks_engaged(&s, on), &s.ks_apps, &core::ks_sites_for(&s, on));
     if w != before {
         let _ = app.emit("killswitch", w.clone());
     }

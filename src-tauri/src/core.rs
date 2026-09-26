@@ -416,7 +416,7 @@ fn connect_locked(app: &AppHandle, reconnecting: bool) -> Result<(), String> {
     // Kill Switch снимаем только теперь, когда туннель поднят: раньше
     // защищённые программы на эти секунды уходили бы напрямую. Снимаем
     // лишь там, где он мешал бы (см. ks_engaged).
-    if let Some(w) = ks_apply(app, ks_engaged(&settings, true), &settings.ks_apps, &settings.ks_sites) {
+    if let Some(w) = ks_apply(app, ks_engaged(&settings, true), &settings.ks_apps, &ks_sites_for(&settings, true)) {
         note("WARN", &w);
     }
 
@@ -511,12 +511,21 @@ fn flush_dns() {
     let _ = cmd.arg("/flushdns").stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
 
-/// Должен ли Kill Switch блокировать прямо сейчас: только пока VPN нет.
-/// Куда идёт трафик при включённом VPN — дело «Маршрутизации», Kill Switch
-/// в неё не вмешивается. Для прокси-режимов окно честно предупреждает, что
-/// программы, игнорирующие прокси, при включённом VPN идут напрямую.
+/// Должен ли Kill Switch блокировать программы прямо сейчас. Программы из
+/// списка — «Только через VPN»: VPN нет — без сети. Включён — в TUN их
+/// трафик и так в туннеле (правило маршрутизации ведёт их через VPN), и
+/// блокировка снимается; в «Системном прокси» остаётся: программа выходит в
+/// сеть только через прокси kl!ck (loopback брандмауэр не фильтрует), а
+/// не умеющая — остаётся без сети, и окно говорит об этом прямо.
 pub fn ks_engaged(s: &crate::state::Settings, on: bool) -> bool {
-    s.kill_switch && !on
+    s.kill_switch && !(on && s.mode == Mode::Tun)
+}
+
+/// Сайты Kill Switch закрываются только пока VPN нет: адреса закрываются
+/// для всех программ, и при включённом VPN это задевало бы и трафик через
+/// прокси, и соседей по CDN.
+pub fn ks_sites_for(s: &crate::state::Settings, on: bool) -> Vec<crate::state::KsSite> {
+    if on { vec![] } else { s.ks_sites.clone() }
 }
 
 /// Другие VPN/прокси-клиенты среди запущенных программ (кроме нас).
@@ -554,7 +563,8 @@ fn other_vpn() -> Option<String> {
 /// Привести Kill Switch к текущим настройкам и состоянию.
 pub fn ks_sync(app: &AppHandle) -> Option<String> {
     let s = app.state::<AppState>().settings.lock().unwrap().clone();
-    ks_apply(app, ks_engaged(&s, is_on()), &s.ks_apps, &s.ks_sites)
+    let on = is_on();
+    ks_apply(app, ks_engaged(&s, on), &s.ks_apps, &ks_sites_for(&s, on))
 }
 
 /// Kill Switch с отчётом окну: проблема появилась или ушла — событие

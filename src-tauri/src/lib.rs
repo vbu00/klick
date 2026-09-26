@@ -15,6 +15,7 @@ mod killswitch;
 mod links;
 mod notify;
 mod procs;
+mod route;
 mod state;
 mod sub;
 mod sys;
@@ -118,6 +119,9 @@ pub fn run() {
             commands::update_settings,
             commands::set_autostart,
             commands::retry_kill_switch,
+            commands::routing_view,
+            commands::check_route,
+            commands::routing_preview,
             commands::favicon,
             commands::app_info,
             commands::update_geo,

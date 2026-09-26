@@ -410,3 +410,40 @@ svg.flow{position:absolute;inset:0;width:100%;height:100%;overflow:visible;anima
 .mbtn.accent:hover{opacity:.9;background:var(--accent)}
 .mbtn:active{transform:scale(.98)}
 .lic{flex:1;min-height:0;overflow:auto;margin:14px 16px 16px;padding:12px;border-radius:12px;background:var(--sunken);border:1px solid var(--line);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--text2);white-space:pre-wrap;word-break:break-word;user-select:text}
+
+/* Маршрутизация: тумблер, положения, строки с итогом, «Проверить сайт» */
+.rcard{padding:14px}
+.seg.pos{margin-top:12px;background:var(--win)}
+.seg.pos>button{height:auto;min-height:38px;padding:6px 8px;line-height:1.25;font-weight:600}
+.seg.pos.off{opacity:.4}
+.card.dimmed{opacity:.45}
+.rrow{padding:12px 14px;border-radius:14px;background:var(--card);display:flex;flex-direction:column;gap:6px}
+.rrow.muted{opacity:.72}
+.rrow .top{display:flex;align-items:center;gap:10px}
+.rrow .grow{min-width:0}
+.rrow .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rrow .sub{font-size:11px;color:var(--dim2)}
+.rchip{flex:none;min-height:30px;border:0;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600}
+.rchip.c-vpn{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.rchip.c-direct{background:var(--elem);color:var(--text2)}
+.rchip.c-block{background:color-mix(in srgb,var(--red) 18%,transparent);color:var(--red)}
+.rchip.c-ks{background:color-mix(in srgb,var(--blue, #0a84ff) 20%,transparent);color:var(--blue, #3d9bff)}
+.rres{display:flex;gap:8px;align-items:baseline;padding-left:42px;font-size:12.5px}
+.rres span{font-size:11px;color:var(--dim2)}
+.t-vpn{color:var(--accent)}.t-direct{color:var(--text2)}.t-block{color:var(--red)}.t-muted{color:var(--dim)}
+.rhint{padding-left:42px;font-size:11.5px;line-height:1.4;color:var(--dim)}
+.rhint.warn{color:var(--orange)}
+.checkbox{padding:14px}
+.samples{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.samples>button{border:1px solid var(--line, var(--elem));background:transparent;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--dim)}
+.verdict{margin-top:12px;font-size:14px;font-weight:700}
+.ladder2{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ladder2 li{display:flex;gap:10px;align-items:flex-start}
+.ladder2 li>span{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;border:1.5px dashed var(--elem);color:var(--dim2)}
+.ladder2 li.past>span{border-style:solid;color:var(--dim)}
+.ladder2 li.hit>span{border:0;background:var(--text);color:var(--win)}
+.ladder2 b{display:block;font-size:13px;font-weight:500;color:var(--dim2)}
+.ladder2 li.past b{color:var(--dim)}
+.ladder2 li.hit b{font-weight:700;color:var(--text)}
+.ladder2 i{display:block;font-style:normal;font-size:11.5px;line-height:1.4;color:var(--dim)}
+.checkbox .field{background:var(--win)}

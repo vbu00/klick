@@ -268,9 +268,13 @@ pub fn tray_menu_state(app: AppHandle) -> TrayMenuState {
             Mode::Proxy => "Proxy",
             Mode::Sysproxy => "Системный proxy",
         },
-        route_mode: match settings.default_route {
-            DefaultRoute::Direct => "только выбранное",
-            DefaultRoute::Proxy => "всё через VPN",
+        route_mode: if !settings.routing {
+            "всё через VPN"
+        } else {
+            match settings.default_route {
+                DefaultRoute::Direct => "только выбранное",
+                DefaultRoute::Proxy => "всё, кроме списка",
+            }
         },
         since: s.since,
         traffic: core::traffic(),
@@ -355,7 +359,12 @@ pub fn tray_menu_action(app: AppHandle, id: String) {
                     s.clone()
                 };
                 st.save_settings();
-                core::ks_apply(&app, core::ks_engaged(&s, core::is_on()), &s.ks_apps, &s.ks_sites);
+                let on = core::is_on();
+                core::ks_apply(&app, core::ks_engaged(&s, on), &s.ks_apps, &core::ks_sites_for(&s, on));
+                // «Только через VPN» ведёт программы через VPN правилом ядра.
+                if let Err(e) = core::apply_config(&app) {
+                    core::note("WARN", &e);
+                }
                 let _ = app.emit("profiles-changed", ());
                 refresh(&app);
             });
