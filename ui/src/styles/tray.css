@@ -1,40 +1,69 @@
-/* Окно трея по макету «Трей v2»: 320 px, высота по содержимому, тема — как у приложения. */
+/* Окно трея: 320 px, высота по содержимому, тема — как у приложения. Вид и размеры — как у меню
+   трея kl!ck 0.3: плотные строки, кнопка 64 px, точки со свечением под ней. */
 
 @keyframes trpulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--orange) 40%, transparent); }
-  100% { box-shadow: 0 0 0 16px transparent; }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  100% { box-shadow: 0 0 0 14px transparent; }
 }
+@keyframes trwave {
+  0% { transform: scale(0.4); opacity: 0; }
+  10% { opacity: 0.9; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes trbusy { 50% { opacity: 0.4; } }
 
-.tray { position: relative; background: var(--win); color: var(--text); max-height: 100vh; overflow-x: hidden; overflow-y: auto; }
+.tray { position: relative; background: var(--win); color: var(--text); max-height: 100vh; overflow-x: hidden; overflow-y: auto; font-size: 13px; }
+.tray::-webkit-scrollbar { width: 0; }
 .preview .tray { width: 320px; max-height: none; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 40px var(--shadow); }
-.tray-in { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: hidden; }
+.tray-in { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 0 12px 10px; overflow: hidden; }
 .tray-in > * { position: relative; }
-.tray .tr-glow { position: absolute; left: -60px; top: -60px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%); pointer-events: none; }
 
-.tr-head { display: flex; align-items: center; gap: 8px; }
-.tr-head img { width: 20px; height: 20px; border-radius: 5px; display: block; }
-.tr-name { flex: 1; font-size: 14px; font-weight: 700; }
-.tr-pingpill { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; background: var(--card); border: 1px solid var(--line); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tr-pingpill i { width: 7px; height: 7px; border-radius: 50%; }
-.tr-gear { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
+/* ── Шапка и статус: общий блок, под кнопкой — точки и свечение цвета состояния ── */
+.tr-hero { margin: 0 -12px; padding: 12px 16px 4px; }
+.tr-hero > * { position: relative; }
+.tr-hero .tr-dots { position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle, var(--dots) 1px, transparent 1.5px); background-size: 12px 12px;
+  -webkit-mask-image: radial-gradient(circle 130px at 48px 76px, #000, transparent); mask-image: radial-gradient(circle 130px at 48px 76px, #000, transparent); }
+.tr-hero .tr-glow { position: absolute; left: 0; top: 0; width: 100%; height: 190px; pointer-events: none; opacity: 0; transition: opacity 0.4s;
+  --g: var(--accent); background: radial-gradient(circle 120px at 48px 76px, color-mix(in srgb, var(--g) 24%, transparent), transparent); }
+.tr-hero.ok .tr-glow { opacity: 1; }
+.tr-hero.warn .tr-glow { opacity: 0.8; --g: var(--orange); }
+.tr-hero.busy .tr-glow { opacity: 0.8; --g: var(--orange); }
+.tr-hero.bad .tr-glow { opacity: 0.8; --g: var(--red); }
+
+.tr-head { display: flex; align-items: center; gap: 8px; height: 24px; }
+.tr-key { position: relative; flex: none; width: 16px; height: 16px; }
+.tr-key span { position: absolute; inset: 0; -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
+.tr-key span:first-child { background: #fff; }
+.tr-key span:last-child { background: var(--accent); }
+.tr-name { flex: 1; font-size: 12px; font-weight: 600; color: var(--text2); letter-spacing: 0.2px; }
+.tr-name b { color: var(--accent); }
+.tr-pingpill { display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: color-mix(in srgb, var(--card) 85%, transparent); border: 1px solid var(--line); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tr-pingpill i { width: 6px; height: 6px; border-radius: 50%; }
+.tr-gear { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
 .tr-gear:hover { background: var(--elem); color: var(--text); }
+.tr-gear .ico { width: 16px !important; height: 16px !important; }
 
-.tr-status { display: flex; align-items: center; gap: 16px; padding: 6px 2px 8px; }
-.tr-power { flex: none; position: relative; width: 76px; height: 76px; padding: 0; border-radius: 50%; border: 1.5px solid var(--line); background: var(--card); color: var(--dim); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.25s ease, box-shadow 0.3s ease, color 0.25s ease, border-color 0.25s ease; }
-.tr-power:hover { color: var(--text); }
-.tr-power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 0 16px color-mix(in srgb, var(--accent) 8%, transparent); }
-.tr-power.busy { color: var(--orange); animation: trpulse 1.4s ease-out infinite; }
-.tr-power.warn { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 50%, transparent); }
-.tr-power.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.tr-status { display: flex; align-items: center; gap: 16px; padding: 12px 0 10px; }
+.tr-power { flex: none; position: relative; width: 64px; height: 64px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, transform 0.12s ease; }
+.tr-power:hover { border-color: var(--ring); color: var(--text); }
+.tr-power:active { transform: scale(0.94); }
+.tr-power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); animation: trpulse 2.2s ease-out infinite; }
+.tr-power.on::before,
+.tr-power.on::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent); animation: trwave 3.6s cubic-bezier(0.3, 0.6, 0.4, 1) infinite; pointer-events: none; }
+.tr-power.on::after { animation-delay: 1.8s; }
+.tr-power.busy { color: var(--orange); border-color: color-mix(in srgb, var(--orange) 45%, var(--line)); animation: trbusy 1.2s ease-in-out infinite; }
+.tr-power.warn { color: var(--onAccent); background: var(--orange); border-color: var(--orange); }
+.tr-power.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--line)); }
 .tr-power.empty,
 .tr-power:disabled { color: var(--ring); cursor: default; }
-.tr-spin { position: absolute; inset: -6px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--orange); animation: spin 0.9s linear infinite; }
-.tr-label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.tr-spin { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--orange); animation: spin 0.9s linear infinite; }
+.tr-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .tr-label i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.tr-big { display: block; margin-top: 3px; font-size: 30px; font-weight: 650; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tr-big.sm { font-size: 22px; }
+.tr-big { display: block; margin-top: 2px; font-size: 26px; font-weight: 500; letter-spacing: 0.4px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-big.sm { font-size: 17px; font-weight: 600; margin-top: 4px; }
 .tr-big.dim { color: var(--dim2); }
-.tr-sub { display: block; margin-top: 3px; font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-sub { display: block; margin-top: 2px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .tr-error { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--red) 10%, var(--card)); }
 .tr-error .t { display: block; font-size: 13px; font-weight: 600; color: var(--red); }
@@ -45,11 +74,11 @@
 .tr-traffic { display: grid; grid-template-columns: 1fr 1fr; border-radius: 14px; background: var(--card); overflow: hidden; }
 .tr-rate { padding: 10px 12px 0; min-width: 0; }
 .tr-rate + .tr-rate { border-left: 1px solid var(--line); }
-.tr-rate .k { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); }
-.tr-rate .v { display: block; margin-top: 2px; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tr-rate .k { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+.tr-rate .v { display: block; margin-top: 3px; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tr-rate .v.dim { color: var(--dim2); }
-.tr-rate .v small { font-size: 12px; font-weight: 500; color: var(--dim); }
-.tr-rate svg { display: block; width: calc(100% + 24px); height: 26px; margin: 4px -12px 0; }
+.tr-rate .v small { font-size: 11px; font-weight: 500; color: var(--dim); }
+.tr-rate svg { display: block; width: calc(100% + 24px); height: 22px; margin: 2px -12px 0; }
 
 .tr-share { display: flex; align-items: center; gap: 8px; padding: 0 4px; font-size: 11.5px; color: var(--dim); }
 .tr-share-bar { flex: 1; display: flex; gap: 2px; height: 5px; border-radius: 3px; overflow: hidden; }
@@ -60,24 +89,25 @@
 .tr-share-key i.vpn { background: var(--accent); }
 
 .tr-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px; border-radius: 10px; background: var(--elem); }
-.tr-seg button { height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: background 0.2s ease, color 0.2s ease; }
+.tr-seg button { height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s ease, color 0.2s ease; }
 .tr-seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 
 .tr-block { display: flex; flex-direction: column; gap: 6px; }
-.tr-caps { display: flex; align-items: center; gap: 8px; padding: 4px 4px 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+.tr-caps { display: flex; align-items: center; gap: 8px; min-height: 22px; padding: 0 4px; font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--dim); }
 .tr-caps small { font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--dim2); }
-.tr-card { border-radius: 12px; background: var(--card); overflow: hidden; }
-.tr-app { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.tr-card { border-radius: 14px; background: var(--card); overflow: hidden; }
+.tr-app { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; }
+.tr-app > .grow { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .tr-app + .tr-app { border-top: 1px solid var(--line); }
-.tr-app .tile-letter { border-radius: 7px; font-size: 11px; }
+.tr-app .tile-letter { border-radius: 6px; font-size: 10.5px; }
 .tr-app .t,
 .tr-profile .t,
 .tr-profile-item .t,
 .tr-direct .t,
 .tr-ks .t,
 .tr-setrow .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tr-app .t { font-size: 13px; font-weight: 600; }
-.tr-app .s { display: block; font-size: 11px; color: var(--dim); }
+.tr-app .t { min-width: 0; font-size: 12.5px; font-weight: 600; }
+.tr-app .s { flex: none; margin-left: auto; font-size: 11px; color: var(--dim); }
 .tr-app .s.vpn { color: var(--accent); }
 .tr-note { padding: 0 4px; font-size: 11.5px; color: var(--dim); line-height: 1.35; }
 
@@ -85,56 +115,46 @@
 .tr-toggle i { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 0.2s ease; }
 .tr-toggle.on { background: var(--accent); }
 .tr-toggle.on i { transform: translateX(16px); }
-.tr-toggle.big { width: 42px; height: 24px; border-radius: 12px; }
-.tr-toggle.big i { width: 20px; height: 20px; }
-.tr-toggle.big.on i { transform: translateX(18px); }
+.tr-toggle.big { width: 38px; height: 22px; border-radius: 11px; }
+.tr-toggle.big i { width: 18px; height: 18px; }
+.tr-toggle.big.on i { transform: translateX(16px); }
 .tr-toggle:disabled { opacity: 0.5; cursor: default; }
 
-.tr-profile { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background 0.15s ease; }
-.tr-profile:hover { background: var(--hover); }
-.tr-initial { flex: none; width: 28px; height: 28px; border-radius: 8px; background: var(--elem); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
-.tr-profile .t { font-size: 14px; font-weight: 600; }
-.tr-profile .s { display: block; font-size: 11.5px; color: var(--dim); }
-.tr-caret { flex: none; color: var(--dim); transform: rotate(90deg); transition: transform 0.2s ease; }
-.tr-caret.open { transform: rotate(-90deg); }
-.tr-profiles { border-top: 1px solid var(--line); padding: 4px; }
-.tr-profile-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.tr-profile-item:hover,
-.tr-profile-item.on { background: var(--hover); }
-.tr-profile-item > i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
-.tr-profile-item .t { font-size: 13px; font-weight: 500; }
-.tr-profile-item.on .t { font-weight: 600; }
-.tr-profile-item .s { display: block; font-size: 11px; color: var(--dim); }
-.tr-profile-item b { flex: none; padding: 2px 6px; border-radius: 5px; background: var(--elem); color: var(--dim); font-size: 10.5px; font-weight: 600; }
+.tr-chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 2px; }
+.tr-chips::-webkit-scrollbar { height: 0; }
+.tr-chip { flex: none; max-width: 200px; height: 28px; padding: 0 11px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--dim); font: inherit; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
+.tr-chip:hover { color: var(--text); background: var(--hover); }
+.tr-chip.on { background: var(--raised); border-color: var(--raised); color: var(--text); }
+.tr-chip i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
-.tr-ping { flex: none; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: var(--card); color: var(--text); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer; transition: background 0.15s ease; }
-.tr-ping:hover { background: var(--elem); }
+.tr-ping { flex: none; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 0; border-radius: 11px; background: var(--card); color: var(--text2); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer; transition: background 0.15s ease; }
+.tr-ping:hover { background: var(--elem); color: var(--text); }
 .tr-ping:disabled { cursor: default; }
 .tr-usage { display: flex; align-items: center; gap: 8px; padding: 0 4px; font-size: 11.5px; color: var(--dim); }
 .tr-usage .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--elem); overflow: hidden; }
 .tr-usage .bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
 .tr-usage .num { flex: none; font-variant-numeric: tabular-nums; }
 .tr-servers { padding: 4px; max-height: 176px; overflow-y: auto; }
-.tr-server { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tr-server { width: 100%; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .tr-server:hover,
 .tr-server.on { background: var(--hover); }
-.tr-radio { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--ring); display: flex; align-items: center; justify-content: center; }
-.tr-radio i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0; }
+.tr-radio { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--ring); display: flex; align-items: center; justify-content: center; }
+.tr-radio i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0; }
 .tr-radio.on { border-color: var(--accent); }
 .tr-radio.on i { opacity: 1; }
-.tr-code { flex: none; width: 22px; font-size: 10.5px; font-weight: 700; color: var(--dim); }
-.tr-server-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-code { flex: none; width: 20px; font-size: 10px; font-weight: 700; color: var(--dim); }
+.tr-server-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr-server.on .tr-server-name { font-weight: 600; }
-.tr-ms { flex: none; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tr-ms { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .tr-direct { display: flex; align-items: center; gap: 10px; padding: 11px 12px; }
-.tr-direct .t { font-size: 14px; font-weight: 600; }
+.tr-direct .t { font-size: 13px; font-weight: 600; }
 .tr-direct .s { display: block; font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr-direct .s.mono { font-family: ui-monospace, Consolas, monospace; }
 
-.tr-ks { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--card); }
-.tr-ks-ico { flex: none; width: 32px; height: 32px; border-radius: 9px; background: var(--elem); display: flex; align-items: center; justify-content: center; }
-.tr-ks .t { font-size: 14px; font-weight: 600; }
-.tr-ks .s { display: block; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-ks { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--card); }
+.tr-ks-ico { flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--elem); display: flex; align-items: center; justify-content: center; }
+.tr-ks .t { font-size: 13px; font-weight: 600; }
+.tr-ks .s { display: block; margin-top: 1px; font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .tr-empty { padding: 14px; border-radius: 14px; background: var(--card); display: flex; flex-direction: column; gap: 12px; }
 .tr-empty-text { font-size: 13px; color: var(--dim); line-height: 1.45; text-wrap: pretty; }
@@ -143,15 +163,16 @@
 .tr-paste:disabled { opacity: 0.7; cursor: default; }
 
 .tr-foot { display: flex; gap: 8px; }
-.tr-open { flex: 1; height: 42px; border: 0; border-radius: 12px; background: var(--card); color: var(--text); font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: background 0.15s ease; }
-.tr-open:hover { background: var(--hover); }
-.tr-open img { width: 18px; height: 18px; border-radius: 4px; }
-.tr-exit { flex: none; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 12px; background: var(--card); color: var(--red); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s ease; }
+.tr-open { flex: 1; height: 38px; border: 0; border-radius: 12px; background: var(--card); color: var(--text); font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: background 0.15s ease; }
+.tr-open:hover { background: var(--elem); }
+.tr-open:active,
+.tr-exit:active { transform: scale(0.97); }
+.tr-exit { flex: none; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 12px; background: var(--card); color: var(--red); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s ease; }
 .tr-exit:hover { background: color-mix(in srgb, var(--red) 12%, var(--card)); }
-.tr-ver { display: flex; justify-content: space-between; padding: 0 4px; font-size: 11px; color: var(--dim2); }
+.tr-ver { display: flex; justify-content: space-between; margin-top: -2px; padding: 0 4px; font-size: 10.5px; color: var(--dim2); }
 
 /* Настройки в трее */
-.tr-sethead { display: flex; align-items: center; gap: 6px; }
+.tr-sethead { display: flex; align-items: center; gap: 6px; padding-top: 10px; }
 .tr-sethead span { font-size: 15px; font-weight: 650; }
 .tr-back { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text); display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .tr-back:hover { background: var(--elem); }

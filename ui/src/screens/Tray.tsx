@@ -1,10 +1,11 @@
-// Окно трея по макету «Трей v2»: статус и время, подключение и сервер, большая кнопка, скорость,
-// доля VPN, «Всё через VPN / Только выбранное», «Открыто сейчас», выбор подключения, серверы,
-// Kill Switch, «Открыть kl!ck» и выход; шестерёнка — короткие настройки. Тема — как у приложения.
+// Окно трея: вид — как у меню трея kl!ck 0.3 (ключ в шапке, кнопка со свечением на точках, чипы
+// подключений, плотные строки), функции — из «Трея v2»: доля VPN, «VPN для всего / для выбранного»,
+// «Открыто сейчас», трафик подписки, шестерёнка с короткими настройками, вопрос при выходе.
 // Окно подгоняет высоту под содержимое и прячется, когда щёлкнули мимо.
 
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
-import logo from '../assets/logo.png';
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import mark from '../assets/mark.png';
+import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
 import { Tile } from '../components/Controls';
 import { Icon } from '../components/Icon';
@@ -70,7 +71,7 @@ function countryCode(name: string): string {
 /** Имя сервера без флага в начале. */
 const plainName = (name: string) => name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim() || name;
 
-const KIND: Record<Connection['kind'], [string, string]> = { subscription: ['Подписка', 'SUB'], link: ['Прямое', 'URI'], file: ['Файл', 'FILE'] };
+const KIND: Record<Connection['kind'], string> = { subscription: 'Подписка', link: 'Прямое', file: 'Файл' };
 
 /** Соединения раз в 3 секунды, пока VPN работает и окно трея на экране. */
 function useTrayConns(running: boolean, transport: Transport): ConnView[] {
@@ -103,7 +104,6 @@ export function Tray() {
   const store = useStore();
   const { state, settings, servers, pinging, traffic, isRunning, transport, serviceUp, catalog, programNames } = store;
   const [view, setView] = useState<'main' | 'settings'>('main');
-  const [menu, setMenu] = useState(false);
   const [exitAsk, setExitAsk] = useState(false);
   const [about, setAbout] = useState<AboutView | null>(null);
   const [note, setNote] = useState('');
@@ -167,10 +167,12 @@ export function Tray() {
   if (!state || !settings || !serviceUp) {
     return (
       <Shell inner={setBox} overlay={exitAsk ? <ExitSheet onPick={exitWith} onClose={() => setExitAsk(false)} /> : null}>
-        <Header />
-        <div className="tr-status">
+        <div className="tr-hero bad">
+          <Glow />
+          <Header />
+          <div className="tr-status">
           <span className="tr-power bad" aria-hidden="true">
-            <Icon name="power" size={30} />
+            <Icon name="power" size={26} />
           </span>
           <span className="grow">
             <span className="tr-label" style={{ color: 'var(--red)' }}>
@@ -180,6 +182,7 @@ export function Tray() {
             <span className="tr-big sm">Нет связи</span>
             <span className="tr-sub">Переустановите kl!ck или перезагрузите компьютер</span>
           </span>
+          </div>
         </div>
         <Footer onOpen={() => transport.openMain()} onExit={onExit} />
         {foot}
@@ -210,6 +213,7 @@ export function Tray() {
   };
 
   const powerClass = on ? 'tr-power on' : busy ? 'tr-power busy' : vpn === 'server_down' ? 'tr-power warn' : vpn === 'error' ? 'tr-power bad' : empty ? 'tr-power empty' : 'tr-power';
+  const look = on ? 'ok' : busy ? 'busy' : vpn === 'server_down' ? 'warn' : vpn === 'error' ? 'bad' : '';
 
   if (view === 'settings') {
     return (
@@ -230,12 +234,13 @@ export function Tray() {
         </>
       }
     >
-      {on ? <div className="tr-glow" aria-hidden="true" /> : null}
+      <div className={`tr-hero ${look}`}>
+      <Glow />
       <Header ping={isRunning ? current?.delay ?? null : undefined} onSettings={() => setView('settings')} />
 
       <div className="tr-status">
         <button className={powerClass} disabled={empty} title={isRunning ? 'Отключить' : busy ? 'Отменить' : 'Подключить'} onClick={() => void power()}>
-          <Icon name="power" size={30} />
+          <Icon name="power" size={26} />
           {busy ? <span className="tr-spin" /> : null}
         </button>
         <span className="grow">
@@ -246,6 +251,7 @@ export function Tray() {
           <span className={empty || vpn === 'error' ? 'tr-big sm' : isRunning ? 'tr-big' : 'tr-big dim'}>{bigText}</span>
           <span className="tr-sub">{sub}</span>
         </span>
+      </div>
       </div>
 
       {vpn === 'error' ? (
@@ -262,7 +268,7 @@ export function Tray() {
         <PasteCard />
       ) : (
         <>
-          <Traffic down={traffic.down} up={traffic.up} downHist={traffic.downHist} upHist={traffic.upHist} live={isRunning} />
+          {isRunning ? <Traffic down={traffic.down} up={traffic.up} downHist={traffic.downHist} upHist={traffic.upHist} /> : null}
           {isRunning && vpnPct != null ? (
             <div className="tr-share">
               <span className="tr-share-bar">
@@ -301,10 +307,10 @@ export function Tray() {
               <div className="tr-card">
                 {apps.slice(0, 3).map((a) => (
                   <div key={a.key} className="tr-app">
-                    <Tile label={a.name} size={26} />
+                    <Tile label={a.name} size={22} />
                     <span className="grow">
                       <span className="t">{a.name}</span>
-                      <span className={a.vpn ? 's vpn' : 's'}>{a.why === 'killswitch' ? 'Kill Switch · через VPN' : a.vpn ? 'через VPN' : 'напрямую'}</span>
+                      <span className={a.vpn ? 's vpn' : 's'}>{a.why === 'killswitch' ? 'Kill Switch' : a.vpn ? 'через VPN' : 'напрямую'}</span>
                     </span>
                     <MiniToggle
                       on={a.vpn}
@@ -326,40 +332,17 @@ export function Tray() {
 
           {settings.connections.length > 1 ? (
             <div className="tr-block">
-              <div className="tr-caps">Подключение · {settings.connections.length}</div>
-              <div className="tr-card">
-                <button className="tr-profile" onClick={() => setMenu(!menu)}>
-                  <span className="tr-initial">{conn.name.trim().charAt(0).toUpperCase()}</span>
-                  <span className="grow">
-                    <span className="t">{conn.name}</span>
-                    <span className="s">{profileMeta(conn, servers[conn.id])}</span>
-                  </span>
-                  <Icon name="chevron" size={14} className={menu ? 'tr-caret open' : 'tr-caret'} />
-                </button>
-                {menu ? (
-                  <div className="tr-profiles">
-                    {settings.connections.map((c) => {
-                      const active = c.id === conn.id;
-                      return (
-                        <button
-                          key={c.id}
-                          className={active ? 'tr-profile-item on' : 'tr-profile-item'}
-                          onClick={async () => {
-                            setMenu(false);
-                            if (!active) await store.selectConnection(c.id);
-                          }}
-                        >
-                          <i style={{ background: active ? (isRunning ? 'var(--accent)' : 'var(--dim2)') : 'transparent' }} />
-                          <span className="grow">
-                            <span className="t">{c.name}</span>
-                            <span className="s">{profileMeta(c, servers[c.id])}</span>
-                          </span>
-                          <b>{KIND[c.kind][1]}</b>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+              <div className="tr-caps">Подключение</div>
+              <div className="tr-chips">
+                {settings.connections.map((c) => {
+                  const active = c.id === conn.id;
+                  return (
+                    <button key={c.id} className={active ? 'tr-chip on' : 'tr-chip'} title={profileMeta(c, servers[c.id])} onClick={() => !active && void store.selectConnection(c.id)}>
+                      {active && isRunning ? <i /> : null}
+                      {c.name}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -431,7 +414,7 @@ function Shell({ inner, overlay, children }: { inner: (el: HTMLDivElement | null
 }
 
 function profileMeta(c: Connection, list: ServerView[] | undefined): string {
-  const [kind] = KIND[c.kind];
+  const kind = KIND[c.kind];
   if (c.kind === 'subscription') {
     const n = list?.length ?? 0;
     const until = c.info?.expire ? ` · до ${new Date(c.info.expire * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}` : '';
@@ -444,8 +427,13 @@ function profileMeta(c: Connection, list: ServerView[] | undefined): string {
 function Header({ ping, onSettings }: { ping?: number | null; onSettings?: () => void }) {
   return (
     <div className="tr-head">
-      <img src={logo} alt="" draggable={false} />
-      <span className="tr-name">kl!ck</span>
+      <span className="tr-key" aria-hidden="true">
+        <span style={{ '--m': `url("${markFace}")` } as CSSProperties} />
+        <span style={{ '--m': `url("${mark}")` } as CSSProperties} />
+      </span>
+      <span className="tr-name">
+        kl<b>!</b>ck
+      </span>
       {ping !== undefined ? (
         <span className="tr-pingpill">
           <i style={{ background: pingColor(ping) }} />
@@ -461,6 +449,16 @@ function Header({ ping, onSettings }: { ping?: number | null; onSettings?: () =>
   );
 }
 
+/** Точки и свечение под кнопкой: цвет — по состоянию блока. */
+function Glow() {
+  return (
+    <>
+      <span className="tr-dots" aria-hidden="true" />
+      <span className="tr-glow" aria-hidden="true" />
+    </>
+  );
+}
+
 function MiniToggle({ on, onChange, label, disabled, big }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; big?: boolean }) {
   return (
     <button role="switch" aria-checked={on} aria-label={label} disabled={disabled} className={`tr-toggle${on ? ' on' : ''}${big ? ' big' : ''}`} onClick={() => onChange(!on)}>
@@ -469,11 +467,12 @@ function MiniToggle({ on, onChange, label, disabled, big }: { on: boolean; onCha
   );
 }
 
-function Traffic({ down, up, downHist, upHist, live }: { down: number; up: number; downHist: number[]; upHist: number[]; live: boolean }) {
+/** Скорость — только пока VPN работает: нули при выключенном VPN ничего не говорят. */
+function Traffic({ down, up, downHist, upHist }: { down: number; up: number; downHist: number[]; upHist: number[] }) {
   const d = buildPath(downHist.slice(-32), Math.max(1.2, ...downHist.slice(-32)) * 1.1);
   const u = buildPath(upHist.slice(-32), Math.max(3, ...upHist.slice(-32)) * 1.1);
   const split = (bytes: number) => {
-    const [v, unit] = fmtRate(live ? bytes : 0).split(' ');
+    const [v, unit] = fmtRate(bytes).split(' ');
     return { v, unit };
   };
   const rd = split(down);
@@ -485,7 +484,7 @@ function Traffic({ down, up, downHist, upHist, live }: { down: number; up: numbe
           <Icon name="download" size={13} />
           Чтение
         </span>
-        <span className={live ? 'v' : 'v dim'}>
+        <span className="v">
           {rd.v} <small>{rd.unit}</small>
         </span>
         <svg viewBox="0 0 300 90" preserveAspectRatio="none" aria-hidden="true">
@@ -498,7 +497,7 @@ function Traffic({ down, up, downHist, upHist, live }: { down: number; up: numbe
           <Icon name="upload" size={13} />
           Загрузка
         </span>
-        <span className={live ? 'v' : 'v dim'}>
+        <span className="v">
           {wr.v} <small>{wr.unit}</small>
         </span>
         <svg viewBox="0 0 300 90" preserveAspectRatio="none" aria-hidden="true">
@@ -572,7 +571,7 @@ function Footer({ onOpen, onExit }: { onOpen: () => void; onExit: () => void }) 
   return (
     <div className="tr-foot">
       <button className="tr-open" onClick={onOpen}>
-        <img src={logo} alt="" draggable={false} />
+        <Icon name="home" size={16} />
         Открыть kl!ck
       </button>
       <button className="tr-exit" title="Выйти из kl!ck" aria-label="Выйти из kl!ck" onClick={onExit}>
