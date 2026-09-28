@@ -114,30 +114,67 @@ try {
     Check 'Win+↑ не разворачивает' ((-not [W]::IsZoomed($h)) -and (RectOf $h) -eq $before) ("стало {0}" -f (RectOf $h))
     Shot 'desk-after-maximize'
 
-    # 5. Чужой канал: служба остановлена, имя \\.\pipe\klick заняла обычная программа
+    # 5. Чужой канал. В Песочнице всё запущено от администратора, а у таких процессов владелец
+    # канала — «Администраторы», как у службы. Поэтому «чужого» запускаем с ограниченными правами
+    # (runas /trustlevel) — как обычная программа у человека.
     Stop-Process -Id $win.Id -Force
     Stop-Service klick -Force
     Start-Sleep 2
-    $fake = Start-Job {
-        $s = New-Object System.IO.Pipes.NamedPipeServerStream('klick', [System.IO.Pipes.PipeDirection]::InOut, 10)
-        $got = ''
-        $deadline = (Get-Date).AddSeconds(20)
-        $task = $s.WaitForConnectionAsync()
-        while (-not $task.IsCompleted -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
-        if ($task.IsCompleted) {
-            $buf = New-Object byte[] 4096
-            $read = $s.ReadAsync($buf, 0, $buf.Length)
-            if ($read.Wait(5000)) { $got = [Text.Encoding]::UTF8.GetString($buf, 0, $read.Result) }
-            "подключились; получено байт: $($got.Length); $got"
-        } else { 'никто не подключился' }
-    }
-    Start-Sleep 1
+    $pub = 'C:\Users\Public'
+    Remove-Item "$pub\fake-pipe.txt" -ErrorAction SilentlyContinue
+    Set-Content "$pub\fake-pipe.ps1" -Encoding UTF8 -Value @'
+$s = New-Object System.IO.Pipes.NamedPipeServerStream('klick', [System.IO.Pipes.PipeDirection]::InOut, 10)
+$task = $s.WaitForConnectionAsync()
+$deadline = (Get-Date).AddSeconds(25)
+while (-not $task.IsCompleted -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+$got = ''
+if ($task.IsCompleted) {
+    $buf = New-Object byte[] 4096
+    $read = $s.ReadAsync($buf, 0, $buf.Length)
+    if ($read.Wait(5000)) { $got = [Text.Encoding]::UTF8.GetString($buf, 0, $read.Result) }
+    "connected; bytes: $($got.Length); $got" | Set-Content 'C:\Users\Public\fake-pipe.txt'
+} else { 'nobody connected' | Set-Content 'C:\Users\Public\fake-pipe.txt' }
+'@
+    & runas.exe /trustlevel:0x20000 "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $pub\fake-pipe.ps1" | Out-Null
+    Start-Sleep 3
     $win2 = Start-Process "$inst\klick.exe" -ArgumentList '--hidden' -PassThru
-    Start-Sleep 12
-    $fakeSaw = (Receive-Job $fake -Wait -AutoRemoveJob) -join ' '
-    Check 'чужому каналу окно ничего не отправило' ($fakeSaw -notmatch 'cmd') $fakeSaw
+    for ($i = 0; $i -lt 40 -and -not (Test-Path "$pub\fake-pipe.txt"); $i++) { Start-Sleep 1 }
+    $fakeSaw = (Get-Content "$pub\fake-pipe.txt" -ErrorAction SilentlyContinue) -join ' '
+    Check 'чужому каналу (программа без прав администратора) окно ничего не отправило' ($fakeSaw -and $fakeSaw -notmatch 'cmd') $fakeSaw
     Stop-Process -Id $win2.Id -Force -ErrorAction SilentlyContinue
+    Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Service klick
+    Start-Sleep 3
+
+    # 6. Окно без прав администратора видит настоящую службу. Признак — копия прежних настроек
+    # прокси: её пишет только окно; служба без окна ставит прокси сама и копии не делает.
+    $nic = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1
+    $ip = (Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 | Select-Object -First 1).IPAddress
+    $srv = 'C:\srv'
+    New-Item -ItemType Directory -Force $srv | Out-Null
+    $srvCfg = [ordered]@{
+        'mode' = 'rule'; 'log-level' = 'warning'; 'interface-name' = $nic.Name
+        'listeners' = @(@{ name = 'srv'; type = 'socks'; port = 1080; listen = '0.0.0.0'; udp = $true })
+        'rules' = @('MATCH,DIRECT')
+    } | ConvertTo-Json -Depth 5
+    Set-Content "$srv\config.yaml" $srvCfg -Encoding ASCII
+    $srvProc = Start-Process "$inst\resources\core\mihomo.exe" -ArgumentList '-d', $srv, '-f', "$srv\config.yaml" -WindowStyle Hidden -PassThru
+    Set-Content "$root\local.yaml" "proxies: [{name: nic, type: socks5, server: $ip, port: 1080, udp: true}]" -Encoding ASCII
+    & "$inst\klick-cli.exe" --prod import "$root\local.yaml" | Out-Null
+    & "$inst\klick-cli.exe" --prod mode proxy | Out-Null
+    $backup = Join-Path $env:LOCALAPPDATA 'klick\proxy-backup.json'
+    Remove-Item $backup -ErrorAction SilentlyContinue
+    & runas.exe /trustlevel:0x20000 "`"$inst\klick.exe`" --hidden" | Out-Null
+    Start-Sleep 8
+    & "$inst\klick-cli.exe" --prod connect | Out-Null
+    Start-Sleep 4
+    $reg = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+    Check 'окно без прав администратора работает со службой' (Test-Path $backup) ("ProxyEnable={0}, ProxyServer={1}, копия окна: {2}" -f $reg.ProxyEnable, $reg.ProxyServer, (Test-Path $backup))
+    & "$inst\klick-cli.exe" --prod disconnect | Out-Null
+    Start-Sleep 2
+    $reg = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+    Check 'окно без прав администратора сняло прокси' ($reg.ProxyEnable -eq 0) ("ProxyEnable=" + $reg.ProxyEnable)
+    Stop-Process -Id $srvProc.Id -Force -ErrorAction SilentlyContinue
 }
 catch {
     Log "ОШИБКА СЦЕНАРИЯ: $($_.Exception.Message)"
