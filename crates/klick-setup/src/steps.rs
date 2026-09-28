@@ -5,6 +5,7 @@
 //! было: прежние файлы лежат рядом в `klick.old`, служба запускается снова. Удаление прежней
 //! kl!ck, регистрация службы и записи в реестре — необратимые шаги: с них отмена недоступна.
 
+use crate::migrate;
 use crate::payload;
 use crate::plan::{self, Info, Old};
 use crate::win::{self, Key, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
@@ -47,8 +48,16 @@ pub struct Request {
     pub desktop: bool,
     #[serde(default)]
     pub autostart: bool,
+    /// Удаление: стереть подписки и настройки. Обновление и переустановка: начать с чистого листа.
     #[serde(default)]
     pub wipe: bool,
+    /// Прежняя kl!ck 0.2–0.4 найдена: перенести её подписки и ссылки (правила не переносятся).
+    #[serde(default = "yes")]
+    pub keep_old: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -65,6 +74,7 @@ pub enum Task {
     Driver,
     Remove,
     Data,
+    Migrate,
 }
 
 impl Task {
@@ -82,6 +92,7 @@ impl Task {
             Task::Driver => "Удаление драйвера Wintun".into(),
             Task::Remove => "Удаление файлов".into(),
             Task::Data => "Профили и настройки".into(),
+            Task::Migrate => "Перенос подписок".into(),
         }
     }
 
@@ -99,6 +110,7 @@ impl Task {
             Task::Driver => 15.0,
             Task::Remove => 25.0,
             Task::Data => 10.0,
+            Task::Migrate => 15.0,
         }
     }
 }
@@ -127,6 +139,11 @@ pub struct Outcome {
     /// Не помешало, но стоит сказать: `note.reboot` — часть файлов удалится после перезагрузки.
     pub notes: Vec<String>,
     pub path: String,
+    /// Перенос из прежней kl!ck: сколько подключений перенеслось и какие — нет.
+    #[serde(default)]
+    pub migrated: usize,
+    #[serde(default)]
+    pub not_migrated: Vec<String>,
 }
 
 enum Fail {
@@ -156,10 +173,22 @@ pub fn tasks(req: &Request, info: &Info) -> Vec<Task> {
             if info.old.is_some() {
                 t.push(Task::Old);
             }
-            t.extend([Task::Service, Task::Shortcuts]);
+            if kind != Kind::Install && req.wipe {
+                t.push(Task::Data);
+            }
+            t.push(Task::Service);
+            if migrating(req, info) {
+                t.push(Task::Migrate);
+            }
+            t.push(Task::Shortcuts);
             t
         }
     }
+}
+
+/// Есть что переносить из прежней kl!ck, и человек не отказался.
+fn migrating(req: &Request, info: &Info) -> bool {
+    req.kind != Kind::Uninstall && req.keep_old && info.old.as_ref().is_some_and(|o| o.data.is_some())
 }
 
 struct Run<'a> {
@@ -218,9 +247,12 @@ pub fn run(req: &Request, info: &Info, cancel: &AtomicBool, emit: &mut dyn FnMut
         Kind::Uninstall => uninstall(req, Path::new(&path), &mut r),
         _ => install(req, info, &mut r),
     };
-    let base = Outcome { ok: false, cancelled: false, error: None, detail: None, rolled_back: false, notes: Vec::new(), path };
+    let base = Outcome { ok: false, cancelled: false, error: None, detail: None, rolled_back: false, notes: Vec::new(), path, migrated: 0, not_migrated: Vec::new() };
     match result {
-        Ok(notes) => Outcome { ok: true, notes, ..base },
+        Ok(notes) => {
+            let (migrated, not_migrated) = LAST_MIGRATION.with(|m| std::mem::take(&mut *m.borrow_mut()));
+            Outcome { ok: true, notes, migrated, not_migrated, ..base }
+        }
         Err(Fail::Cancelled) => Outcome { cancelled: true, rolled_back: true, ..base },
         Err(Fail::Error { code, detail, rolled_back }) => Outcome { error: Some(code.into()), detail: (!detail.is_empty()).then_some(detail), rolled_back, ..base },
     }
@@ -319,9 +351,28 @@ fn install(req: &Request, info: &Info, r: &mut Run) -> Result<Vec<String>, Fail>
         return Err(undo.cancel());
     }
 
+    // Подписки прежней kl!ck — прочитать, пока её данные ещё на месте.
+    let carry: Vec<migrate::Item> = if migrating(req, info) {
+        info.old.as_ref().and_then(|o| o.data.as_deref()).map(|d| migrate::read_old(Path::new(d))).unwrap_or_default()
+    } else {
+        vec![]
+    };
+
     if let Some(old) = &info.old {
         r.begin(Task::Old);
         notes.extend(remove_old(old));
+    }
+
+    if upgrading && req.wipe {
+        // Начать с чистого листа: служба остановлена на шаге «Остановка». Прокси окна — вернуть
+        // до того, как исчезнет копия прежних настроек.
+        r.begin(Task::Data);
+        restore_proxy();
+        for d in data_dirs() {
+            if d.exists() && !win::remove_tree(&d) {
+                notes.push("note.reboot".into());
+            }
+        }
     }
 
     r.begin(Task::Service);
@@ -331,6 +382,12 @@ fn install(req: &Request, info: &Info, r: &mut Run) -> Result<Vec<String>, Fail>
         win::start_service(SERVICE, Duration::from_secs(30)).map_err(|e| fail("service.start", e))?;
     } else {
         register_service(&dir.join("klick-service.exe"))?;
+    }
+
+    let (mut migrated, mut not_migrated) = (0, vec![]);
+    if migrating(req, info) {
+        r.begin(Task::Migrate);
+        (migrated, not_migrated) = push_with_timeout(carry, Duration::from_secs(180));
     }
 
     r.begin(Task::Shortcuts);
@@ -343,7 +400,27 @@ fn install(req: &Request, info: &Info, r: &mut Run) -> Result<Vec<String>, Fail>
     }
     r.finish();
     notes.dedup();
+    LAST_MIGRATION.with(|m| *m.borrow_mut() = (migrated, not_migrated));
     Ok(notes)
+}
+
+thread_local! {
+    /// Итог переноса для `run`: `install` возвращает только заметки.
+    static LAST_MIGRATION: std::cell::RefCell<(usize, Vec<String>)> = const { std::cell::RefCell::new((0, Vec::new())) };
+}
+
+/// Передать подключения новой службе, но не ждать дольше `limit`: подписка, панель которой
+/// не отвечает, не должна повесить установщик.
+fn push_with_timeout(items: Vec<migrate::Item>, limit: Duration) -> (usize, Vec<String>) {
+    if items.is_empty() {
+        return (0, vec![]);
+    }
+    let names: Vec<String> = items.iter().map(|i| i.name().to_string()).collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(migrate::push(r"\\.\pipe\klick", &items));
+    });
+    rx.recv_timeout(limit).unwrap_or((0, names))
 }
 
 fn extract(dir: &Path, filter: &dyn Fn(&str) -> bool, r: &mut Run) -> Result<(), String> {
@@ -822,7 +899,23 @@ mod tests {
     }
 
     fn req(kind: Kind, wipe: bool) -> Request {
-        Request { kind, path: String::new(), desktop: true, autostart: true, wipe }
+        Request { kind, path: String::new(), desktop: true, autostart: true, wipe, keep_old: true }
+    }
+
+    #[test]
+    fn migration_and_clean_start_are_tasks() {
+        let mut with_data = info(true);
+        with_data.old.as_mut().unwrap().data = Some(r"C:\Users\x\AppData\Local\com.vbu00.klick".into());
+        // Есть что переносить — шаг «Перенос подписок» после службы: ей и передаём.
+        assert_eq!(tasks(&req(Kind::Install, false), &with_data), vec![Task::Files, Task::Core, Task::Old, Task::Service, Task::Migrate, Task::Shortcuts]);
+        let no = Request { keep_old: false, ..req(Kind::Install, false) };
+        assert!(!tasks(&no, &with_data).contains(&Task::Migrate));
+        // Переустановка «с чистого листа» — данные стираются до запуска службы.
+        let t = tasks(&req(Kind::Reinstall, true), &info(false));
+        assert!(t.iter().position(|x| *x == Task::Data) < t.iter().position(|x| *x == Task::Service));
+        // Старые запросы окна (без keep_old) — переносить по умолчанию.
+        let r: Request = serde_json::from_str(r#"{"kind":"install","path":"C:\\x"}"#).unwrap();
+        assert!(r.keep_old && !r.wipe);
     }
 
     #[test]

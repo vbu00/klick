@@ -8,6 +8,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 
 const ERROR_PIPE_BUSY: i32 = 231;
+/// Канал рабочей службы (как `klick_proto::PIPE`); служба для разработки — без проверки.
+const WORK_PIPE: &str = r"\\.\pipe\klick";
 
 pub struct Bridge {
     pipe: String,
@@ -25,12 +27,55 @@ async fn open(pipe: &str) -> std::io::Result<NamedPipeClient> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         match ClientOptions::new().open(pipe) {
+            // Рабочий канал держит служба от имени системы. Кто занял имя раньше неё, — чужой:
+            // ему не отдаём ни ссылки подписок, ни команды.
+            Ok(c) if pipe == WORK_PIPE && !served_by_system(&c) => {
+                return Err(std::io::Error::other("канал kl!ck держит не служба kl!ck"));
+            }
             Ok(c) => return Ok(c),
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && Instant::now() < deadline => {
                 tokio::time::sleep(Duration::from_millis(30)).await;
             }
             Err(e) => return Err(e),
         }
+    }
+}
+
+/// На том конце канала — процесс от имени LocalSystem (служба kl!ck работает только так).
+/// Обычная программа пользователя этого подделать не может.
+fn served_by_system(pipe: &NamedPipeClient) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{GetTokenInformation, IsWellKnownSid, TokenUser, WinLocalSystemSid, TOKEN_QUERY, TOKEN_USER};
+    use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
+    use windows::core::PWSTR;
+    use windows::Win32::System::Threading::{OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let mut pid = 0u32;
+        if GetNamedPipeServerProcessId(HANDLE(pipe.as_raw_handle() as _), &mut pid).is_err() || pid == 0 {
+            return false;
+        }
+        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+        let mut name = [0u16; 1024];
+        let mut size = name.len() as u32;
+        let image = if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, PWSTR(name.as_mut_ptr()), &mut size).is_ok() {
+            String::from_utf16_lossy(&name[..size as usize]).to_lowercase()
+        } else {
+            String::new()
+        };
+        let mut token = HANDLE::default();
+        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok();
+        let _ = CloseHandle(process);
+        if !opened {
+            // Токен процесса системы обычному пользователю не открыть — так и выглядит настоящая
+            // служба. Чужая программа того же пользователя свой токен отдаёт и сюда не попадает.
+            return image.ends_with(r"\klick-service.exe");
+        }
+        let mut buf = vec![0u8; 256];
+        let mut len = 0u32;
+        let ok = GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr() as _), buf.len() as u32, &mut len).is_ok();
+        let _ = CloseHandle(token);
+        ok && IsWellKnownSid((*(buf.as_ptr() as *const TOKEN_USER)).User.Sid, WinLocalSystemSid).as_bool()
     }
 }
 

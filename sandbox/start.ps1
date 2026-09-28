@@ -27,7 +27,8 @@ foreach ($s in $scripts) {
 # $entry, not $script: PowerShell names are case-insensitive, and $Script is the parameter.
 $entry = 'run.ps1'
 $doneFile = 'done.txt'
-$minutes = 9
+# +8 минут: в образе Песочницы бывает без WebView2, run.ps1 ставит его сам.
+$minutes = 17
 if ($Setup) {
     Copy-Item "$app\target\$cfg\klick-setup.exe" "$stage\klick-setup.exe"
     $old = Join-Path $env:ProgramW6432 'kl!ck'
@@ -37,7 +38,7 @@ if ($Setup) {
     }
     $entry = 'setup-test.ps1'
     $doneFile = 'setup-done.txt'
-    $minutes = 18
+    $minutes = 26
 }
 if ($Script) {
     Copy-Item "$app\target\$cfg\klick-setup.exe" "$stage\klick-setup.exe"

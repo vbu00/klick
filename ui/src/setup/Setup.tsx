@@ -30,7 +30,8 @@ type Action = 'update' | 'reinstall' | 'remove';
 const subscribed = new WeakSet<Api>();
 
 const STEP_OF: Record<'install' | 'maintain', Partial<Record<Screen, number>>> = {
-  install: { welcome: 0, options: 1, progress: 2, failed: 2, done: 3 },
+  // «Параметров» нет: папка и переключатели — на первом экране; «options» — только если с папкой беда.
+  install: { welcome: 0, options: 0, progress: 1, failed: 1, done: 2 },
   maintain: { maintain: 0, uninstall: 1, progress: 2, failed: 2, done: 3, removed: 3 },
 };
 
@@ -48,6 +49,8 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
   const [autostart, setAutostart] = useState(true);
   const [action, setAction] = useState<Action>(actions[0]?.key ?? 'update');
   const [wipe, setWipe] = useState(false);
+  const [keepOld, setKeepOld] = useState(true);
+  const [fresh, setFresh] = useState(false);
   const [launch, setLaunch] = useState(true);
   const [kind, setKind] = useState<Kind>('install');
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -145,7 +148,7 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
     }
     setPath(c.path);
     setPathError(null);
-    run({ kind: 'install', path: c.path, desktop, autostart, wipe: false });
+    run({ kind: 'install', path: c.path, desktop, autostart, wipe: false, keep_old: keepOld });
   }
 
   async function browse() {
@@ -162,7 +165,7 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
   function doAction() {
     const inst = info.installed!;
     if (action === 'remove') setScreen('uninstall');
-    else run({ kind: action, path: inst.path, desktop: false, autostart: false, wipe: false });
+    else run({ kind: action, path: inst.path, desktop: false, autostart: false, wipe: fresh });
   }
 
   async function finish() {
@@ -225,27 +228,29 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
           <section className="screen" key="welcome">
             <div className="eyebrow">{T.eyebrow}</div>
             <h1 className="hero">{T.welcome}</h1>
-            <p className="lead">{T.welcomeText}</p>
+            {/* Нашлась прежняя kl!ck — вместо вступления её плашка: иначе экран не вмещает. */}
+            {!info.old && <p className="lead">{T.welcomeText}</p>}
             <div className="card">
               <div className="card-row">
                 <div className="grow">
                   <div className="card-cap">{T.folder}</div>
                   <div className="mono ellipsis">{path}</div>
+                  <div className="card-cap">
+                    {T.needs} {size(info.size)}
+                    {free !== null ? ` · ${T.free} ${size(free)}` : ''}
+                  </div>
                 </div>
-                <button className="btn small" onClick={() => setScreen('options')}>
+                <button className="btn small" onClick={() => void browse()}>
                   {T.change}
                 </button>
               </div>
               <div className="hr" />
-              <div className="card-row kv">
-                <span className="dim">{T.needs}</span>
-                <span className="num">
-                  {size(info.size)}
-                  {free !== null ? ` · ${T.free} ${size(free)}` : ''}
-                </span>
-              </div>
+              <ToggleRow label={T.desktop} sub={T.desktopSub} on={desktop} onToggle={() => setDesktop(!desktop)} />
+              <div className="hr" />
+              <ToggleRow label={T.autostart} sub={T.autostartSub} on={autostart} onToggle={() => setAutostart(!autostart)} />
             </div>
-            {info.old && <OldNotice old={info.old} />}
+            {pathError && <div className="path-error">{pathError.startsWith('path.') ? errorText(pathError) : pathError}</div>}
+            {info.old && <OldNotice old={info.old} keep={keepOld} onToggle={() => setKeepOld(!keepOld)} />}
             <div className="grow" />
             <div className="foot">
               <div className="grow legal">
@@ -260,9 +265,6 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
                   {T.license}
                 </a>
               </div>
-              <button className="btn ghost" onClick={() => setScreen('options')}>
-                {T.options}
-              </button>
               <button className="btn primary" onClick={() => void startInstall()}>
                 {T.install}
               </button>
@@ -359,6 +361,8 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
               </div>
               <h2 className="big-title">{doneTitle(titleKind, info.version)}</h2>
               <p className="center-text">{T.doneSub}</p>
+              {!!outcome?.migrated && <p className="note">{T.migrated(outcome.migrated)}</p>}
+              {!!outcome?.not_migrated?.length && <p className="note">{T.notMigrated(outcome.not_migrated)}</p>}
               {notes.map((n) => (
                 <p key={n} className="note">
                   {n}
@@ -403,6 +407,16 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
                 );
               })}
             </div>
+            {action !== 'remove' && (
+              <label className="card wipe">
+                <input type="checkbox" checked={fresh} onChange={() => setFresh(!fresh)} />
+                <span className={fresh ? 'check red on' : 'check red'}>{fresh && <span className="tick" />}</span>
+                <span className="grow">
+                  <span className="wipe-label">{T.fresh}</span>
+                  <span className="wipe-path">{T.freshSub}</span>
+                </span>
+              </label>
+            )}
             <div className="grow" />
             <div className="foot end">
               <button className="btn ghost" onClick={() => void api.quit()}>
@@ -527,15 +541,24 @@ export function Setup({ api, hello }: { api: Api; hello: Hello }) {
   );
 }
 
-function OldNotice({ old }: { old: NonNullable<Hello['info']['old']> }) {
-  const n = oldNotice(old);
+/** Прежняя kl!ck: что с ней будет, и — если у неё есть данные — перенести ли подписки. */
+function OldNotice({ old, keep, onToggle }: { old: NonNullable<Hello['info']['old']>; keep: boolean; onToggle: () => void }) {
+  const n = oldNotice(old, keep);
   return (
     <div className="notice">
       <Icon name="info" size={16} />
-      <div>
+      <div className="grow">
         <b>{n.title}</b>
         <span>{n.text}</span>
       </div>
+      {old.data && (
+        <button className="notice-switch" role="switch" aria-checked={keep} aria-label={T.keepOld} title={T.keepOldSub} onClick={onToggle}>
+          <span className="notice-switch-label">{T.keepOld}</span>
+          <span className={keep ? 'switch on' : 'switch'}>
+            <span className="knob" />
+          </span>
+        </button>
+      )}
     </div>
   );
 }

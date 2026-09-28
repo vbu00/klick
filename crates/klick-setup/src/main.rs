@@ -2,13 +2,13 @@
 //! движке, что и kl!ck (Tauri + React), страница `setup.html`.
 //!
 //! Без окна, для администраторов и проверок:
-//!   klick-setup.exe --silent [--path <папка>] [--no-desktop] [--no-autostart]
+//!   klick-setup.exe --silent [--path <папка>] [--no-desktop] [--no-autostart] [--no-migrate] [--wipe]
 //!   klick-setup.exe --silent --uninstall [--wipe]
 //! Код выхода: 0 — готово, 1 — ошибка, 2 — неверные аргументы.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use klick_setup::{payload, plan, steps, win};
+use klick_setup::{payload, plan, steps, webview2, win};
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -26,6 +26,8 @@ struct Args {
     no_desktop: bool,
     no_autostart: bool,
     wipe: bool,
+    /// Не переносить подписки прежней kl!ck.
+    no_migrate: bool,
     /// Эта копия запущена из временной папки и удалит себя при выходе.
     temp_copy: bool,
 }
@@ -41,6 +43,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-desktop" => a.no_desktop = true,
             "--no-autostart" => a.no_autostart = true,
             "--wipe" => a.wipe = true,
+            "--no-migrate" => a.no_migrate = true,
             "--temp-copy" => a.temp_copy = true,
             other => return Err(format!("неизвестный аргумент: {other}")),
         }
@@ -157,7 +160,14 @@ fn silent(args: &Args) -> i32 {
         }
     };
     let path = args.path.clone().unwrap_or_else(|| info.default_path.clone());
-    let req = Request { kind, path, desktop: !args.no_desktop, autostart: !args.no_autostart, wipe: args.wipe };
+    let req = Request { kind, path, desktop: !args.no_desktop, autostart: !args.no_autostart, wipe: args.wipe, keep_old: !args.no_migrate };
+    // Окно kl!ck без WebView2 не откроется — поставить заранее, без вопросов: это тихий режим.
+    if kind != Kind::Uninstall && !webview2::installed() {
+        println!("ставлю Microsoft Edge WebView2 Runtime…");
+        if let Err(e) = webview2::install(true) {
+            eprintln!("предупреждение: {e}. Служба kl!ck работает и без него, окно — нет.");
+        }
+    }
     let cancel = AtomicBool::new(false);
     let mut last = usize::MAX;
     let out = steps::run(&req, &info, &cancel, &mut |p| {
@@ -170,6 +180,12 @@ fn silent(args: &Args) -> i32 {
     });
     if out.ok {
         println!("[100%] готово: {}", out.path);
+        if out.migrated > 0 || !out.not_migrated.is_empty() {
+            println!("перенесено из прежней kl!ck: {}", out.migrated);
+            for n in &out.not_migrated {
+                println!("не перенеслось: {n}");
+            }
+        }
         for n in &out.notes {
             println!("заметка: {n}");
         }
@@ -269,6 +285,17 @@ fn quit(app: tauri::AppHandle, state: tauri::State<Setup>) {
 }
 
 fn window(args: &Args) -> i32 {
+    // Окно установщика — тоже WebView2. Без него Tauri показал бы «Could not find the WebView2
+    // Runtime» и закрылся; спрашиваем и ставим сами.
+    if !webview2::installed() {
+        if !webview2::ask_install() {
+            return 1;
+        }
+        if let Err(e) = webview2::install(false) {
+            webview2::tell(&format!("Не получилось установить WebView2: {e}.\n\nСкачайте его с сайта Microsoft (Microsoft Edge WebView2 Runtime) и запустите установщик kl!ck снова."));
+            return 1;
+        }
+    }
     let info = plan::detect();
     let first = if args.uninstall && info.installed.is_some() {
         "uninstall"

@@ -393,10 +393,15 @@ fn sniffer() -> Value {
         "force-dns-mapping": true,
         "parse-pure-ip": true,
         "override-destination": false,
+        // TLS и QUIC — с подменой адреса на имя сайта. С `ipv6: true` туннель забирает и
+        // IPv6, а браузер со своим DoH (Chrome, Edge при DNS 1.1.1.1) идёт на IPv6-адрес сайта:
+        // сервер без IPv6 его не откроет, и страница висит — TUN уже принял соединение, и браузер
+        // не откатывается на IPv4. Имя из SNI уходит на сервер вместо адреса, сервер находит сайт
+        // сам. Утечки нет: IPv6 без имени (пиры торрентов, звонки) просто не пройдёт мимо VPN.
         "sniff": {
-            "TLS": { "ports": [443, 8443] },
+            "TLS": { "ports": [443, 8443], "override-destination": true },
             "HTTP": { "ports": [80, "8080-8880"], "override-destination": true },
-            "QUIC": { "ports": [443, 8443] }
+            "QUIC": { "ports": [443, 8443], "override-destination": true }
         },
         "skip-domain": ["+.push.apple.com"]
     })
@@ -571,6 +576,10 @@ mod tests {
         assert_eq!(cfg["rules"][0], r"PROCESS-PATH-REGEX,(?i)^C:\\Program Files\\kl!ck\\resources\\core\\mihomo\.exe$,DIRECT");
         let d = &cfg["dns"];
         assert_eq!(d["proxy-server-nameserver"][2], "77.88.8.8", "запасной UDP для адресов серверов");
+        // IPv6 в туннеле: TLS и QUIC уходят на сервер по имени сайта, не по IPv6-адресу.
+        assert_eq!(cfg["ipv6"], true);
+        assert_eq!(cfg["sniffer"]["sniff"]["TLS"]["override-destination"], true);
+        assert_eq!(cfg["sniffer"]["sniff"]["QUIC"]["override-destination"], true);
     }
 
     #[test]

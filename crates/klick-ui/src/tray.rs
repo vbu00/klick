@@ -1,15 +1,15 @@
-//! Значок в трее по состоянию — пять картинок из макета: подключено — зелёный; подключаюсь,
-//! переподключаюсь и «сервер не отвечает» — оранжевый; ошибка и «служба не отвечает» — красный;
-//! выключено — синий логотип; подключений ещё нет — серый. Размер — под масштаб экрана, чтобы
-//! значок был чётким. В полноэкранных играх и в «Не беспокоить» Windows прячет уведомления —
-//! значок остаётся на виду.
+//! Значок в трее по состоянию — клавиша kl!ck пяти цветов: подключено — зелёный; подключаюсь и
+//! переподключаюсь — синий (цвет логотипа); сервер не отвечает — оранжевый; ошибка и «служба не
+//! отвечает» — красный; выключено и подключений ещё нет — серый. Значки нарисованы крупно, на всю
+//! клетку трея; размер — под масштаб экрана, чтобы значок был чётким. В полноэкранных играх и в
+//! «Не беспокоить» Windows прячет уведомления — значок остаётся на виду.
 
 use serde_json::Value;
 use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::AppHandle;
 
-/// Картинки одного значка во всех размерах (значки нарисованы в `icons/tray`, SVG — у Димы).
+/// Картинки одного значка во всех размерах (`icons/tray`).
 macro_rules! sizes {
     ($name:literal) => {
         [
@@ -24,20 +24,20 @@ macro_rules! sizes {
     };
 }
 
-const DEFAULT: [(u32, &[u8]); 7] = sizes!("default");
-const SUCCESS: [(u32, &[u8]); 7] = sizes!("success");
-const WARNING: [(u32, &[u8]); 7] = sizes!("warning");
-const ERROR: [(u32, &[u8]); 7] = sizes!("error");
-const NO_CONNECTION: [(u32, &[u8]); 7] = sizes!("no-connection");
+const OK: [(u32, &[u8]); 7] = sizes!("ok");
+const BUSY: [(u32, &[u8]); 7] = sizes!("busy");
+const WARN: [(u32, &[u8]); 7] = sizes!("warn");
+const BAD: [(u32, &[u8]); 7] = sizes!("bad");
+const IDLE: [(u32, &[u8]); 7] = sizes!("idle");
 
-/// Какой значок у состояния службы. `empty` — подключений ещё нет.
-fn kind(vpn: &str, empty: bool) -> &'static str {
+/// Какой значок у состояния службы. `_empty` — подключений ещё нет (тоже серый).
+fn kind(vpn: &str, _empty: bool) -> &'static str {
     match vpn {
-        "connected" => "success",
-        "connecting" | "reconnecting" | "server_down" => "warning",
-        "error" => "error",
-        _ if empty => "no-connection",
-        _ => "default",
+        "connected" => "ok",
+        "connecting" | "reconnecting" => "busy",
+        "server_down" => "warn",
+        "error" => "bad",
+        _ => "idle",
     }
 }
 
@@ -50,11 +50,11 @@ fn wanted_size() -> u32 {
 
 fn icon(kind: &str, size: u32) -> Option<Image<'static>> {
     let set = match kind {
-        "success" => &SUCCESS,
-        "warning" => &WARNING,
-        "error" => &ERROR,
-        "no-connection" => &NO_CONNECTION,
-        _ => &DEFAULT,
+        "ok" => &OK,
+        "busy" => &BUSY,
+        "warn" => &WARN,
+        "bad" => &BAD,
+        _ => &IDLE,
     };
     let bytes = set.iter().find(|(s, _)| *s >= size).unwrap_or(&set[set.len() - 1]).1;
     Image::from_bytes(bytes).ok()
@@ -104,7 +104,7 @@ fn set(app: &AppHandle, kind: &str, tip: String) {
 
 /// Значок при запуске, пока служба не прислала состояние.
 pub fn initial() -> Option<Image<'static>> {
-    icon("default", wanted_size())
+    icon("idle", wanted_size())
 }
 
 /// Новое состояние службы.
@@ -115,7 +115,7 @@ pub fn update(app: &AppHandle, state: &Value) {
 
 /// Служба не отвечает: красный значок и честная подсказка.
 pub fn service_down(app: &AppHandle) {
-    set(app, "error", "kl!ck — служба не отвечает".into());
+    set(app, "bad", "kl!ck — служба не отвечает".into());
 }
 
 #[cfg(test)]
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn every_state_has_a_readable_icon() {
-        for k in ["default", "success", "warning", "error", "no-connection"] {
+        for k in ["ok", "busy", "warn", "bad", "idle"] {
             for size in [16, 20, 24, 32, 40, 48, 64, 80] {
                 let img = icon(k, size).expect("значок");
                 assert_eq!(img.width(), size.min(64), "{k} {size}");
@@ -135,11 +135,12 @@ mod tests {
 
     #[test]
     fn states_map_to_icons() {
-        assert_eq!(kind("connected", false), "success");
-        assert_eq!(kind("server_down", false), "warning");
-        assert_eq!(kind("reconnecting", false), "warning");
-        assert_eq!(kind("error", false), "error");
-        assert_eq!(kind("off", false), "default");
-        assert_eq!(kind("off", true), "no-connection");
+        assert_eq!(kind("connected", false), "ok");
+        assert_eq!(kind("connecting", false), "busy");
+        assert_eq!(kind("reconnecting", false), "busy");
+        assert_eq!(kind("server_down", false), "warn");
+        assert_eq!(kind("error", false), "bad");
+        assert_eq!(kind("off", false), "idle");
+        assert_eq!(kind("off", true), "idle");
     }
 }

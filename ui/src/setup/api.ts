@@ -2,7 +2,7 @@
 // подставными данными: `setup.html?s=old`, `?s=maintain`, `?s=same`, `?s=newer`, `?s=uninstall`, `?s=fail`.
 
 export type Kind = 'install' | 'update' | 'reinstall' | 'uninstall';
-export type TaskId = 'stop' | 'files' | 'core' | 'old' | 'service' | 'shortcuts' | 'stop_service' | 'unhook' | 'driver' | 'remove' | 'data';
+export type TaskId = 'stop' | 'files' | 'core' | 'old' | 'service' | 'shortcuts' | 'stop_service' | 'unhook' | 'driver' | 'remove' | 'data' | 'migrate';
 
 export interface Installed {
   version: string;
@@ -49,6 +49,9 @@ export interface Outcome {
   rolled_back: boolean;
   notes: string[];
   path: string;
+  /** Перенос из прежней kl!ck: сколько подключений перенеслось и какие — нет. */
+  migrated?: number;
+  not_migrated?: string[];
 }
 
 export interface Request {
@@ -56,7 +59,10 @@ export interface Request {
   path: string;
   desktop: boolean;
   autostart: boolean;
+  /** Удаление — стереть данные; обновление и переустановка — начать с чистого листа. */
   wipe: boolean;
+  /** Перенести подписки прежней kl!ck (0.2–0.4). */
+  keep_old?: boolean;
 }
 
 export type PathCheck = { ok: true; path: string } | { ok: false; code: string };
@@ -81,7 +87,17 @@ export interface Api {
 /** Какие задачи будут — как в Rust (`steps::tasks`): чтобы список был на экране сразу. */
 export function expectedTasks(req: Request, info: Info): TaskId[] {
   if (req.kind === 'uninstall') return ['stop_service', 'unhook', 'driver', 'remove', ...(req.wipe ? (['data'] as TaskId[]) : [])];
-  return [...(req.kind === 'install' ? [] : (['stop'] as TaskId[])), 'files', 'core', ...(info.old ? (['old'] as TaskId[]) : []), 'service', 'shortcuts'];
+  const migrate = req.keep_old !== false && !!info.old?.data;
+  return [
+    ...(req.kind === 'install' ? [] : (['stop'] as TaskId[])),
+    'files',
+    'core',
+    ...(info.old ? (['old'] as TaskId[]) : []),
+    ...(req.kind !== 'install' && req.wipe ? (['data'] as TaskId[]) : []),
+    'service',
+    ...(migrate ? (['migrate'] as TaskId[]) : []),
+    'shortcuts',
+  ];
 }
 
 export async function createApi(): Promise<Api> {

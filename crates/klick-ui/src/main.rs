@@ -232,6 +232,15 @@ fn main() {
                 TRAY_HIDDEN_AT.store(now_ms(), Ordering::Relaxed);
                 let _ = window.hide();
             }
+            // Окна фиксированного размера: двойной щелчок по заголовку, Win+↑ и «прилипание» к краю
+            // экрана разворачивают их и без кнопки — сразу возвращаем как было.
+            (_, WindowEvent::Resized(_)) => {
+                if window.is_maximized().unwrap_or(false) {
+                    let _ = window.unmaximize();
+                }
+            }
+            // Окно перетащили на экран с другим масштабом: высоту — снова под рабочую область.
+            ("main", WindowEvent::ScaleFactorChanged { .. }) => fit_main(window.app_handle()),
             _ => {}
         })
         .run(tauri::generate_context!())

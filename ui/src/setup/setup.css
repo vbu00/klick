@@ -1131,3 +1131,45 @@ body.preview .installer {
   gap: 8px;
   margin-top: 18px;
 }
+
+/* Прежняя kl!ck: переключатель «Перенести подписки» прямо в плашке. */
+.notice .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-switch {
+  flex: none;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.notice-switch-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Первый экран без «Параметров»: переключатели ближе к карточке папки. */
+.screen .card.toggles {
+  margin-top: 10px;
+}
+
+/* Карточки не сжимаются: лишнее место забирает .grow перед кнопками. */
+.screen > * {
+  flex-shrink: 0;
+}
+
+.screen > .grow {
+  flex-shrink: 1;
+}
+
+.card-row .card-cap + .mono + .card-cap {
+  margin-top: 3px;
+}

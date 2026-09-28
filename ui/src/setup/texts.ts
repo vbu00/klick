@@ -12,7 +12,6 @@ export const T = {
   free: 'свободно',
   accept: 'Нажимая «Установить», вы принимаете',
   license: 'лицензию MIT',
-  options: 'Параметры',
   install: 'Установить',
   back: 'Назад',
   next: 'Далее',
@@ -34,6 +33,12 @@ export const T = {
   uninstallTitle: 'Удалить kl!ck?',
   uninstallText: 'Приложение, служба и сетевой драйвер будут удалены. Активное VPN-подключение разорвётся.',
   wipe: 'Удалить профили, подписки и настройки',
+  fresh: 'Начать с чистого листа',
+  freshSub: 'Удалить подписки и настройки — kl!ck запустится как после первой установки',
+  keepOld: 'Перенести подписки',
+  keepOldSub: 'Подписки и ссылки перейдут в новую kl!ck. Правила маршрутизации — нет.',
+  migrated: (n: number) => `Из прежней kl!ck перенесено подключений: ${n}.`,
+  notMigrated: (names: string[]) => `Не перенеслись — добавьте их заново: ${names.join(', ')}.`,
   remove: 'Удалить',
   removed: 'kl!ck удалён',
   removedWipe: 'Приложение и все данные удалены с компьютера.',
@@ -54,7 +59,7 @@ export const T = {
   minimize: 'Свернуть',
 };
 
-export const INSTALL_STEPS = ['Приветствие', 'Параметры', 'Установка', 'Готово'];
+export const INSTALL_STEPS = ['Приветствие', 'Установка', 'Готово'];
 export const MAINT_STEPS = ['Действие', 'Подтверждение', 'Выполнение', 'Готово'];
 
 export function taskLabel(t: TaskId, info: Info): string {
@@ -71,6 +76,8 @@ export function taskLabel(t: TaskId, info: Info): string {
       return 'Служба kl!ck';
     case 'shortcuts':
       return 'Ярлыки и автозапуск';
+    case 'migrate':
+      return 'Перенос подписок';
     case 'stop_service':
       return 'Остановка службы kl!ck';
     case 'unhook':
@@ -138,11 +145,13 @@ export function size(bytes: number): string {
   return `${gb < 10 ? gb.toFixed(1).replace('.', ',') : Math.round(gb)} ГБ`;
 }
 
-export function oldNotice(old: NonNullable<Info['old']>): { title: string; text: string } {
-  const title = old.version ? `Найдена прежняя kl!ck ${old.version}` : 'Найдена прежняя kl!ck';
-  const text = old.data
-    ? 'Установщик удалит её вместе с настройками — подписки нужно будет добавить заново.'
-    : 'Установщик удалит её со всеми следами: службой автозапуска, правилами брандмауэра и прокси.';
+export function oldNotice(old: NonNullable<Info['old']>, keep: boolean): { title: string; text: string } {
+  const title = old.version ? `Прежняя kl!ck ${old.version}` : 'Прежняя kl!ck';
+  const text = !old.data
+    ? 'Удалим её со всеми следами: автозапуском, Kill Switch и прокси.'
+    : keep
+      ? 'Удалим её, а подписки перенесём сюда.'
+      : 'Удалим её вместе с подписками.';
   return { title, text };
 }
 
