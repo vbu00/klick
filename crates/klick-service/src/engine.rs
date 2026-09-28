@@ -42,6 +42,9 @@ pub enum Msg {
     NetworkChanged,
     CoreExited { generation: u64, code: Option<i32> },
     Shutdown(oneshot::Sender<()>),
+    /// Ещё раз попробовать снять прокси, оставшийся с прошлого запуска: служба стартует
+    /// раньше входа в Windows, и ветки реестра пользователя тогда ещё нет.
+    RetryLeftoverProxy,
 }
 
 #[derive(Clone)]
@@ -186,6 +189,19 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
             None
         }
     };
+    // Прокси, оставшийся от прошлого запуска (компьютер выключили с включённым VPN), снимаем
+    // и после входа в Windows: первые 15 минут пробуем каждые 3 секунды, пока есть отметка.
+    if paths.data.join("user-proxy.json").exists() {
+        let retry_tx = tx.clone();
+        tokio::spawn(async move {
+            for _ in 0..300 {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                if retry_tx.send(Msg::RetryLeftoverProxy).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
     let engine_tx = tx.clone();
     tokio::spawn(async move {
         while net_rx.recv().await.is_some() {
@@ -295,10 +311,7 @@ impl Engine {
             if self.restore_pending {
                 self.user_proxy_saved = Some(saved);
             } else {
-                if userproxy::clear(self.profile.mixed_port, Some(saved)) {
-                    tracing::info!("снят оставшийся системный прокси kl!ck");
-                }
-                let _ = std::fs::remove_file(&marker);
+                self.clear_leftover_proxy();
             }
         }
         if self.restore_pending {
@@ -324,6 +337,7 @@ impl Engine {
                             let _ = reply.send(self.ip_plan());
                         }
                         Msg::NetworkChanged => self.on_network_change().await,
+                        Msg::RetryLeftoverProxy => self.clear_leftover_proxy(),
                         Msg::CoreExited { generation, code } => self.on_core_exit(generation, code).await,
                         Msg::Shutdown(done) => {
                             self.shutdown().await;
@@ -950,13 +964,42 @@ impl Engine {
         }
     }
 
+    /// Снять прокси, оставшийся с прошлого запуска. Отметку стираем, только когда разобрались:
+    /// сняли или прокси уже не наш. Никто ещё не вошёл в Windows — отметка остаётся до следующей попытки.
+    fn clear_leftover_proxy(&mut self) {
+        let marker = self.paths.data.join("user-proxy.json");
+        // VPN уже включили заново — прокси снова наш и нужен.
+        if self.vpn != VpnState::Off || self.proxy_applied {
+            return;
+        }
+        let Some(saved) = std::fs::read(&marker).ok().and_then(|b| serde_json::from_slice::<userproxy::Saved>(&b).ok()) else { return };
+        match userproxy::clear(self.profile.mixed_port, Some(saved)) {
+            userproxy::Cleared::NoUser => {}
+            result => {
+                if result == userproxy::Cleared::Done {
+                    tracing::info!("снят оставшийся системный прокси kl!ck");
+                }
+                let _ = std::fs::remove_file(&marker);
+            }
+        }
+    }
+
     fn clear_proxy(&mut self) {
         if self.proxy_applied {
             self.emit(Event::ProxyClear);
             self.proxy_applied = false;
             if let Some(saved) = self.user_proxy_saved.take() {
-                if userproxy::clear(self.profile.mixed_port, Some(saved)) {
-                    tracing::info!("системный прокси пользователя сняла служба");
+                match userproxy::clear(self.profile.mixed_port, Some(saved.clone())) {
+                    // Пользователь уже вышел (выключение компьютера) — отметка остаётся,
+                    // прокси снимем после следующего входа.
+                    userproxy::Cleared::NoUser => {
+                        if let Ok(bytes) = serde_json::to_vec(&saved) {
+                            let _ = storage::write_atomic(&self.paths.data.join("user-proxy.json"), &bytes);
+                        }
+                        return;
+                    }
+                    userproxy::Cleared::Done => tracing::info!("системный прокси пользователя сняла служба"),
+                    userproxy::Cleared::NotOurs => {}
                 }
                 let _ = std::fs::remove_file(self.paths.data.join("user-proxy.json"));
             }

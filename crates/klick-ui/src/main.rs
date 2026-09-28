@@ -153,6 +153,28 @@ fn app_exit(app: AppHandle, clear_proxy: bool) {
     app.exit(0);
 }
 
+/// WM_ENDSESSION: Windows завершает сеанс (выключение, перезагрузка, выход). Окно — скрытое
+/// или нет — получает это сообщение; ловим его подклассом окна.
+mod session_end {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::WM_ENDSESSION;
+
+    unsafe extern "system" fn on_message(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+        if msg == WM_ENDSESSION && wp.0 != 0 {
+            crate::sysproxy::session_ending();
+        }
+        DefSubclassProc(hwnd, msg, wp, lp)
+    }
+
+    pub fn watch(window: &tauri::WebviewWindow) {
+        let Ok(hwnd) = window.hwnd() else { return };
+        unsafe {
+            let _ = SetWindowSubclass(HWND(hwnd.0 as _), Some(on_message), 1, 0);
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -165,6 +187,9 @@ fn main() {
         .setup(|app| {
             bridge::start_events(app.handle().clone());
             fit_main(app.handle());
+            if let Some(w) = app.get_webview_window("main") {
+                session_end::watch(&w);
+            }
             // Окно создаётся скрытым: при автозапуске оно остаётся в трее.
             if !std::env::args().any(|a| a == "--hidden") {
                 show_main(app.handle());

@@ -42,11 +42,22 @@ pub fn apply(p: &SystemProxy) -> Option<Saved> {
 }
 
 /// Снять наш прокси: вернуть то, что было, или просто выключить. Чужой прокси не трогаем.
-pub fn clear(port: u16, saved: Option<Saved>) -> bool {
-    let Some(key) = open_user_key() else { return false };
+/// Чем кончилась попытка снять прокси.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cleared {
+    /// Сняли: вернули, как было у пользователя.
+    Done,
+    /// Сейчас стоит не наш прокси (или никакого) — трогать нечего.
+    NotOurs,
+    /// Никто не вошёл в Windows: ветки реестра пользователя ещё нет. Повторить после входа.
+    NoUser,
+}
+
+pub fn clear(port: u16, saved: Option<Saved>) -> Cleared {
+    let Some(key) = open_user_key() else { return Cleared::NoUser };
     let ours = key.string("ProxyServer").is_some_and(|s| s == format!("127.0.0.1:{port}"));
     if !ours || key.dword("ProxyEnable") != Some(1) {
-        return false;
+        return Cleared::NotOurs;
     }
     match saved {
         Some(s) if s.server.is_some() => {
@@ -56,7 +67,7 @@ pub fn clear(port: u16, saved: Option<Saved>) -> bool {
         }
         _ => key.set_dword("ProxyEnable", 0),
     }
-    true
+    Cleared::Done
 }
 
 struct Key(HKEY);
