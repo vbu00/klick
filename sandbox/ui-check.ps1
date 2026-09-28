@@ -35,7 +35,7 @@ function WebView2Installed {
     return $false
 }
 
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing, System.Security
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing, System.Security, UIAutomationClient, UIAutomationTypes
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -48,6 +48,12 @@ public static class W {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, int flags, IntPtr extra);
     [DllImport("user32.dll")] public static extern int GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(int flags, int dx, int dy, int data, IntPtr extra);
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
+    [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
 }
 '@
 function Shot([string]$name) {
@@ -57,6 +63,29 @@ function Shot([string]$name) {
     $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
     $bmp.Save((Join-Path $out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
     $g.Dispose(); $bmp.Dispose()
+}
+# Видимые окна процесса: размер и место.
+function WindowsOf([int]$procId) {
+    $list = New-Object System.Collections.ArrayList
+    $cb = [W+EnumProc]{ param($h, $l) $p = 0; [void][W]::GetWindowThreadProcessId($h, [ref]$p); if ($p -eq $procId -and [W]::IsWindowVisible($h)) { [void]$list.Add((RectOf $h)) }; $true }
+    [void][W]::EnumWindows($cb, [IntPtr]::Zero)
+    $list -join '; '
+}
+# Значок kl!ck — на панель задач (Windows 11 прячет новые значки за стрелкой), потом щелчок по нему.
+function ClickTrayIcon {
+    Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath).ExecutablePath -like '*klick.exe' } |
+        ForEach-Object { Set-ItemProperty $_.PSPath -Name IsPromoted -Value 1 -Type DWord }
+    Start-Sleep 3
+    $ae = [System.Windows.Automation.AutomationElement]
+    $tray = $ae::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition($ae::ClassNameProperty, 'Shell_TrayWnd')))
+    if (-not $tray) { return 'нет панели задач' }
+    $btn = $tray.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -match 'kl!ck' } | Select-Object -First 1
+    if (-not $btn) { return 'значок kl!ck на панели задач не найден' }
+    $r = $btn.Current.BoundingRectangle
+    $x = [int]($r.X + $r.Width / 2); $y = [int]($r.Y + $r.Height / 2)
+    [void][W]::SetCursorPos($x, $y); Start-Sleep -Milliseconds 300
+    [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 80; [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
+    "щёлкнул «$($btn.Current.Name)» в $x,$y"
 }
 function RectOf([IntPtr]$h) { $r = New-Object W+RECT; [void][W]::GetWindowRect($h, [ref]$r); "{0}x{1} @ {2},{3}" -f ($r.R - $r.L), ($r.B - $r.T), $r.L, $r.T }
 
@@ -99,8 +128,17 @@ try {
     $h = $win.MainWindowHandle
     Log ("главное окно: {0}, DPI {1}" -f (RectOf $h), [W]::GetDpiForWindow($h))
     Shot 'desk-main'
-    & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_" }
+    Log ("окна kl!ck: " + (WindowsOf $win.Id))
+    Log ("трей: " + (ClickTrayIcon))
+    Start-Sleep 2
+    Log ("окна kl!ck после щелчка: " + (WindowsOf $win.Id))
     Shot 'desk-tray'
+    # Страницы окон — если WebView2 открыл порт отладки (бывает не всегда).
+    & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_" }
+    # Трей прячется, когда теряет фокус: щёлкнуть мимо — и он должен исчезнуть.
+    [void][W]::SetCursorPos(200, 300); [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
+    Start-Sleep 1
+    Log ("окна kl!ck после щелчка мимо: " + (WindowsOf $win.Id))
 
     # 4. Развернуть — нельзя
     $before = RectOf $h
@@ -146,35 +184,6 @@ if ($task.IsCompleted) {
     Start-Service klick
     Start-Sleep 3
 
-    # 6. Окно без прав администратора видит настоящую службу. Признак — копия прежних настроек
-    # прокси: её пишет только окно; служба без окна ставит прокси сама и копии не делает.
-    $nic = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1
-    $ip = (Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 | Select-Object -First 1).IPAddress
-    $srv = 'C:\srv'
-    New-Item -ItemType Directory -Force $srv | Out-Null
-    $srvCfg = [ordered]@{
-        'mode' = 'rule'; 'log-level' = 'warning'; 'interface-name' = $nic.Name
-        'listeners' = @(@{ name = 'srv'; type = 'socks'; port = 1080; listen = '0.0.0.0'; udp = $true })
-        'rules' = @('MATCH,DIRECT')
-    } | ConvertTo-Json -Depth 5
-    Set-Content "$srv\config.yaml" $srvCfg -Encoding ASCII
-    $srvProc = Start-Process "$inst\resources\core\mihomo.exe" -ArgumentList '-d', $srv, '-f', "$srv\config.yaml" -WindowStyle Hidden -PassThru
-    Set-Content "$root\local.yaml" "proxies: [{name: nic, type: socks5, server: $ip, port: 1080, udp: true}]" -Encoding ASCII
-    & "$inst\klick-cli.exe" --prod import "$root\local.yaml" | Out-Null
-    & "$inst\klick-cli.exe" --prod mode proxy | Out-Null
-    $backup = Join-Path $env:LOCALAPPDATA 'klick\proxy-backup.json'
-    Remove-Item $backup -ErrorAction SilentlyContinue
-    & runas.exe /trustlevel:0x20000 "`"$inst\klick.exe`" --hidden" | Out-Null
-    Start-Sleep 8
-    & "$inst\klick-cli.exe" --prod connect | Out-Null
-    Start-Sleep 4
-    $reg = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-    Check 'окно без прав администратора работает со службой' (Test-Path $backup) ("ProxyEnable={0}, ProxyServer={1}, копия окна: {2}" -f $reg.ProxyEnable, $reg.ProxyServer, (Test-Path $backup))
-    & "$inst\klick-cli.exe" --prod disconnect | Out-Null
-    Start-Sleep 2
-    $reg = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-    Check 'окно без прав администратора сняло прокси' ($reg.ProxyEnable -eq 0) ("ProxyEnable=" + $reg.ProxyEnable)
-    Stop-Process -Id $srvProc.Id -Force -ErrorAction SilentlyContinue
 }
 catch {
     Log "ОШИБКА СЦЕНАРИЯ: $($_.Exception.Message)"

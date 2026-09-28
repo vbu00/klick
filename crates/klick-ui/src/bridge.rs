@@ -152,3 +152,40 @@ pub fn start_events(app: AppHandle) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Живая служба kl!ck на этом компьютере — из обычного процесса, без прав администратора
+    /// (так работает окно): `cargo test -p klick-ui live_service -- --ignored`.
+    #[test]
+    #[ignore]
+    fn live_service_pipe_is_trusted() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let c = ClientOptions::new().open(WORK_PIPE).expect("служба kl!ck не запущена");
+            assert!(served_by_system(&c), "канал службы должен пройти проверку");
+        });
+    }
+
+    /// Канал, созданный этим (обычным) процессом, проверку не проходит.
+    #[test]
+    fn own_pipe_is_not_trusted() {
+        use tokio::net::windows::named_pipe::ServerOptions;
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let name = format!(r"\\.\pipe\klick-owner-test-{}", std::process::id());
+            let _server = ServerOptions::new().first_pipe_instance(true).create(&name).unwrap();
+            let c = ClientOptions::new().open(&name).unwrap();
+            let elevated = is_elevated();
+            // От администратора с повышенными правами владелец и у своего канала — «Администраторы»:
+            // такой процесс и так может всё. Проверка защищает от обычных программ пользователя.
+            assert_eq!(served_by_system(&c), elevated);
+        });
+    }
+
+    fn is_elevated() -> bool {
+        std::process::Command::new("net").arg("session").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
+    }
+}
