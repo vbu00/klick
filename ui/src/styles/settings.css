@@ -1,0 +1,157 @@
+/* «Настройки» и подэкраны. Размеры, радиусы и цвета — из макета Димы. */
+
+.mt12 { margin-top: 12px; }
+.mt22 { margin-top: 22px; }
+.mt24 { margin-top: 24px; }
+
+.title-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.title-row .sub-title { margin-top: 0; }
+.info-btn.lg { width: 28px; height: 28px; }
+.info-btn.lg:hover { background: var(--card); }
+.sec-count { font-size: 12px; color: var(--dim); }
+.card-list.dimmed { opacity: 0.5; }
+.card-list { transition: opacity 0.2s; }
+.warn-text { color: var(--orange); }
+.mono-sub { font-size: 11px; color: var(--dim2); font-family: ui-monospace, Consolas, monospace; }
+
+.toggle.big { width: 50px; height: 30px; border-radius: 15px; }
+.toggle.big i { width: 24px; height: 24px; }
+.toggle.big.on i { transform: translateX(20px); }
+
+/* Kill Switch */
+.ks-main { margin-top: 16px; padding: 14px; border-radius: 20px; background: var(--card); display: flex; align-items: center; gap: 12px; }
+.ks-title { font-size: 15px; font-weight: 600; }
+.ks-desc { font-size: 12px; color: var(--text3); margin-top: 4px; line-height: 1.45; text-wrap: pretty; }
+.add-row { justify-content: center; gap: 8px; padding: 16px 14px; color: var(--text2); font-size: 13px; font-weight: 500; cursor: pointer; transition: background 0.2s ease; }
+.add-row:hover { background: var(--cardHover); }
+
+/* Схема Kill Switch: чего нет в листе режима */
+.mode-node-ico.cutoff { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.mode-pill.off { background: var(--win); border-color: var(--line); color: var(--dim2); }
+.mode-pill.off i { background: var(--ring); }
+.mode-area path.cut { stroke: var(--red); stroke-width: 2; }
+.ks-cut {
+  position: absolute;
+  left: 30%;
+  top: 26%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--red);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 4px var(--card);
+  z-index: 1;
+  animation: menuin 0.25s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Выбор из вариантов — карточки как «Режим подключения» в макете */
+.choice-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.choice:hover { background: var(--cardHover); }
+.choice.on { border-color: var(--ring); }
+.choice:disabled { cursor: default; opacity: 0.55; }
+.choice:disabled:hover { background: var(--card); }
+.radio-ring { flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--ring); display: flex; align-items: center; justify-content: center; }
+.radio-ring i { width: 8px; height: 8px; border-radius: 50%; background: transparent; }
+.choice.on .radio-ring,
+.theme-card.on .radio-ring { border-color: var(--accent); }
+.choice.on .radio-ring i,
+.theme-card.on .radio-ring i { background: var(--accent); }
+.choice-title { display: block; font-size: 15px; font-weight: 600; }
+.choice-desc { display: block; font-size: 12px; color: var(--text3); margin-top: 5px; line-height: 1.45; text-wrap: pretty; }
+.choice-hint { display: block; font-size: 12px; color: var(--dim2); margin-top: 5px; }
+
+/* Тема */
+.theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.theme-card { padding: 8px; border: 1px solid transparent; border-radius: 20px; background: var(--card); color: var(--text); text-align: left; cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+.theme-card:hover { background: var(--cardHover); }
+.theme-card.on { border-color: var(--ring); }
+.theme-prev { display: flex; flex-direction: column; gap: 8px; height: 72px; padding: 8px; border: 1px solid; border-radius: 12px; overflow: hidden; }
+.theme-bar { display: flex; align-items: center; gap: 8px; }
+.theme-bar i { flex: none; width: 16px; height: 16px; border-radius: 50%; }
+.theme-bar b { width: 40px; height: 4px; border-radius: 2px; }
+.theme-fill { flex: 1; border-radius: 8px; }
+.theme-label { display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; font-size: 14px; font-weight: 500; }
+.theme-label .radio-ring { margin-top: 0; }
+.swatches { margin-top: 12px; padding: 14px 16px; border-radius: 20px; background: var(--card); display: flex; justify-content: space-between; }
+.swatch { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; transition: box-shadow 0.2s ease, transform 0.15s ease; }
+.swatch:active { transform: scale(0.9); }
+
+/* Кнопки-пилюли, копирование */
+.pill-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background: var(--card);
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+.pill-btn:hover { background: var(--hover); color: var(--text); }
+.pill-btn:active { transform: scale(0.96); }
+.pill-btn:disabled { color: var(--dim); cursor: default; transform: none; }
+.copy-chip {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--elem);
+  color: var(--text);
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+.copy-chip:hover { background: var(--elemHover); }
+.copy-chip:active { transform: scale(0.96); }
+
+/* Журнал */
+.log-actions { display: flex; gap: 6px; margin-left: auto; }
+.log-box { margin-top: 14px; padding: 8px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--sunken); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; line-height: 1.5; user-select: text; }
+.log-line { display: flex; gap: 10px; padding: 2px 12px; }
+.log-time { flex: none; color: var(--dim2); }
+.log-level { flex: none; width: 38px; }
+.log-text { min-width: 0; color: var(--text2); word-break: break-word; }
+.log-empty { padding: 16px 12px; text-align: center; color: var(--dim2); }
+
+/* О приложении */
+.about-head { display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 20px; }
+.about-logo { width: 72px; height: 72px; border-radius: 20px; background: var(--accent); color: var(--onAccent); display: flex; align-items: center; justify-content: center; }
+.about-name { font-size: 20px; font-weight: 600; margin-top: 14px; }
+.about-ver { font-size: 13px; color: var(--dim); margin-top: 4px; }
+.about-head .pill-btn { height: 32px; padding: 0 14px; font-size: 13px; color: var(--text); }
+.about-foot { margin-top: 16px; font-size: 12px; color: var(--dim2); text-align: center; line-height: 1.5; text-wrap: pretty; }
+.kv-row { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 13px 14px; font-size: 14px; }
+.kv-row + .kv-row::before { content: ''; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--line); }
+.kv-k { flex: none; color: var(--dim); }
+.kv-v { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.kv-v.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--text2); }
+.sheet-list { margin: 12px 0 0; padding-left: 18px; font-size: 13px; color: var(--text3); line-height: 1.5; }
+.sheet-list li + li { margin-top: 6px; }

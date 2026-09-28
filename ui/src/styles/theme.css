@@ -1,0 +1,106 @@
+/* Тема «Графит» из макета. Остальные темы (Полночь, OLED, Светлая, своя) подставляют те же переменные. */
+:root {
+  --page: #101012;
+  --win: #1a1a1d;
+  --card: #222226;
+  --cardHover: #26262b;
+  --hover: #2a2a2f;
+  --elem: #2e2e33;
+  --elemHover: #36363c;
+  --line: #2c2c31;
+  --raised: #3a3a40;
+  --ring: #4a4a50;
+  --text: #f2f2f4;
+  --text2: #c7c7cc;
+  --text3: #a1a1a8;
+  --dim: #8e8e93;
+  --dim2: #6e6e73;
+  --sunken: #141416;
+  --sunken2: #1e1e22;
+  --dots: #3c3c42;
+  --toast: #2c2c31;
+  --onText: #111111;
+  --accent: #30d158;
+  --onAccent: #0b0b0c;
+  --red: #ff6961;
+  --orange: #ffb340;
+  --shadow: rgba(0, 0, 0, 0.6);
+  --navShadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--page);
+  color: var(--text);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.in-tauri {
+  background: var(--win);
+  overflow: hidden;
+  user-select: none;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 18px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes screenin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes expandin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes menuin { from { opacity: 0; transform: scale(0.96) translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes snackin { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes sheetin { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wave {
+  0% { mask-size: 0% 0%, 100% 100%; opacity: 1; }
+  55% { mask-size: 340% 340%, 100% 100%; opacity: 1; }
+  62% { opacity: 0; }
+  100% { mask-size: 340% 340%, 100% 100%; opacity: 0; }
+}
+@keyframes ring {
+  0% { transform: scale(0.55); opacity: 0; }
+  8% { opacity: 0.7; }
+  55% { transform: scale(3.2); opacity: 0; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@keyframes pathflow { to { stroke-dashoffset: -16; } }
+@keyframes nodeglow {
+  0%, 70% { box-shadow: 0 0 0 0 transparent; }
+  85% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+  100% { box-shadow: 0 0 0 8px transparent; }
+}

@@ -1,0 +1,1133 @@
+/* Установщик kl!ck — по макету design/installer. Всегда тёмный, окно 680×440. */
+
+:root {
+  --page: #0c0c0e;
+  --win: #1a1a1d;
+  --rail: #141416;
+  --card: #222226;
+  --hover: #2a2a2f;
+  --elem: #2e2e33;
+  --line: #2c2c31;
+  --raised: #3a3a40;
+  --text: #f2f2f4;
+  --text2: #c7c7cc;
+  --dim: #8e8e93;
+  --dim2: #6e6e73;
+  --accent: #30d158;
+  --onAccent: #0b0b0c;
+  --red: #ff6961;
+  --mono: ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--win);
+  color: var(--text);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+a {
+  color: var(--text2);
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+/* В браузере — окно посреди страницы, как в макете; в Tauri окно и есть установщик. */
+body.preview {
+  background: radial-gradient(60% 50% at 50% 40%, #16161a, var(--page));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+body.preview .installer {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes screenin {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes ringout {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes dlgin {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-2deg);
+  }
+}
+
+.installer {
+  position: relative;
+  width: 680px;
+  height: 440px;
+  flex: none;
+  display: flex;
+  background: var(--win);
+  overflow: hidden;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Иконки из макета: SVG как маска, цвет — currentColor (как в окне kl!ck). */
+.ico {
+  display: block;
+  flex: none;
+  background: currentColor;
+  mask: var(--src) center / contain no-repeat;
+  -webkit-mask: var(--src) center / contain no-repeat;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dim {
+  color: var(--dim);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Рельс с шагами ─────────────────────────────────────────────────── */
+
+.rail {
+  flex: none;
+  width: 212px;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 14px 16px;
+  background:
+    radial-gradient(140% 55% at 20% 0%, rgba(10, 132, 255, 0.16), transparent 62%),
+    var(--rail);
+  border-right: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+}
+
+.brand img {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(10, 132, 255, 0.35));
+  animation: float 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.brand-name {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.brand-sub {
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+.steps {
+  list-style: none;
+  margin: 30px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 10px;
+  transition: background 0.25s ease;
+}
+
+.step.active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.step-dot {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--raised);
+  color: var(--dim2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: all 0.25s ease;
+}
+
+.step.active .step-dot {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.step.done .step-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--onAccent);
+}
+
+.step-label {
+  font-size: 13px;
+  color: var(--dim2);
+  transition: color 0.25s ease;
+}
+
+.step.active .step-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.step.done .step-label {
+  color: var(--text2);
+}
+
+.rail-foot {
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--dim2);
+  line-height: 1.5;
+}
+
+/* Галочка из двух линий, как в макете. */
+.tick {
+  display: block;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.tick.small {
+  width: 7px;
+  height: 4px;
+  border-width: 0 0 1.8px 1.8px;
+}
+
+.tick.big {
+  width: 24px;
+  height: 12px;
+  border-width: 0 0 3.5px 3.5px;
+  transform: translateY(-3px) rotate(-45deg);
+}
+
+/* ── Правая часть ───────────────────────────────────────────────────── */
+
+.pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.bar {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.bar-btn {
+  width: 36px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.bar-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.bar-btn.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 36px 24px;
+  animation: screenin 0.35s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hero {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 8px 0 0;
+  text-wrap: pretty;
+}
+
+.lead {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text2);
+  margin: 10px 0 0;
+  max-width: 380px;
+  text-wrap: pretty;
+}
+
+.lead.small {
+  font-size: 13.5px;
+  margin-top: 8px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.subline {
+  font-size: 13px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+
+.card {
+  margin-top: 22px;
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.card-row.kv {
+  justify-content: space-between;
+  padding: 11px 14px;
+  font-size: 13px;
+}
+
+.card-cap {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.card-row .mono {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.hr {
+  height: 1px;
+  background: var(--line);
+  margin-left: 14px;
+}
+
+.notice {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.notice .ico {
+  margin-top: 1px;
+  color: #ff9f0a;
+}
+
+.notice b {
+  display: block;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.notice span:not(.ico) {
+  color: var(--dim);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.foot.end {
+  justify-content: flex-end;
+}
+
+.legal {
+  font-size: 11.5px;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+/* ── Кнопки ─────────────────────────────────────────────────────────── */
+
+.btn {
+  flex: none;
+  border: 0;
+  background: var(--elem);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    filter 0.2s,
+    transform 0.1s,
+    opacity 0.2s;
+}
+
+.btn:hover {
+  background: var(--raised);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: var(--elem);
+}
+
+.btn.small {
+  font-size: 12px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+.btn.small2 {
+  height: 34px;
+  border-radius: 9px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text2);
+}
+
+.btn.ghost:hover {
+  background: var(--hover);
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--onAccent);
+  font-weight: 600;
+  padding: 0 20px;
+}
+
+.btn.primary:hover,
+.btn.danger:hover {
+  filter: brightness(1.08);
+}
+
+.btn.primary:active,
+.btn.danger:active {
+  transform: scale(0.97);
+}
+
+.btn.danger {
+  background: var(--red);
+  color: #fff;
+  font-weight: 600;
+  padding: 0 22px;
+}
+
+.btn.small2.danger {
+  padding: 0 14px;
+}
+
+.btn.wide {
+  padding: 0 24px;
+}
+
+.btn.strong {
+  font-weight: 600;
+}
+
+/* ── Параметры ──────────────────────────────────────────────────────── */
+
+.path-row {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.path-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-family: var(--mono);
+  outline: none;
+  user-select: text;
+}
+
+.path-input:focus {
+  border-color: var(--accent);
+}
+
+.path-input.bad {
+  border-color: var(--red);
+}
+
+.path-error {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--red);
+  line-height: 1.4;
+}
+
+.card.toggles {
+  margin-top: 14px;
+}
+
+.toggle-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle-label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.toggle-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--dim);
+  margin-top: 1px;
+}
+
+.switch {
+  flex: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--elem);
+  position: relative;
+  transition: background 0.2s;
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: left 0.2s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+
+.switch.on .knob {
+  left: 18px;
+}
+
+/* ── Установка ──────────────────────────────────────────────────────── */
+
+.pct {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 18px;
+}
+
+.pct-num {
+  font-size: 44px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.pct-sign {
+  font-size: 18px;
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--elem);
+  overflow: hidden;
+  margin-top: 14px;
+}
+
+.fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  overflow: hidden;
+}
+
+.fill.gray {
+  background: var(--text2);
+}
+
+.shine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.tasks {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--dim2);
+  transition: color 0.2s;
+}
+
+.task.active {
+  color: var(--text);
+}
+
+.task.done {
+  color: var(--text2);
+}
+
+.task-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-done {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0b0b0c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pop 0.3s ease;
+}
+
+.task-done.gray {
+  background: var(--text2);
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--raised);
+  border-top-color: var(--text);
+  animation: spin 0.8s linear infinite;
+}
+
+.pending-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--raised);
+}
+
+/* ── Готово, удалено, ошибка ────────────────────────────────────────── */
+
+.center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.badge-ok {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.badge-ok .ring,
+.badge-ok .disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.badge-ok .ring {
+  animation: ringout 1.6s ease-out 0.3s infinite;
+}
+
+.badge-ok .disc {
+  color: var(--onAccent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pop 0.45s cubic-bezier(0.3, 0.8, 0.3, 1.2);
+}
+
+.badge-gray,
+.badge-bad {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--elem);
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pop 0.45s cubic-bezier(0.3, 0.8, 0.3, 1.2);
+}
+
+.badge-bad {
+  background: color-mix(in srgb, var(--red) 18%, var(--card));
+  color: var(--red);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.big-title {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 22px 0 0;
+}
+
+.center-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text2);
+  margin: 6px 0 0;
+  max-width: 340px;
+  text-wrap: pretty;
+}
+
+.note {
+  font-size: 12px;
+  color: var(--dim);
+  margin: 6px 0 0;
+}
+
+.detail {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 8px 0 0;
+  max-width: 380px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.check-line input,
+.wipe input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--accent);
+  background: var(--accent);
+  color: var(--onAccent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.check-line input:not(:checked) + .check {
+  border-color: var(--raised);
+  background: transparent;
+}
+
+.check.red {
+  border-color: var(--raised);
+  background: transparent;
+  color: #fff;
+  margin-top: 1px;
+}
+
+.check.red.on {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.check-line input:focus-visible + .check,
+.wipe input:focus-visible + .check {
+  outline: 2px solid var(--text2);
+  outline-offset: 2px;
+}
+
+/* ── Уже установлено, удаление ──────────────────────────────────────── */
+
+.actions {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1.5px transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s,
+    background 0.2s;
+  --c: var(--accent);
+}
+
+.action.red {
+  --c: var(--red);
+}
+
+.action:hover {
+  background: var(--hover);
+}
+
+.action.on {
+  box-shadow: inset 0 0 0 1.5px var(--c);
+}
+
+.radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.action.on .radio {
+  border-color: var(--c);
+}
+
+.radio-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c);
+  transform: scale(0);
+  transition: transform 0.2s cubic-bezier(0.3, 0.8, 0.3, 1.3);
+}
+
+.action.on .radio-dot {
+  transform: scale(1);
+}
+
+.action-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.action.red.on .action-label {
+  color: var(--red);
+}
+
+.rec {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.action-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+.card.wipe {
+  margin-top: 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.card.wipe:hover {
+  background: var(--hover);
+}
+
+.wipe-label {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.wipe-path {
+  display: block;
+  font-size: 11.5px;
+  color: var(--dim);
+  margin-top: 2px;
+}
+
+/* ── Диалоги ────────────────────────────────────────────────────────── */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadein 0.2s ease;
+}
+
+.dialog {
+  width: 320px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: dlgin 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dialog.license {
+  width: 400px;
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dialog-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
+  margin-top: 6px;
+}
+
+.license-text {
+  margin: 10px 0 4px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--win);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text2);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}

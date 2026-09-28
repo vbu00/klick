@@ -1,0 +1,23 @@
+{
+  "services": [
+    { "id": "youtube", "name": "YouTube", "domains": ["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com", "youtube-nocookie.com", "youtubei.googleapis.com", "youtube.googleapis.com", "jnn-pa.googleapis.com", "youtubekids.com"] },
+    { "id": "discord", "name": "Discord", "domains": ["discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media", "discordcdn.com", "discord.co", "discord.dev", "discordstatus.com", "dis.gd"] },
+    { "id": "telegram", "name": "Telegram", "domains": ["telegram.org", "telegram.me", "t.me", "telegra.ph", "telesco.pe", "tdesktop.com", "cdn-telegram.org"],
+      "cidrs": ["91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22", "91.108.20.0/22", "91.108.56.0/22", "95.161.64.0/20", "149.154.160.0/20", "185.76.151.0/24", "2001:67c:4e8::/48", "2001:b28:f23c::/48", "2001:b28:f23d::/48", "2001:b28:f23f::/48", "2a0a:f280::/32"] },
+    { "id": "instagram", "name": "Instagram", "domains": ["instagram.com", "cdninstagram.com", "ig.me"] },
+    { "id": "facebook", "name": "Facebook", "domains": ["facebook.com", "facebook.net", "fbcdn.net", "fbsbx.com", "fb.com", "fb.me", "messenger.com"] },
+    { "id": "whatsapp", "name": "WhatsApp", "domains": ["whatsapp.com", "whatsapp.net", "wa.me"] },
+    { "id": "x", "name": "X (Twitter)", "domains": ["twitter.com", "x.com", "twimg.com", "t.co"] },
+    { "id": "chatgpt", "name": "ChatGPT", "domains": ["openai.com", "chatgpt.com", "chat.com", "oaistatic.com", "oaiusercontent.com", "sora.com"] },
+    { "id": "claude", "name": "Claude", "domains": ["claude.ai", "claude.com", "anthropic.com", "claudeusercontent.com"] },
+    { "id": "gemini", "name": "Gemini", "domains": ["gemini.google.com", "aistudio.google.com", "notebooklm.google.com", "generativelanguage.googleapis.com"] },
+    { "id": "spotify", "name": "Spotify", "domains": ["spotify.com", "spotifycdn.com", "scdn.co", "spotify.link"] },
+    { "id": "roblox", "name": "Roblox", "domains": ["roblox.com", "rbxcdn.com", "rbx.com", "robloxlabs.com"] },
+    { "id": "notion", "name": "Notion", "domains": ["notion.so", "notion.site", "notion.com"] },
+    { "id": "linkedin", "name": "LinkedIn", "domains": ["linkedin.com", "licdn.com"] },
+    { "id": "netflix", "name": "Netflix", "domains": ["netflix.com", "nflxvideo.net", "nflximg.net", "nflxext.com"] },
+    { "id": "soundcloud", "name": "SoundCloud", "domains": ["soundcloud.com", "sndcdn.com"] },
+    { "id": "proton", "name": "Proton", "domains": ["proton.me", "protonmail.com", "protonmail.ch", "protonvpn.com"] },
+    { "id": "speedtest", "name": "Speedtest", "domains": ["speedtest.net", "ookla.com"] }
+  ]
+}

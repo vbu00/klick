@@ -1,0 +1,331 @@
+/* «Соединение» и его подэкраны. Размеры, радиусы и цвета — из макета Димы (экран «Маршрутизация», листы). */
+
+.mt10 { margin-top: 10px; }
+.mt14 { margin-top: 14px; }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; margin-top: 22px; }
+.sec-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  margin-right: -8px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+.sec-act:hover { background: var(--card); color: var(--text); }
+.sec-act:active { transform: scale(0.96); }
+.sec-act:disabled { color: var(--dim); cursor: default; }
+.info-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+}
+.info-btn:hover { color: var(--text); background: var(--elem); }
+.info-btn:active { transform: scale(0.92); }
+.hint { margin-top: 10px; font-size: 12px; color: var(--dim); line-height: 1.45; text-wrap: pretty; }
+.seg-sm button { height: 32px; }
+
+/* Карточка со строками, как «Быстрые исключения» и настройки в макете */
+.card-list { margin-top: 10px; border-radius: 20px; background: var(--card); overflow: hidden; }
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.row + .row::before { content: ''; position: absolute; top: 0; left: 14px; right: 0; height: 1px; background: var(--line); }
+.row.link { cursor: pointer; transition: background 0.2s ease; }
+.row.link:hover { background: var(--cardHover); }
+.row-text { flex: 1; min-width: 0; }
+.row-title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub { font-size: 12px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub.mono { font-size: 11px; color: var(--dim2); font-family: ui-monospace, Consolas, monospace; }
+.row-text.wrap .row-title,
+.row-text.wrap .row-sub { white-space: normal; text-wrap: pretty; line-height: 1.4; }
+.row-chev { color: var(--dim2); }
+.row-count { flex: none; font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.row-count.warn { color: var(--orange); }
+.status-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+.toggle {
+  flex: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: var(--raised);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.2s;
+}
+.toggle.on { background: var(--accent); }
+.toggle.on i { transform: translateX(18px); }
+.toggle:disabled { opacity: 0.5; cursor: default; }
+
+.tile-letter { flex: none; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #1a1a1d; }
+.tile-ico { flex: none; border-radius: 8px; background: var(--elem); color: var(--dim); display: flex; align-items: center; justify-content: center; }
+
+.route-badge { flex: none; height: 22px; padding: 0 8px; border-radius: 11px; display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; background: var(--elem); color: var(--text2); }
+.route-badge.vpn { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.route-badge.block { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+
+/* Подэкраны */
+.back {
+  margin-top: 14px;
+  height: 32px;
+  padding: 0 14px 0 8px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  animation: screenin 0.3s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+.back:hover { background: var(--elem); color: var(--text); }
+.back:active { transform: scale(0.96); }
+.flip { transform: rotate(180deg); }
+.sub-title { font-size: 24px; font-weight: 600; margin-top: 12px; }
+.sub-lead { font-size: 13px; color: var(--dim); margin-top: 6px; line-height: 1.45; text-wrap: pretty; }
+.empty-card { margin-top: 12px; padding: 20px 14px; border-radius: 20px; background: var(--card); text-align: center; font-size: 13px; color: var(--dim2); line-height: 1.5; }
+.foot-note { margin-top: 12px; font-size: 12px; color: var(--dim2); line-height: 1.5; text-wrap: pretty; }
+
+.icon-x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--dim2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.icon-x:hover { color: var(--text); background: var(--elem); }
+.btn-card {
+  margin-top: 12px;
+  width: 100%;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+.btn-card:hover { background: var(--hover); }
+.btn-card:active { transform: scale(0.96); }
+.btn-card:disabled { color: var(--dim); cursor: default; transform: none; }
+.btn-card.in-card { background: var(--elem); }
+.btn-card.in-card:hover { background: var(--elemHover); }
+
+/* Лист «Добавить в список» — по листу «Выбрать приложение» из макета */
+.sheet.tall { height: 612px; display: flex; flex-direction: column; padding: 0; }
+.sheet.tall .sheet-grip { flex: none; }
+.sheet-head { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px 0; }
+.sheet .sheet-head h3 { margin: 0; }
+.sheet .sheet-head p { margin: 4px 0 0; font-size: 12px; color: var(--dim); line-height: 1.45; }
+.sheet-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+.sheet-close:hover { background: var(--elem); color: var(--text); }
+.sheet-close:active { transform: scale(0.96); }
+.sheet-tabs { flex: none; margin: 14px 16px 0; }
+.sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.sheet-foot { flex: none; display: flex; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--line); }
+.sheet-foot button { height: 44px; border: 0; border-radius: 14px; font-size: 14px; cursor: pointer; transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease; }
+.sheet-foot .ghost { flex: none; padding: 0 16px; background: var(--card); color: var(--text); font-weight: 500; }
+.sheet-foot .ghost:hover { background: var(--elem); }
+.sheet-foot .go { flex: 1; background: var(--accent); color: var(--onAccent); font-weight: 600; }
+.sheet-foot .go:disabled { background: var(--card); color: var(--dim); cursor: default; }
+.sheet-foot button:active:not(:disabled) { transform: scale(0.98); }
+
+.check { flex: none; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--ring); display: flex; align-items: center; justify-content: center; transition: background 0.15s ease, border-color 0.15s ease; }
+.check i { display: block; width: 5px; height: 9px; margin-top: -2px; border-right: 2px solid transparent; border-bottom: 2px solid transparent; transform: rotate(45deg); }
+.svc.on .check,
+.pick.on .check { background: var(--accent); border-color: var(--accent); }
+.svc.on .check i,
+.pick.on .check i { border-color: var(--onAccent); }
+
+.search {
+  display: block;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  user-select: text;
+  transition: border-color 0.2s ease;
+}
+.search:focus { border-color: var(--ring); }
+.pick-head { display: flex; justify-content: space-between; align-items: baseline; padding: 16px 0 6px; }
+.pick-hint { font-size: 12px; color: var(--dim2); }
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: calc(100% + 16px);
+  margin: 0 -8px 2px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.pick:hover,
+.pick.on { background: var(--card); }
+.pick:disabled { opacity: 0.45; cursor: default; background: transparent; }
+.pick-name { display: block; font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-sub { display: block; font-size: 11px; color: var(--dim2); font-family: ui-monospace, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-act { flex: none; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pick-empty { padding: 32px 16px; text-align: center; font-size: 12px; color: var(--dim); line-height: 1.45; text-wrap: pretty; }
+.pick-empty b { display: block; font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+
+.field {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 14px;
+  font-family: ui-monospace, Consolas, monospace;
+  outline: none;
+  user-select: text;
+  transition: border-color 0.2s ease;
+}
+.field:focus { border-color: var(--ring); }
+
+/* Лист «пустить через VPN / напрямую» из «Сейчас в сети» и «Не открывается?» */
+
+/* Лист «Как работает режим» — из макета */
+.mode-viz { margin-top: 10px; padding: 8px; border-radius: 16px; background: var(--card); }
+.mode-area { position: relative; height: 170px; }
+.mode-area svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; animation: fadein 0.3s ease; }
+.mode-area path { fill: none; stroke-linecap: round; }
+.mode-area path.idle { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 2 5; }
+.mode-area path.on { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 5; animation: pathflow 0.7s linear infinite; }
+.mode-area path.past { stroke: var(--dim); stroke-width: 2; stroke-dasharray: 3 5; animation: pathflow 0.9s linear infinite; }
+.mode-node { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; width: 84px; text-align: center; }
+.mode-node-ico { width: 36px; height: 36px; border-radius: 11px; background: var(--elem); color: var(--text2); display: flex; align-items: center; justify-content: center; transition: background 0.3s ease, color 0.3s ease; }
+.mode-node-ico.hot { background: color-mix(in srgb, var(--accent) 14%, var(--elem)); color: var(--accent); }
+.mode-node > b { font-size: 11px; font-weight: 600; margin-top: 4px; white-space: nowrap; }
+.mode-node > span { font-size: 10px; color: var(--dim); white-space: nowrap; }
+.monitor.sm i { width: 18px; height: 13px; }
+.monitor.sm b { width: 9px; }
+.mode-pill,
+.mode-isp { position: absolute; left: 50%; transform: translate(-50%, -50%); height: 26px; padding: 0 10px; border-radius: 9px; display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 11px; font-weight: 600; }
+.mode-pill { background: color-mix(in srgb, var(--accent) 16%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--text); }
+.mode-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.mode-isp { background: var(--win); border: 1px solid var(--line); transition: color 0.3s ease; }
+.mode-points { margin-top: 12px; padding: 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.mode-points div { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--text3); line-height: 1.5; text-wrap: pretty; }
+.mode-points i { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; }
+
+/* Живая схема — тем же языком, что схема в листе «Сменить подключение?» */
+.schema { margin-top: 10px; padding: 8px; border-radius: 16px; background: var(--card); }
+.schema-area { position: relative; height: 150px; }
+.schema-area svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.schema-area path { fill: none; stroke-linecap: round; }
+.schema-area path.vpn { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 5; }
+.schema-area path.direct { stroke: var(--dim); stroke-width: 2; stroke-dasharray: 3 5; }
+.schema-area path.idle { stroke: var(--ring); stroke-width: 1.5; stroke-dasharray: 2 5; opacity: 0.8; }
+.schema-area path.flow { animation: pathflow 0.7s linear infinite; }
+.schema-area path.direct.flow { animation-duration: 0.9s; }
+.switch-chip.plain { background: var(--win); border: 1px solid var(--line); }
+.switch-chip.off { background: var(--win); border: 1px dashed var(--ring); color: var(--dim); }
+.switch-chip.off i { border: 1.5px solid var(--ring); }
+.lanes { display: flex; flex-direction: column; gap: 6px; padding: 4px 6px 6px; }
+.lanes > div { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--text3); line-height: 1.45; }
+.lanes > div > i { flex: none; width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; }
+.lanes b { color: var(--text); font-weight: 600; }
+.lanes .lanes-note { display: block; color: var(--dim); text-wrap: pretty; }
+
+/* Как вас видят сайты */
+.ip-card { margin-top: 10px; padding: 14px; border-radius: 20px; background: var(--card); }
+.ip-grid { display: grid; grid-template-columns: 31% minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; align-items: baseline; font-size: 12px; }
+.ip-grid .k { color: var(--dim); }
+.ip-grid .h { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.ip-grid .v { min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ip-grid .mono { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.ip-grid .dim { color: var(--dim2); }
+.ip-grid .good { color: var(--accent); }
+.ip-grid .warn { color: var(--orange); }
+.ip-grid .bad { color: var(--red); }
+.ip-sep { grid-column: 1 / -1; height: 1px; margin: 2px 0; background: var(--line); }
+.ip-empty { font-size: 13px; color: var(--text3); line-height: 1.5; text-wrap: pretty; }
+.ip-card .foot-note { margin-top: 12px; }

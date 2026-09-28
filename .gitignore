@@ -1,0 +1,8 @@
+target/
+.dev-data/
+sandbox/results/
+ui/node_modules/
+ui/dist/
+crates/klick-ui/gen/
+crates/klick-setup/gen/
+dist/

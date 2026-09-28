@@ -1,0 +1,33 @@
+[package]
+name = "klick-ui"
+description = "Окно и трей kl!ck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "klick"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde_json.workspace = true
+tokio = { version = "1", features = ["net", "io-util", "time", "sync"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-winrt-notification = "0.8.1"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_Networking_WinInet", "Win32_UI_HiDpi", "Win32_System_DataExchange", "Win32_System_Memory"] }
+serde = { workspace = true, features = ["derive"] }
+
+[features]
+# Страница окна вшивается в exe; без этого окно ждёт сервер разработки Vite.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+png = "0.17"
