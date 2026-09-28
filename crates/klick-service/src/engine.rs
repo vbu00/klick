@@ -864,6 +864,7 @@ impl Engine {
             check_direct_port: win::free_port().map_err(internal)?,
             tun_device: TUN_DEVICE.into(),
             log_level: self.profile.core_log_level.clone(),
+            core_exe: std::fs::canonicalize(&self.paths.core_exe).unwrap_or_else(|_| self.paths.core_exe.clone()).to_string_lossy().into_owned(),
         };
         let config_path = self.write_config(&layout, capture, &conn_id)?;
         self.generation += 1;
@@ -1434,6 +1435,7 @@ impl Engine {
             check_direct_port: 0,
             tun_device: TUN_DEVICE.into(),
             log_level: "warning".into(),
+            core_exe: String::new(),
         };
         let cfg = compile::compile_tester(&layout, &Paths::provider_rel(conn_id));
         let path = self.paths.core_home.join("tester.yaml");

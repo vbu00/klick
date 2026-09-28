@@ -18,7 +18,9 @@ pub const SET_BLOCKED_DOMAINS: &str = "klick-blocked-domains";
 pub const SET_BLOCKED_IPS: &str = "klick-blocked-ips";
 pub const SET_RU_DOMAINS: &str = "klick-ru-domains";
 
-const DNS_RU: [&str; 2] = ["https://77.88.8.8/dns-query", "77.88.8.8"];
+/// Яндекс по голому IP DoH не отдаёт (пустой ответ, проверено), а DoT — да.
+/// Обычный UDP — запасной и самый быстрый: ядро опрашивает все сразу.
+const DNS_RU: [&str; 2] = ["tls://77.88.8.8:853", "77.88.8.8"];
 const DNS_FOREIGN: [&str; 2] = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"];
 
 /// Как трафик попадает в ядро.
@@ -42,6 +44,9 @@ pub struct CoreLayout {
     pub check_direct_port: u16,
     pub tun_device: String,
     pub log_level: String,
+    /// Путь к mihomo.exe: соединения проверочного ядра (замер задержки при
+    /// другом подключении) идут напрямую, а не через текущий туннель.
+    pub core_exe: String,
 }
 
 /// Файлы готовых наборов относительно домашней папки ядра.
@@ -79,7 +84,16 @@ pub fn compile(input: &CompileInput) -> Value {
         ]),
     );
     cfg.insert("rule-providers".into(), rule_providers(s, input.sets));
-    cfg.insert("rules".into(), Value::from(rules(s, input.catalog)));
+    let mut all = Vec::new();
+    // Проверочное ядро — тот же mihomo.exe. Его соединения в TUN попали бы в
+    // туннель основного, и задержка «другого» подключения мерилась бы через
+    // текущий сервер. Собственные соединения основного ядра в TUN не входят.
+    let exe = layout.core_exe.trim_start_matches(r"\\?\");
+    if !exe.is_empty() {
+        all.push(format!("PROCESS-PATH-REGEX,{},DIRECT", exact_path_regex(exe)));
+    }
+    all.extend(rules(s, input.catalog));
+    cfg.insert("rules".into(), Value::from(all));
     cfg.insert("dns".into(), dns(s, input.catalog));
     cfg.insert("sniffer".into(), sniffer());
     if input.capture == Capture::Tun {
@@ -176,6 +190,14 @@ pub fn folder_regex(folder: &str) -> String {
         }
     }
     re.push_str("\\\\.+$");
+    re
+}
+
+/// Ровно этот путь, без учёта регистра.
+pub fn exact_path_regex(path: &str) -> String {
+    let mut re = String::from("(?i)^");
+    push_escaped(&mut re, path);
+    re.push('$');
     re
 }
 
@@ -359,7 +381,9 @@ fn dns(s: &Settings, catalog: &Catalog) -> Value {
         "nameserver": nameserver,
         "nameserver-policy": policy,
         "direct-nameserver": ru,
-        "proxy-server-nameserver": ["https://77.88.8.8/dns-query", "https://1.1.1.1/dns-query"],
+        // Адреса самих серверов — напрямую. Обычный UDP — запасной на случай,
+        // когда DoT и DoH в сети закрыты: иначе сервер, заданный доменом, не найдётся.
+        "proxy-server-nameserver": ["tls://77.88.8.8:853", "https://1.1.1.1/dns-query", "77.88.8.8"],
     })
 }
 
@@ -392,6 +416,7 @@ mod tests {
             check_direct_port: 17892,
             tun_device: "klick".into(),
             log_level: "warning".into(),
+            core_exe: r"C:\Program Files\kl!ck\resources\core\mihomo.exe".into(),
         }
     }
 
@@ -538,11 +563,22 @@ mod tests {
     }
 
     #[test]
+    fn tester_core_goes_direct_not_through_tunnel() {
+        let s = Settings::default();
+        let (c, mut l, st) = (catalog(), layout(), sets());
+        l.core_exe = r"\\?\C:\Program Files\kl!ck\resources\core\mihomo.exe".into();
+        let cfg = compile(&CompileInput { settings: &s, catalog: &c, layout: &l, capture: Capture::Tun, provider_path: "providers/a.txt", sets: &st });
+        assert_eq!(cfg["rules"][0], r"PROCESS-PATH-REGEX,(?i)^C:\\Program Files\\kl!ck\\resources\\core\\mihomo\.exe$,DIRECT");
+        let d = &cfg["dns"];
+        assert_eq!(d["proxy-server-nameserver"][2], "77.88.8.8", "запасной UDP для адресов серверов");
+    }
+
+    #[test]
     fn dns_asks_blocked_names_through_vpn() {
         let mut s = Settings::default();
         s.lists.selected.push(Rule { target: Target::Domain("claude.ai".into()), route: Route::Vpn, enabled: true });
         let d = dns(&s, &catalog());
-        assert_eq!(d["nameserver"][0], "https://77.88.8.8/dns-query");
+        assert_eq!(d["nameserver"][0], "tls://77.88.8.8:853");
         assert_eq!(d["nameserver-policy"]["+.claude.ai"][0], "https://1.1.1.1/dns-query#klick-vpn");
         assert!(d["nameserver-policy"][format!("rule-set:{SET_BLOCKED_DOMAINS}")].is_array());
     }
