@@ -11,7 +11,9 @@
       />
     </dependentAssembly>
   </dependency>
-  <!-- Служба, Program Files и брандмауэр требуют прав администратора: UAC спросит один раз, при запуске установщика. -->
+  <!-- Service, Program Files and firewall need admin rights: UAC asks once, when the installer starts.
+       ASCII only: the resource compiler reads this file in the system ANSI code page, and
+       non-ASCII text here breaks the manifest ("side-by-side configuration is incorrect"). -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
