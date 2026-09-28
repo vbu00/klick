@@ -16,6 +16,12 @@ kl!ck — оболочка и служба. Сетевой туннель дел
 - Лицензия набора данных: GNU General Public License v3.0 (`GPL-3.0.txt`)
 - Файл поставляется без изменений; нужен переключателю «Российские IP напрямую».
 
+## Набор «Заблокированное в РФ» — общий список
+
+- Источник: https://github.com/itdoginfo/allow-domains (`Russia/inside-clashx.lst`)
+- В kl!ck не входит: ядро скачивает его само, через VPN, раз в сутки, когда включён набор
+  «Заблокированное в РФ». Не скачался — работает встроенный набор kl!ck.
+
 ## Окно и служба
 
 - [Tauri](https://tauri.app), [React](https://react.dev) и библиотеки Rust (tokio, serde, reqwest, hyper, windows и др.) — MIT / Apache-2.0.

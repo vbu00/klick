@@ -8,14 +8,14 @@ export const modeName: Record<Mode, string> = {
 };
 
 export const routingName: Record<Routing, string> = {
-  all_vpn: 'всё через VPN',
-  selected: 'только выбранное',
+  all_vpn: 'VPN для всего',
+  selected: 'VPN для выбранного',
 };
 
 /** Кнопки тумблера и заголовки списков. */
 export const routingTitle: Record<Routing, string> = {
-  all_vpn: 'Всё через VPN',
-  selected: 'Только выбранное',
+  all_vpn: 'VPN для всего',
+  selected: 'VPN для выбранного',
 };
 
 export const routeName: Record<Route, string> = {

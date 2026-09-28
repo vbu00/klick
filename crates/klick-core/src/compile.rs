@@ -16,6 +16,11 @@ pub const PROBE_URL: &str = "https://www.gstatic.com/generate_204";
 
 pub const SET_BLOCKED_DOMAINS: &str = "klick-blocked-domains";
 pub const SET_BLOCKED_IPS: &str = "klick-blocked-ips";
+/// Общий список заблокированного и закрывшегося для РФ (itdoginfo/allow-domains, ~1200 доменов,
+/// обновляется сообществом). У репозитория нет лицензии — в установщик не вшиваем: ядро качает
+/// его само, через VPN, раз в сутки. Не скачался — работает встроенный набор выше.
+pub const SET_BLOCKED_COMMUNITY: &str = "klick-blocked-community";
+pub const BLOCKED_COMMUNITY_URL: &str = "https://raw.githubusercontent.com/itdoginfo/allow-domains/main/Russia/inside-clashx.lst";
 pub const SET_RU_DOMAINS: &str = "klick-ru-domains";
 
 /// Яндекс по голому IP DoH не отдаёт (пустой ответ, проверено), а DoT — да.
@@ -153,6 +158,16 @@ fn rule_providers(s: &Settings, sets: &SetFiles) -> Value {
         Routing::Selected if s.blocked_preset => json!({
             SET_BLOCKED_DOMAINS: file("domain", &sets.blocked_domains),
             SET_BLOCKED_IPS: file("ipcidr", &sets.blocked_ips),
+            SET_BLOCKED_COMMUNITY: {
+                "type": "http",
+                "behavior": "classical",
+                "format": "text",
+                "url": BLOCKED_COMMUNITY_URL,
+                "path": "sets/blocked-community.lst",
+                "interval": 86400,
+                // С GitHub из России бывает плохо — качаем через VPN.
+                "proxy": VPN_GROUP,
+            },
         }),
         Routing::Selected => json!({}),
         Routing::AllVpn if s.russia_direct.domains => json!({
@@ -293,6 +308,7 @@ pub fn rules(s: &Settings, catalog: &Catalog) -> Vec<String> {
             if s.blocked_preset {
                 out.push(format!("RULE-SET,{SET_BLOCKED_DOMAINS},{VPN_GROUP}"));
                 out.push(format!("RULE-SET,{SET_BLOCKED_IPS},{VPN_GROUP},no-resolve"));
+                out.push(format!("RULE-SET,{SET_BLOCKED_COMMUNITY},{VPN_GROUP}"));
             }
             out.push("MATCH,DIRECT".into());
         }
@@ -604,7 +620,7 @@ mod tests {
 
         s.blocked_preset = false;
         let r = rules(&s, &catalog());
-        assert!(!r.iter().any(|x| x.contains(SET_BLOCKED_DOMAINS) || x.contains(SET_BLOCKED_IPS)));
+        assert!(!r.iter().any(|x| x.contains(SET_BLOCKED_DOMAINS) || x.contains(SET_BLOCKED_IPS) || x.contains(SET_BLOCKED_COMMUNITY)));
         assert_eq!(r.last().unwrap(), "MATCH,DIRECT");
         assert_eq!(rule_providers(&s, &sets()), json!({}));
         assert!(dns(&s, &catalog())["nameserver-policy"].get(format!("rule-set:{SET_BLOCKED_DOMAINS}")).is_none());

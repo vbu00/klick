@@ -9,7 +9,7 @@ import { Sheet, Toasts } from '../components/Chrome';
 import { Tile } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
-import { errorText } from '../lib/i18n';
+import { errorText, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget } from '../lib/live';
 import { plural } from '../lib/rules';
 import { useStore } from '../lib/store';
@@ -282,8 +282,8 @@ export function Tray() {
           <div className="tr-seg">
             {(
               [
-                ['all_vpn', 'Всё через VPN'],
-                ['selected', 'Только выбранное'],
+                ['all_vpn', routingTitle.all_vpn],
+                ['selected', routingTitle.selected],
               ] as const
             ).map(([k, t]) => (
               <button key={k} className={routing === k ? 'on' : ''} onClick={() => routing !== k && void store.setRouting(k)}>
