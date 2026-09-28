@@ -41,41 +41,28 @@ async fn open(pipe: &str) -> std::io::Result<NamedPipeClient> {
     }
 }
 
-/// На том конце канала — процесс от имени LocalSystem (служба kl!ck работает только так).
-/// Обычная программа пользователя этого подделать не может.
+/// Канал создала служба kl!ck: его владелец — система или администраторы. Так выглядит канал,
+/// который служба (LocalSystem) создаёт при запуске. Программа обычного пользователя, занявшая имя
+/// раньше службы, владеет своим каналом сама и назначить владельцем систему не может.
+///
+/// Владельца видно любому, кто подключился к каналу: нужно только право READ_CONTROL, а оно входит
+/// в обычный доступ на чтение. Процесс службы при этом не открываем — обычному пользователю Windows
+/// его не откроет, и проверка по процессу отвергла бы настоящую службу.
 fn served_by_system(pipe: &NamedPipeClient) -> bool {
     use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows::Win32::Security::{GetTokenInformation, IsWellKnownSid, TokenUser, WinLocalSystemSid, TOKEN_QUERY, TOKEN_USER};
-    use windows::Win32::System::Pipes::GetNamedPipeServerProcessId;
-    use windows::core::PWSTR;
-    use windows::Win32::System::Threading::{OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::Foundation::{LocalFree, HANDLE, HLOCAL};
+    use windows::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
+    use windows::Win32::Security::{IsWellKnownSid, WinBuiltinAdministratorsSid, WinLocalSystemSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
     unsafe {
-        let mut pid = 0u32;
-        if GetNamedPipeServerProcessId(HANDLE(pipe.as_raw_handle() as _), &mut pid).is_err() || pid == 0 {
+        let mut owner = PSID::default();
+        let mut sd = PSECURITY_DESCRIPTOR::default();
+        let rc = GetSecurityInfo(HANDLE(pipe.as_raw_handle() as _), SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, Some(&mut owner), None, None, None, Some(&mut sd));
+        if rc.is_err() || owner.is_invalid() {
             return false;
         }
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
-        let mut name = [0u16; 1024];
-        let mut size = name.len() as u32;
-        let image = if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, PWSTR(name.as_mut_ptr()), &mut size).is_ok() {
-            String::from_utf16_lossy(&name[..size as usize]).to_lowercase()
-        } else {
-            String::new()
-        };
-        let mut token = HANDLE::default();
-        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok();
-        let _ = CloseHandle(process);
-        if !opened {
-            // Токен процесса системы обычному пользователю не открыть — так и выглядит настоящая
-            // служба. Чужая программа того же пользователя свой токен отдаёт и сюда не попадает.
-            return image.ends_with(r"\klick-service.exe");
-        }
-        let mut buf = vec![0u8; 256];
-        let mut len = 0u32;
-        let ok = GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr() as _), buf.len() as u32, &mut len).is_ok();
-        let _ = CloseHandle(token);
-        ok && IsWellKnownSid((*(buf.as_ptr() as *const TOKEN_USER)).User.Sid, WinLocalSystemSid).as_bool()
+        let ok = IsWellKnownSid(owner, WinLocalSystemSid).as_bool() || IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool();
+        let _ = LocalFree(HLOCAL(sd.0));
+        ok
     }
 }
 
