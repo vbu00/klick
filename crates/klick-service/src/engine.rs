@@ -1028,14 +1028,29 @@ impl Engine {
 
     async fn apply_selected_server(&mut self) {
         let Some(api) = self.api() else { return };
+        // Сразу после запуска или перечитывания конфига серверы провайдера бывают ещё не загружены:
+        // в группе тогда только заглушка ядра COMPATIBLE. Выбирать и запоминать можно лишь настоящие.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let names = loop {
+            let names: Vec<String> = api.provider_proxies(PROVIDER).await.unwrap_or_default().into_iter().map(|(n, _)| n).collect();
+            if !names.is_empty() || Instant::now() >= deadline {
+                break names;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        if names.is_empty() {
+            tracing::warn!("ядро не загрузило серверы подписки за 5 с, выбранный сервер не трогаю");
+            return;
+        }
         let wanted = self.settings.active().and_then(|c| c.selected_server.clone());
-        if let Some(name) = wanted {
-            if api.select(VPN_GROUP, &name).await.is_ok() {
+        if let Some(name) = &wanted {
+            if names.contains(name) && api.select(VPN_GROUP, name).await.is_ok() {
                 return;
             }
             tracing::warn!("сохранённого сервера больше нет в подписке, беру первый");
         }
-        if let Ok(Some(now)) = api.selected(VPN_GROUP).await {
+        let now = api.selected(VPN_GROUP).await.ok().flatten().filter(|n| names.contains(n));
+        if let Some(now) = now.or_else(|| names.first().cloned()) {
             if let Some(c) = self.settings.active_mut() {
                 c.selected_server = Some(now);
             }
