@@ -177,6 +177,8 @@ scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>
 официальный релиз и проверяет sha256 (`tools\fetch-core.ps1`), на Mac — `scripts/macos/fetch-core.sh`.
 Как устроены исходники, служба для разработки, превью окна и проверка в
 Песочнице Windows — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Скриншоты для README снимает `npm run screenshots`, видеоинструкцию — `npm run video`
+(GIF — `npm run video:gif`) в папке `ui`.
 
 ## Авторы
 
