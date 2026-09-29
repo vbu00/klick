@@ -71,8 +71,9 @@ function WindowsOf([int]$procId) {
     [void][W]::EnumWindows($cb, [IntPtr]::Zero)
     $list -join '; '
 }
-# Значок kl!ck — на панель задач (Windows 11 прячет новые значки за стрелкой), потом щелчок по нему.
-function ClickTrayIcon {
+# Значок kl!ck — на панель задач (Windows 11 прячет новые значки за стрелкой), потом щелчок по нему:
+# правый открывает окно трея, левый — главное окно.
+function ClickTrayIcon([switch]$Right) {
     Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath).ExecutablePath -like '*klick.exe' } |
         ForEach-Object { Set-ItemProperty $_.PSPath -Name IsPromoted -Value 1 -Type DWord }
     Start-Sleep 3
@@ -87,8 +88,10 @@ function ClickTrayIcon {
     $r = $btn.Current.BoundingRectangle
     $x = [int]($r.X + $r.Width / 2); $y = [int]($r.Y + $r.Height / 2)
     [void][W]::SetCursorPos($x, $y); Start-Sleep -Milliseconds 300
-    [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 80; [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
-    "щёлкнул «$($btn.Current.Name)» в $x,$y"
+    # MOUSEEVENTF_LEFTDOWN/UP = 2/4, RIGHTDOWN/UP = 8/16
+    $down, $up, $which = if ($Right) { 8, 16, 'правой' } else { 2, 4, 'левой' }
+    [W]::mouse_event($down, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 80; [W]::mouse_event($up, 0, 0, 0, [IntPtr]::Zero)
+    "щёлкнул $which «$($btn.Current.Name)» в $x,$y"
 }
 function RectOf([IntPtr]$h) { $r = New-Object W+RECT; [void][W]::GetWindowRect($h, [ref]$r); "{0}x{1} @ {2},{3}" -f ($r.R - $r.L), ($r.B - $r.T), $r.L, $r.T }
 
@@ -143,9 +146,13 @@ try {
     Log ("главное окно: {0}, DPI {1}" -f (RectOf $h), [W]::GetDpiForWindow($h))
     Shot 'desk-main'
     Log ("окна kl!ck: " + (WindowsOf $win.Id))
-    Log ("трей: " + (ClickTrayIcon))
+    Log ("трей: " + (ClickTrayIcon -Right))
     Start-Sleep 2
-    Log ("окна kl!ck после щелчка: " + (WindowsOf $win.Id))
+    $after = WindowsOf $win.Id
+    Log ("окна kl!ck после щелчка: " + $after)
+    # Новое окно шириной около 320 (с тенью — больше) — окно трея; системного меню быть не должно.
+    $trayWin = @($after -split '; ' | Where-Object { $_ -match '^(3[2-4]\d)x(\d+) ' -and [int]$Matches[2] -gt 100 })
+    Check 'правый щелчок по значку открывает окно трея' ($trayWin.Count -eq 1) $after
     Shot 'desk-tray'
     # Страницы окон — если WebView2 открыл порт отладки (бывает не всегда).
     & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_" }
@@ -156,7 +163,21 @@ try {
     # Трей прячется, когда теряет фокус: щёлкнуть мимо — и он должен исчезнуть.
     [void][W]::SetCursorPos(200, 300); [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
     Start-Sleep 1
-    Log ("окна kl!ck после щелчка мимо: " + (WindowsOf $win.Id))
+    $away = WindowsOf $win.Id
+    Log ("окна kl!ck после щелчка мимо: " + $away)
+    Check 'окно трея прячется, когда щёлкнули мимо' (-not ($away -split '; ' | Where-Object { $_ -match '^(3[2-4]\d)x(\d+) ' -and [int]$Matches[2] -gt 100 })) $away
+
+    # Левый щелчок — главное окно, даже если его закрыли крестиком (спрятали). Закрываем как человек,
+    # WM_CLOSE: окно прячет само себя. ShowWindow(SW_HIDE) в обход окна сбил бы его учёт видимости,
+    # и оно не показалось бы уже из-за проверки.
+    [void][W]::SendMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_CLOSE
+    Start-Sleep 1
+    Check 'крестик прячет главное окно' (-not [W]::IsWindowVisible($h) -and -not $win.HasExited)
+    Log ("трей: " + (ClickTrayIcon))
+    Start-Sleep 2
+    $left = WindowsOf $win.Id
+    Check 'левый щелчок по значку открывает главное окно' ([W]::IsWindowVisible($h) -and $left -notmatch '^(3[2-4]\d)x\d{3,} |; (3[2-4]\d)x\d{3,} ') $left
+    Shot 'desk-left-click'
 
     # 4. Развернуть — нельзя. Начинаем с обычного окна: свёрнутое «разворачивается» в обычное,
     # и сравнение размеров показало бы провал там, где его нет.

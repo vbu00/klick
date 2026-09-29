@@ -10,7 +10,6 @@ mod tray;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_positioner::{Position, WindowExt};
@@ -195,27 +194,20 @@ fn main() {
                 show_main(app.handle());
             }
 
-            // Левый щелчок — своё окно трея; правый — запасное меню.
-            let open = MenuItem::with_id(app, "open", "Открыть kl!ck", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
-            let mut tray = TrayIconBuilder::with_id("main").tooltip("kl!ck").menu(&menu).show_menu_on_left_click(false);
+            // Левый щелчок — главное окно; правый — своё окно трея вместо системного меню
+            // («Выход» — крестиком в нём).
+            let mut tray = TrayIconBuilder::with_id("main").tooltip("kl!ck");
             if let Some(icon) = tray::initial().or_else(|| app.default_window_icon().cloned()) {
                 tray = tray.icon(icon);
             }
-            tray.on_menu_event(|app, event| match event.id.as_ref() {
-                "open" => show_main(app),
-                // «Выход» спрашивает в окне трея: отключить VPN или оставить его работать.
-                "quit" => {
-                    show_tray(app);
-                    let _ = app.emit_to("tray", "klick://exit-request", ());
-                }
-                _ => {}
-            })
-            .on_tray_icon_event(|tray, event| {
+            tray.on_tray_icon_event(|tray, event| {
                 tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
-                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                    toggle_tray(tray.app_handle());
+                if let TrayIconEvent::Click { button, button_state: MouseButtonState::Up, .. } = event {
+                    match button {
+                        MouseButton::Left => show_main(tray.app_handle()),
+                        MouseButton::Right => toggle_tray(tray.app_handle()),
+                        _ => {}
+                    }
                 }
             })
             .build(app)?;
