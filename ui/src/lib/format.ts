@@ -1,5 +1,7 @@
 // Форматы как в макете: скорость в Mb/s, объём в МБ/ГБ, задержка в мс.
 
+import { lang, t } from './lang';
+
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
 
@@ -10,15 +12,15 @@ export function fmtRate(bytesPerSec: number): string {
 }
 
 export function fmtBytes(bytes: number): string {
-  return bytes >= GB ? (bytes / GB).toFixed(2) + ' ГБ' : (bytes / MB).toFixed(1) + ' МБ';
+  return bytes >= GB ? (bytes / GB).toFixed(2) + ' ' + t('ГБ') : (bytes / MB).toFixed(1) + ' ' + t('МБ');
 }
 
 /** «42.6 из 200 ГБ». */
 export function fmtTraffic(used: number, total: number): string {
   const u = used / GB;
-  const t = total / GB;
-  const tt = Number.isInteger(Math.round(t * 10) / 10) ? Math.round(t).toString() : t.toFixed(1);
-  return `${u.toFixed(1)} из ${tt} ГБ`;
+  const all = total / GB;
+  const tt = Number.isInteger(Math.round(all * 10) / 10) ? Math.round(all).toString() : all.toFixed(1);
+  return t('{used} из {total} ГБ', { used: u.toFixed(1), total: tt });
 }
 
 export function fmtTimer(sinceUnix: number | null, nowMs: number): string {
@@ -31,7 +33,7 @@ export function fmtTimer(sinceUnix: number | null, nowMs: number): string {
 }
 
 export function fmtDate(unix: number): string {
-  return new Date(unix * 1000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  return new Date(unix * 1000).toLocaleDateString(lang() === 'en' ? 'en-GB' : 'ru-RU', { day: 'numeric', month: 'long' });
 }
 
 export function daysLeft(unix: number): number {
@@ -46,7 +48,7 @@ export function pingColor(delay: number | null | undefined): string {
 }
 
 export function pingText(delay: number | null | undefined): string {
-  return delay == null ? 'нет ответа' : `${delay} мс`;
+  return delay == null ? t('нет ответа') : t('{n} мс', { n: delay });
 }
 
 const PROTOCOLS: Record<string, string> = {

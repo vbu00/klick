@@ -1,6 +1,7 @@
 // Схема из макета для листа «Сменить подключение?»: сейчас трафик идёт через одно подключение, после — через другое.
 
 import { Icon } from './Icon';
+import { t } from '../lib/lang';
 
 export function SwitchDiagram({ liveName, targetName }: { liveName: string; targetName: string }) {
   return (
@@ -17,8 +18,8 @@ export function SwitchDiagram({ liveName, targetName }: { liveName: string; targ
               <b />
             </span>
           </div>
-          <b>Компьютер</b>
-          <span>приложения</span>
+          <b>{t('Компьютер')}</b>
+          <span>{t('приложения')}</span>
         </div>
         <div className="switch-chip live" style={{ top: '22%' }}>
           <i />
@@ -32,18 +33,18 @@ export function SwitchDiagram({ liveName, targetName }: { liveName: string; targ
           <div className="switch-node-ico">
             <Icon name="globe" size={20} />
           </div>
-          <b>Интернет</b>
-          <span>сайты</span>
+          <b>{t('Интернет')}</b>
+          <span>{t('сайты')}</span>
         </div>
       </div>
       <div className="switch-legend">
         <span>
           <i className="solid" />
-          трафик сейчас
+          {t('трафик сейчас')}
         </span>
         <span>
           <i className="dashed" />
-          после переключения
+          {t('после переключения')}
         </span>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { shortPath } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { ProgramView } from '../lib/types';
 import { Tile } from './Controls';
+import { t } from '../lib/lang';
 
 export function ProgramList({ selected, onToggle, taken }: { selected: string[]; onToggle: (path: string) => void; taken: (folder: string) => boolean }) {
   const { transport } = useStore();
@@ -26,16 +27,16 @@ export function ProgramList({ selected, onToggle, taken }: { selected: string[];
 
   return (
     <>
-      <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию или .exe" />
+      <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('Поиск по названию или .exe')} />
       <div className="pick-head">
-        <span className="caps">Запущено сейчас · {running ? running.length : '…'}</span>
-        <span className="pick-hint">по сетевой активности</span>
+        <span className="caps">{t('Запущено сейчас')} · {running ? running.length : '…'}</span>
+        <span className="pick-hint">{t('по сетевой активности')}</span>
       </div>
-      {running === null ? <div className="pick-empty">Смотрю, кто в сети…</div> : null}
+      {running === null ? <div className="pick-empty">{t('Смотрю, кто в сети…')}</div> : null}
       {running && shown.length === 0 ? (
         <div className="pick-empty">
-          <b>Ничего не найдено</b>
-          Программа не запущена? Выберите её .exe вручную через «Обзор…».
+          <b>{t('Ничего не найдено')}</b>
+          {t('Программа не запущена? Выберите её .exe вручную через «Обзор…».')}
         </div>
       ) : null}
       {shown.map((p) => {
@@ -49,7 +50,7 @@ export function ProgramList({ selected, onToggle, taken }: { selected: string[];
             <Tile label={p.name} />
             <span className="row-text">
               <span className="pick-name">{p.name}</span>
-              <span className="pick-sub">{p.folder == null ? 'в общей папке — перенесите в свою' : isTaken ? 'уже в списке' : shortPath(p.folder)}</span>
+              <span className="pick-sub">{p.folder == null ? t('в общей папке — перенесите в свою') : isTaken ? t('уже в списке') : shortPath(p.folder)}</span>
             </span>
             <span className="pick-act">{p.connections}</span>
           </button>

@@ -2,6 +2,7 @@
 // а окно держит копию в localStorage, чтобы при запуске сразу открыться в своих цветах.
 
 import type { Appearance, ThemeBase, ThemeMode } from './types';
+import { tk, tmap } from './lang';
 
 type Palette = Record<string, string>;
 
@@ -15,25 +16,25 @@ export const PALETTES: Record<ThemeBase, Palette> = {
 export const ACCENTS = ['#30d158', '#0a84ff', '#bf5af2', '#ff9f0a', '#64d2ff', '#ff375f'];
 
 export const BASES: [ThemeBase, string][] = [
-  ['graphite', 'Графит'],
-  ['midnight', 'Полночь'],
+  ['graphite', tk('Графит')],
+  ['midnight', tk('Полночь')],
   ['oled', 'OLED'],
-  ['light', 'Светлая'],
+  ['light', tk('Светлая')],
 ];
 
 export const THEMES: [ThemeMode, string][] = [
-  ['system', 'Системная'],
-  ['light', 'Светлая'],
-  ['dark', 'Тёмная'],
-  ['custom', 'Своя'],
+  ['system', tk('Системная')],
+  ['light', tk('Светлая')],
+  ['dark', tk('Тёмная')],
+  ['custom', tk('Своя')],
 ];
 
-export const THEME_DESC: Record<ThemeMode, string> = {
+export const THEME_DESC: Record<ThemeMode, string> = tmap({
   system: 'Повторяет тему Windows и переключается вместе с ней.',
   light: 'Светлый фон и тёмный текст — удобно при ярком освещении.',
   dark: 'Тёмный фон — меньше нагрузки на глаза вечером.',
   custom: 'Выберите основу и цвет акцента ниже.',
-};
+});
 
 const lum = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);

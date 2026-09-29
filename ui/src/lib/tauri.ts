@@ -6,6 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { Transport } from './transport';
 import type { KEvent } from './types';
+import { t } from './lang';
 
 /** Окно внутри Tauri: команды и события идут через Rust-часть к службе. */
 export function createTauriTransport(): Transport {
@@ -33,7 +34,7 @@ export function createTauriTransport(): Transport {
       hide: () => void win.hide(),
     },
     pickExe: async () => {
-      const path = await open({ title: 'Выберите программу', multiple: false, directory: false, filters: [{ name: 'Программы', extensions: ['exe'] }] });
+      const path = await open({ title: t('Выберите программу'), multiple: false, directory: false, filters: [{ name: t('Программы'), extensions: ['exe'] }] });
       return typeof path === 'string' ? path : null;
     },
     openUrl: (url) => openUrl(url),

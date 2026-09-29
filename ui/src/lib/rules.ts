@@ -2,6 +2,7 @@
 
 import { targetKind } from './i18n';
 import type { ConnView, Routing, Route, Rule, Service } from './types';
+import { t } from './lang';
 
 /** Цвета плиток с первой буквой — из макета. */
 const TINTS = ['#a8c7fa', '#f5c26b', '#c4b5fd', '#9ad9c0', '#f4a7b9', '#b8c4d0'];
@@ -52,16 +53,16 @@ export function ruleTitle(rule: Rule, catalog: Service[], names: Record<string, 
 }
 
 export function ruleSub(rule: Rule): string {
-  const t = rule.target;
-  switch (t.kind) {
+  const tg = rule.target;
+  switch (tg.kind) {
     case 'service':
       return targetKind.service;
     case 'program':
-      return shortPath(t.value);
+      return shortPath(tg.value);
     case 'domain':
-      return t.value.includes('.') ? 'сайт и поддомены' : 'вся зона';
+      return tg.value.includes('.') ? t('сайт и поддомены') : t('вся зона');
     case 'ip':
-      return /\/(32|128)$/.test(t.value) ? 'адрес' : 'подсеть';
+      return /\/(32|128)$/.test(tg.value) ? t('адрес') : t('подсеть');
   }
 }
 
@@ -89,13 +90,8 @@ export function flowLabel(c: ConnView, catalog: Service[]): string {
   return c.process ? programName(c.process) : c.host;
 }
 
-/** 1 программа, 2 программы, 5 программ. */
-export function plural(n: number, forms: [string, string, string]): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  const form = m10 === 1 && m100 !== 11 ? forms[0] : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? forms[1] : forms[2];
-  return `${n} ${form}`;
-}
+/** 1 программа, 2 программы, 5 программ — и по-английски: в lang.ts. */
+export { plural } from './lang';
 
 /** Домен из punycode обратно в буквы: `xn--p1ai` → `рф`. */
 export function unicodeDomain(domain: string): string {

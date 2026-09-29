@@ -6,6 +6,7 @@ import { planToggle, positionVerb } from './live';
 import type { Transport } from './transport';
 import { applyTheme, resolveTheme, systemDark } from './theme';
 import type { ErrorInfo, KEvent, KillSwitch, Mode, Preferences, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target } from './types';
+import { t } from './lang';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'dim';
 
@@ -178,7 +179,7 @@ let resumed = false;
 
 export function useStore(): Store {
   const s = useContext(Ctx);
-  if (!s) throw new Error('useStore вне StoreProvider');
+  if (!s) throw new Error('useStore вне StoreProvider'); // i18n-skip: ошибка разработчика
   return s;
 }
 
@@ -275,7 +276,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const prev = ref.current.state;
         dispatch({ t: 'state', state: e.state });
         if (prev && prev.vpn !== 'connected' && e.state.vpn === 'connected' && prev.vpn === 'connecting') {
-          toast(`Подключено к ${e.state.connection?.name ?? 'серверу'}`, e.state.server ?? undefined, 'ok');
+          toast(e.state.connection?.name ? t('Подключено к {name}', { name: e.state.connection.name }) : t('Подключено'), e.state.server ?? undefined, 'ok');
         }
         if (e.state.connection?.id !== ref.current.settings?.active_connection || prev?.server !== e.state.server) {
           void transport.call<Settings>('settings').then((settings) => {
@@ -371,7 +372,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
       refresh: async (id) => {
         const r = await call('refresh_connection', { id });
         if (r !== undefined) {
-          toast('Подписка обновлена', 'Список серверов и лимиты актуальны', 'ok');
+          toast(t('Подписка обновлена'), t('Список серверов и лимиты актуальны'), 'ok');
           await reload();
         }
       },
@@ -379,14 +380,14 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const name = ref.current.settings?.connections.find((c) => c.id === id)?.name ?? '';
         const r = await call('remove_connection', { id });
         if (r !== undefined) {
-          toast('Подключение удалено', name, 'dim');
+          toast(t('Подключение удалено'), name, 'dim');
           await reload();
         }
       },
       addLink: async (source, name) => {
         const r = await call('add_connection', { source, name: name || null });
         if (r === undefined) return false;
-        toast('Подключение добавлено', 'Проверьте задержку серверов', 'ok');
+        toast(t('Подключение добавлено'), t('Проверьте задержку серверов'), 'ok');
         await reload();
         return true;
       },
@@ -394,7 +395,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const content = await file.text();
         const r = await call('import_file', { file_name: file.name, content });
         if (r === undefined) return false;
-        toast('Файл импортирован', file.name, 'ok');
+        toast(t('Файл импортирован'), file.name, 'ok');
         await reload();
         return true;
       },
@@ -419,8 +420,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         if (!ks) return;
         dispatch({ t: 'killswitch', ks });
         if (!enabled) {
-          toast('Kill Switch выключен', 'Программы из списка пойдут напрямую без VPN', 'warn', {
-            label: 'Отменить',
+          toast(t('Kill Switch выключен'), t('Программы из списка пойдут напрямую без VPN'), 'warn', {
+            label: t('Отменить'),
             run: () => void call<KillSwitch>('kill_switch_set', { enabled: true }).then((k) => k && dispatch({ t: 'killswitch', ks: k })),
           });
         }
@@ -445,8 +446,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const ks = await call<KillSwitch>('kill_switch_remove', { folder });
         if (!ks) return;
         dispatch({ t: 'killswitch', ks });
-        toast('Программа убрана из Kill Switch', undefined, 'dim', {
-          label: 'Отменить',
+        toast(t('Программа убрана из Kill Switch'), undefined, 'dim', {
+          label: t('Отменить'),
           run: () =>
             void call<KillSwitch>('kill_switch_add', { folder }).then(async (k) => {
               if (!k) return;
@@ -479,8 +480,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const list = await call<Rule[]>('list_remove', { position, index });
         if (!list || !rule) return;
         dispatch({ t: 'list', position, list });
-        toast('Правило удалено', undefined, 'dim', {
-          label: 'Отменить',
+        toast(t('Правило удалено'), undefined, 'dim', {
+          label: t('Отменить'),
           run: () => {
             void call<Rule[]>('list_add', { position, rule }).then((l) => l && dispatch({ t: 'list', position, list: l }));
           },
@@ -514,7 +515,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
         if (!list) return false;
         dispatch({ t: 'list', position, list });
-        if (!quiet) toast(`${label} → ${vpn ? 'через VPN' : 'напрямую'}`, `Правило в «${positionVerb(position)} · мой список»`, 'ok');
+        if (!quiet) toast(`${label} → ${vpn ? t('через VPN') : t('напрямую')}`, t('Правило в «{position} · мой список»', { position: positionVerb(position) }), 'ok');
         return true;
       },
       toast,

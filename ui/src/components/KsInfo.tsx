@@ -7,6 +7,7 @@ import type { Routing } from '../lib/types';
 import { Sheet } from './Chrome';
 import { Seg } from './Controls';
 import { Icon } from './Icon';
+import { t } from '../lib/lang';
 
 type View = 'on' | 'off';
 
@@ -16,13 +17,13 @@ export function KsInfo({ vpnOn, routing, protectedCount, onClose }: { vpnOn: boo
   const othersVpn = routing === 'all_vpn';
   return (
     <Sheet onClose={onClose}>
-      <h3>Как работает Kill Switch</h3>
+      <h3>{t('Как работает Kill Switch')}</h3>
       <Seg
         className="seg-sm mt14"
         value={view}
         options={[
-          ['on', 'VPN включён'],
-          ['off', 'VPN выключен'],
+          ['on', t('VPN включён')],
+          ['off', t('VPN выключен')],
         ]}
         onChange={setView}
       />
@@ -68,8 +69,8 @@ export function KsInfo({ vpnOn, routing, protectedCount, onClose }: { vpnOn: boo
                 <b />
               </span>
             </div>
-            <b>Защищённые</b>
-            <span>{protectedCount} в списке</span>
+            <b>{t('Защищённые')}</b>
+            <span>{t('{n} в списке', { n: protectedCount })}</span>
           </div>
           <div className="mode-node" style={{ left: '16%', top: '74%' }}>
             <div className="mode-node-ico">
@@ -78,22 +79,22 @@ export function KsInfo({ vpnOn, routing, protectedCount, onClose }: { vpnOn: boo
                 <b />
               </span>
             </div>
-            <b>Остальные</b>
-            <span>{on ? 'по тумблеру' : 'приложения'}</span>
+            <b>{t('Остальные')}</b>
+            <span>{on ? t('по тумблеру') : t('приложения')}</span>
           </div>
           <div className={on ? 'mode-pill' : 'mode-pill off'} style={{ top: '26%' }}>
             <i />
             VPN
           </div>
           <div className="mode-isp" style={{ top: '74%', color: on && othersVpn ? 'var(--dim2)' : 'var(--text)' }}>
-            Провайдер
+            {t('Провайдер')}
           </div>
           <div className="mode-node" style={{ left: '84%', top: '50%' }}>
             <div className="mode-node-ico">
               <Icon name="globe" size={18} />
             </div>
-            <b>Интернет</b>
-            <span>сайты</span>
+            <b>{t('Интернет')}</b>
+            <span>{t('сайты')}</span>
           </div>
         </div>
       </div>
@@ -101,18 +102,18 @@ export function KsInfo({ vpnOn, routing, protectedCount, onClose }: { vpnOn: boo
         <div>
           <i style={{ background: on ? 'var(--accent)' : 'var(--red)' }} />
           {on
-            ? `Защищённые программы ходят только через VPN — даже если тумблер пустил бы их напрямую. Остальные — как решает тумблер: сейчас «${routingTitle[routing]}».`
-            : 'Защищённые программы остаются без интернета — их данные не уйдут через провайдера. Остальные работают напрямую.'}
+            ? t('Защищённые программы ходят только через VPN — даже если тумблер пустил бы их напрямую. Остальные — как решает тумблер: сейчас «{routing}».', { routing: routingTitle[routing] })
+            : t('Защищённые программы остаются без интернета — их данные не уйдут через провайдера. Остальные работают напрямую.')}
         </div>
         {on ? null : (
           <div>
             <i style={{ background: 'var(--dim)' }} />
-            Локальная сеть для них открыта: роутер, принтер, игры по локалке.
+            {t('Локальная сеть для них открыта: роутер, принтер, игры по локалке.')}
           </div>
         )}
       </div>
       <div className="sheet-actions" style={{ marginTop: 16 }}>
-        <button onClick={onClose}>Понятно</button>
+        <button onClick={onClose}>{t('Понятно')}</button>
       </div>
     </Sheet>
   );

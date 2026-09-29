@@ -1,6 +1,8 @@
 // Связь страницы установщика с его Rust-частью. В браузере (превью, скриншоты) — макет с
 // подставными данными: `setup.html?s=old`, `?s=maintain`, `?s=same`, `?s=newer`, `?s=uninstall`, `?s=fail`.
 
+import { t } from '../lib/lang';
+
 export type Kind = 'install' | 'update' | 'reinstall' | 'uninstall';
 export type TaskId = 'stop' | 'files' | 'core' | 'old' | 'service' | 'shortcuts' | 'stop_service' | 'unhook' | 'driver' | 'remove' | 'data' | 'migrate';
 
@@ -126,7 +128,7 @@ async function tauriApi(): Promise<Api> {
     quit: () => invoke('quit'),
     minimize: () => void getCurrentWindow().minimize(),
     pickFolder: async () => {
-      const p = await open({ title: 'Папка для kl!ck', directory: true, multiple: false });
+      const p = await open({ title: t('Папка для kl!ck'), directory: true, multiple: false });
       return typeof p === 'string' ? p : null;
     },
     onProgress: (cb) => void listen<Progress>('setup://progress', (e) => cb(e.payload)),
@@ -202,7 +204,7 @@ function mockApi(scenario: string): Api {
         progress({ tasks, active: pct >= 100 ? tasks.length : active, pct, ceil: Math.min(100, (active + 1) * each), cancellable: cancellable && pct < 100 });
         if (fail && pct >= 38) {
           clearInterval(timer);
-          done({ ok: false, cancelled: false, error: 'files.write', detail: 'klick-service.exe: Отказано в доступе. (os error 5)', rolled_back: true, notes: [], path: req.path });
+          done({ ok: false, cancelled: false, error: 'files.write', detail: 'klick-service.exe: Отказано в доступе. (os error 5)', rolled_back: true, notes: [], path: req.path }); // i18n-skip: пример ошибки Windows в превью
         } else if (pct >= 100) {
           clearInterval(timer);
           setTimeout(() => done({ ok: true, cancelled: false, error: null, detail: null, rolled_back: false, notes: old ? ['note.reboot'] : [], path: req.path }), 300);

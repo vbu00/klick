@@ -5,6 +5,7 @@
 
 import { programName, serviceForHost, unicodeDomain } from './rules';
 import type { ConnView, KillSwitch, Route, Routing, Rule, Service, Target } from './types';
+import { t, tk } from './lang';
 
 /** Что решает, куда пойдёт соединение, — для тумблера и подписи. */
 export type Why = 'killswitch' | 'program' | 'rule' | 'core';
@@ -44,21 +45,22 @@ const ALIASES: Record<string, string> = {
   chrome: 'Chrome',
   firefox: 'Firefox',
   opera: 'Opera',
-  browser: 'Яндекс Браузер',
+  browser: tk('Яндекс Браузер'),
   telegram: 'Telegram',
   discord: 'Discord',
   steam: 'Steam',
   steamwebhelper: 'Steam',
   spotify: 'Spotify',
-  svchost: 'Система',
-  system: 'Система',
+  svchost: tk('Система'),
+  system: tk('Система'),
 };
 
 export function appName(c: Pick<ConnView, 'process' | 'process_path'>, names: Record<string, string>): string {
   if (c.process_path && names[c.process_path]) return names[c.process_path];
-  if (!c.process) return 'Неизвестная программа';
+  if (!c.process) return t('Неизвестная программа');
   const base = c.process.replace(/\.exe$/i, '');
-  return ALIASES[base.toLowerCase()] ?? programName(c.process);
+  const alias = ALIASES[base.toLowerCase()];
+  return alias ? t(alias) : programName(c.process);
 }
 
 const isIp = (h: string) => /^[\d.]+$/.test(h) || h.includes(':');
@@ -217,5 +219,5 @@ export function programTarget(path: string): Target {
 }
 
 export function positionVerb(routing: Routing): string {
-  return routing === 'selected' ? 'Через VPN' : 'Напрямую';
+  return routing === 'selected' ? t('Через VPN') : t('Напрямую');
 }
