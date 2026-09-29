@@ -1,3 +1,7 @@
 # Библиотека C вшивается в exe: программе не нужен отдельный Visual C++ Redistributable.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# Репозиторий выпусков: «Проверить обновления» смотрит последний релиз здесь (engine.rs, check_update).
+[env]
+KLICK_RELEASES_REPO = "vbu00/klick"
