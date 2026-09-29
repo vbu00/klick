@@ -8,6 +8,8 @@
     "build": "vite build",
     "check": "tsc --noEmit",
     "screenshots": "node scripts/screenshots.mjs",
+    "video": "node scripts/video.mjs full",
+    "video:gif": "node scripts/video.mjs gif",
     "tauri": "tauri"
   },
   "dependencies": {

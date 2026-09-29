@@ -11,6 +11,8 @@
 
 [Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
+<img src="docs/demo.gif" width="760" alt="Вставить ссылку на подписку, нажать кнопку, правый щелчок по значку в трее — быстрое меню" />
+
 </div>
 
 ---
@@ -145,6 +147,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 официальный релиз и проверяет sha256 (`tools\fetch-core.ps1`).
 Как устроены исходники, служба для разработки, превью окна и проверка в
 Песочнице Windows — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Скриншоты для README снимает `npm run screenshots`, видеоинструкцию — `npm run video`
+(GIF — `npm run video:gif`) в папке `ui`.
 
 ## Авторы
 
