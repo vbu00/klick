@@ -19,6 +19,10 @@ function Step([string]$name, [scriptblock]$run) {
 
 Push-Location $app
 try {
+    # 0. mihomo core and the country database are not in git: official release, sha256 checked.
+    if (-not ((Test-Path "$app\resources\core\mihomo.exe") -and (Test-Path "$app\resources\core\Country.mmdb"))) {
+        Step 'core' { powershell -NoProfile -ExecutionPolicy Bypass -File "$app\tools\fetch-core.ps1" }
+    }
     # 1. Pages of the window and the installer: ui\dist (both exes embed it).
     Step 'web pages' { Push-Location ui; try { npm run build } finally { Pop-Location } }
     # 2. Window, service, CLI. The installer packs klick.exe and klick-service.exe from target\<cfg>.

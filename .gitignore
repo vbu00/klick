@@ -9,3 +9,5 @@ dist/
 sandbox/cache/
 /build*.log
 /sandbox-*.log
+resources/core/mihomo.exe
+resources/core/Country.mmdb

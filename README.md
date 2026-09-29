@@ -25,7 +25,7 @@ cargo build
 
 Библиотека C вшита в exe (`.cargo/config.toml`), отдельный Visual C++ Redistributable не нужен.
 
-Ядро и база стран в `resources/core` — те же файлы, что в репозитории kl!ck 0.3.0 (`src-tauri/bin/`). Если их нет, скопируйте оттуда:
+Ядра и базы стран в git нет: `build.ps1` скачивает их сам в `resources/core` (`tools/fetch-core.ps1` — официальный релиз mihomo и country.mmdb с проверкой sha256). Это те же файлы, что в kl!ck 0.3.0:
 
 | Файл | SHA-256 |
 |---|---|
