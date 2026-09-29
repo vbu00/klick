@@ -6,3 +6,6 @@ ui/dist/
 crates/klick-ui/gen/
 crates/klick-setup/gen/
 dist/
+sandbox/cache/
+/build*.log
+/sandbox-*.log

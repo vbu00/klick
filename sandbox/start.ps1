@@ -16,6 +16,10 @@ if (Test-Path $stage) { [IO.Directory]::Delete($stage, $true) }
 New-Item -ItemType Directory -Force "$stage\bin", "$stage\results" | Out-Null
 Copy-Item "$app\target\$cfg\klick-service.exe", "$app\target\$cfg\klick-cli.exe", "$app\target\$cfg\klick.exe" "$stage\bin"
 Copy-Item "$app\resources" "$stage\resources" -Recurse
+# Offline WebView2 Runtime installer from Microsoft, if downloaded to sandbox\cache: the web bootstrapper
+# takes from 1.5 to 15+ minutes inside the Sandbox. Not in git (200+ MB).
+$wv = "$PSScriptRoot\cache\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+if (Test-Path $wv) { Copy-Item $wv "$stage\webview2.exe" }
 # PowerShell 5.1 inside the Sandbox reads a script as UTF-8 only when it has a BOM.
 $scripts = @('run.ps1', 'setup-test.ps1')
 if ($Script) { $scripts += "$Script.ps1" }

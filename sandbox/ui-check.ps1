@@ -79,8 +79,11 @@ function ClickTrayIcon {
     $ae = [System.Windows.Automation.AutomationElement]
     $tray = $ae::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition($ae::ClassNameProperty, 'Shell_TrayWnd')))
     if (-not $tray) { return 'нет панели задач' }
-    $btn = $tray.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -match 'kl!ck' } | Select-Object -First 1
-    if (-not $btn) { return 'значок kl!ck на панели задач не найден' }
+    # Значок в трее — SystemTray.NormalButton; кнопка окна на панели задач тоже зовётся «kl!ck»,
+    # щелчок по ней сворачивает окно, а трей не открывает.
+    $btn = $tray.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $_.Current.ClassName -eq 'SystemTray.NormalButton' -and $_.Current.Name -match 'kl!ck' } | Select-Object -First 1
+    if (-not $btn) { return 'значок kl!ck в трее не найден' }
     $r = $btn.Current.BoundingRectangle
     $x = [int]($r.X + $r.Width / 2); $y = [int]($r.Y + $r.Height / 2)
     [void][W]::SetCursorPos($x, $y); Start-Sleep -Milliseconds 300
@@ -107,7 +110,18 @@ try {
     Set-Content (Join-Path $oldData 'settings.json') '{"mode":"tun"}' -Encoding UTF8
     Log 'прежняя kl!ck: 2 подключения в profiles.dat'
 
-    # 2. Установщик без окна
+    # 2. Установщик без окна. WebView2 — заранее из полного установщика, если start.ps1 его положил:
+    # загрузчик, которым его ставит klick-setup, в Песочнице качает до четверти часа.
+    $wv = Join-Path $root 'webview2.exe'
+    if ((Test-Path $wv) -and -not (WebView2Installed)) {
+        $sig = Get-AuthenticodeSignature $wv
+        if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Microsoft Corporation') {
+            $t0 = Get-Date
+            # WaitForExit, а не -Wait: -Wait ждёт и фоновые процессы Edge Update, которые остаются жить.
+            [void](Start-Process $wv -ArgumentList '/silent', '/install' -PassThru).WaitForExit(600000)
+            Log ("WebView2 из полного установщика за {0:N0} с: {1}" -f ((Get-Date) - $t0).TotalSeconds, (WebView2Installed))
+        } else { Log 'webview2.exe: подпись не Microsoft — не запускаю' }
+    }
     $t0 = Get-Date
     $p = Start-Process "$root\klick-setup.exe" -ArgumentList '--silent', '--no-autostart' -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput "$out\setup.out" -RedirectStandardError "$out\setup.err"
     $setupOut = (Get-Content "$out\setup.out", "$out\setup.err" -Encoding UTF8 -ErrorAction SilentlyContinue) -join ' | '
@@ -135,12 +149,19 @@ try {
     Shot 'desk-tray'
     # Страницы окон — если WebView2 открыл порт отладки (бывает не всегда).
     & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_" }
+    # Почему порта нет: с какими ключами запущены процессы WebView2 и слушает ли кто-то порт.
+    Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
+        ForEach-Object { Log ("WebView2 {0}: {1}" -f $_.ProcessId, $_.CommandLine) }
+    Log ("порт 9341: " + ((Get-NetTCPConnection -LocalPort 9341 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { "слушает процесс $($_.OwningProcess)" }) -join ', '))
     # Трей прячется, когда теряет фокус: щёлкнуть мимо — и он должен исчезнуть.
     [void][W]::SetCursorPos(200, 300); [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
     Start-Sleep 1
     Log ("окна kl!ck после щелчка мимо: " + (WindowsOf $win.Id))
 
-    # 4. Развернуть — нельзя
+    # 4. Развернуть — нельзя. Начинаем с обычного окна: свёрнутое «разворачивается» в обычное,
+    # и сравнение размеров показало бы провал там, где его нет.
+    [void][W]::ShowWindow($h, 9)   # SW_RESTORE
+    Start-Sleep 1
     $before = RectOf $h
     [void][W]::SendMessage($h, 0x0112, [IntPtr]0xF030, [IntPtr]::Zero)   # WM_SYSCOMMAND, SC_MAXIMIZE
     Start-Sleep 1

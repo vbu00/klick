@@ -44,12 +44,18 @@ function WebView2Installed {
 }
 function EnsureWebView2 {
     if (WebView2Installed) { Log 'WebView2 уже есть'; return }
-    $f = Join-Path $env:TEMP 'MicrosoftEdgeWebview2Setup.exe'
     $t0 = Get-Date
-    try { Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $f -UseBasicParsing } catch { Log "WebView2 не скачался: $($_.Exception.Message)"; return }
+    # Полный установщик, если start.ps1 его положил (sandbox\cache): загрузчик в Песочнице качает
+    # от полутора минут до четверти часа.
+    $f = Join-Path $root 'webview2.exe'
+    if (-not (Test-Path $f)) {
+        $f = Join-Path $env:TEMP 'MicrosoftEdgeWebview2Setup.exe'
+        try { Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $f -UseBasicParsing } catch { Log "WebView2 не скачался: $($_.Exception.Message)"; return }
+    }
     $sig = Get-AuthenticodeSignature $f
     if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { Log 'WebView2: подпись не Microsoft — не запускаю'; return }
-    Start-Process $f -ArgumentList '/silent', '/install' -Wait
+    # WaitForExit, а не -Wait: -Wait ждёт и фоновые процессы Edge Update, которые остаются жить.
+    [void](Start-Process $f -ArgumentList '/silent', '/install' -PassThru).WaitForExit(600000)
     Log ("WebView2 поставлен за {0:N0} с: {1}" -f ((Get-Date) - $t0).TotalSeconds, (WebView2Installed))
 }
 function SrvLines { @(Get-Content "$out\srv.log" -ErrorAction SilentlyContinue) }
@@ -156,6 +162,9 @@ try {
     $st = WaitVpn 'connected' 40
     $afterNet = Http 'curl.exe'
     Check 'после смены сети VPN снова работает' ($st.vpn -eq 'connected' -and $afterNet -eq '204') ("vpn={0}, код {1}" -f $st.vpn, $afterNet)
+    # Ядро перечитывает серверы не сразу: служба не должна запомнить его заглушку COMPATIBLE.
+    $saved = @((KlickJson settings).connections | Where-Object { $_.selected_server } | ForEach-Object { $_.selected_server })
+    Check 'после смены сети сервер прежний' ($st.server -eq $working -and $saved -notcontains 'COMPATIBLE') ("сейчас {0}, в настройках: {1}" -f $st.server, ($saved -join ', '))
 
     # 4b. Переключатели России в «Всё через VPN»
     $n0 = (SrvLines).Count
