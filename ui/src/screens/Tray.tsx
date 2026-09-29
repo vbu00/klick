@@ -102,7 +102,7 @@ function useTrayConns(running: boolean, transport: Transport): ConnView[] {
 
 export function Tray() {
   const store = useStore();
-  const { state, settings, servers, pinging, traffic, isRunning, transport, serviceUp, catalog, programNames } = store;
+  const { state, settings, servers, pinging, tested, traffic, isRunning, transport, serviceUp, catalog, programNames } = store;
   const [view, setView] = useState<'main' | 'settings'>('main');
   const [exitAsk, setExitAsk] = useState(false);
   const [about, setAbout] = useState<AboutView | null>(null);
@@ -360,7 +360,7 @@ export function Tray() {
                 {conn.info ? <Usage info={conn.info} /> : null}
                 <div className="tr-card tr-servers">
                   {srv.map((s) => (
-                    <ServerRow key={s.name} s={s} active={s.name === current?.name} pinging={pinging} onPick={() => s.name !== current?.name && void store.selectServer(s.name)} />
+                    <ServerRow key={s.name} s={s} active={s.name === current?.name} pinging={pinging} tested={!!conn && !!tested[conn.id]} onPick={() => s.name !== current?.name && void store.selectServer(s.name)} />
                   ))}
                 </div>
               </>
@@ -374,7 +374,7 @@ export function Tray() {
                   <span className="s mono">{current ? protocolName(current.kind) : 'список появится после обновления'}</span>
                 </span>
                 <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
-                  {pinging ? '…' : current?.delay != null ? `${current.delay} мс` : 'нет ответа'}
+                  {pinging ? '…' : pingLabel(current?.delay, !!conn && !!tested[conn.id])}
                 </span>
               </div>
             )}
@@ -525,7 +525,13 @@ function Usage({ info }: { info: NonNullable<Connection['info']> }) {
   );
 }
 
-function ServerRow({ s, active, pinging, onPick }: { s: ServerView; active: boolean; pinging: boolean; onPick: () => void }) {
+/** Задержка у сервера. null до проверки не значит «нет ответа» — тогда пусто, как в главном окне. */
+function pingLabel(delay: number | null | undefined, tested: boolean): string {
+  if (delay != null) return `${delay} мс`;
+  return tested ? 'нет ответа' : '';
+}
+
+function ServerRow({ s, active, pinging, tested, onPick }: { s: ServerView; active: boolean; pinging: boolean; tested: boolean; onPick: () => void }) {
   const code = countryCode(s.name);
   return (
     <button className={active ? 'tr-server on' : 'tr-server'} onClick={onPick}>
@@ -535,7 +541,7 @@ function ServerRow({ s, active, pinging, onPick }: { s: ServerView; active: bool
       {code ? <span className="tr-code">{code}</span> : null}
       <span className="tr-server-name">{plainName(s.name)}</span>
       <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
-        {pinging ? '…' : s.delay == null ? 'нет ответа' : `${s.delay} мс`}
+        {pinging ? '…' : pingLabel(s.delay, tested)}
       </span>
     </button>
   );

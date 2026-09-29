@@ -771,7 +771,9 @@ impl Engine {
         storage::save_settings(&self.paths, &self.settings).map_err(|e| {
             tracing::error!("настройки не сохранились: {e:#}");
             ErrorInfo::new("storage.write_failed")
-        })
+        })?;
+        self.emit(Event::Settings);
+        Ok(())
     }
 
     fn now_ms(&self) -> u64 {

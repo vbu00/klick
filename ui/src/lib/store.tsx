@@ -33,6 +33,8 @@ interface S {
   settings: Settings | null;
   servers: Record<string, ServerView[]>;
   pinging: boolean;
+  /** Подключения, чьи серверы уже проверяли на задержку: только у них null значит «нет ответа». */
+  tested: Record<string, boolean>;
   traffic: Traffic;
   toasts: Toast[];
   /** Кто мешает режиму VPN: zapret, другой VPN. Узнаём из уведомления службы при подключении. */
@@ -51,6 +53,7 @@ type A =
   | { t: 'settings'; settings: Settings }
   | { t: 'servers'; id: string; list: ServerView[] }
   | { t: 'pinging'; on: boolean }
+  | { t: 'tested'; id: string }
   | { t: 'traffic'; up: number; down: number }
   | { t: 'toast'; toast: Toast }
   | { t: 'dismiss'; id: number }
@@ -72,6 +75,7 @@ const initial: S = {
   settings: null,
   servers: {},
   pinging: false,
+  tested: {},
   traffic: emptyTraffic(),
   toasts: [],
   neighbors: [],
@@ -94,6 +98,8 @@ function reducer(s: S, a: A): S {
       return { ...s, servers: { ...s.servers, [a.id]: a.list } };
     case 'pinging':
       return { ...s, pinging: a.on };
+    case 'tested':
+      return { ...s, tested: { ...s.tested, [a.id]: true } };
     case 'traffic': {
       const t = s.traffic;
       const mb = (b: number) => (b * 8) / 1e6;
@@ -277,6 +283,9 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
             void loadServers(settings.active_connection);
           });
         }
+      } else if (e.ev === 'settings') {
+        // Главное окно и окно трея — два отдельных окна: что поменяли в одном, должно быть видно в другом.
+        void transport.call<Settings>('settings').then((settings) => dispatch({ t: 'settings', settings })).catch(() => undefined);
       } else if (e.ev === 'traffic') {
         dispatch({ t: 'traffic', up: e.up, down: e.down });
       } else if (e.ev === 'notice') {
@@ -353,7 +362,10 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         if (!id || ref.current.pinging) return;
         dispatch({ t: 'pinging', on: true });
         const list = await call<ServerView[]>('test_latency');
-        if (list) dispatch({ t: 'servers', id, list });
+        if (list) {
+          dispatch({ t: 'servers', id, list });
+          dispatch({ t: 'tested', id });
+        }
         dispatch({ t: 'pinging', on: false });
       },
       refresh: async (id) => {

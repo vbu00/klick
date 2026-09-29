@@ -297,6 +297,9 @@ pub enum Event {
     ProxyApply { host: String, port: u16, bypass: Vec<String> },
     /// Окну: снять системный прокси.
     ProxyClear,
+    /// Настройки изменились — в любом окне или из консоли: окна перечитывают их, иначе главное
+    /// окно и окно трея показывают разное.
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

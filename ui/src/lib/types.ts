@@ -222,4 +222,6 @@ export type KEvent =
   | { ev: 'traffic'; up: number; down: number }
   | { ev: 'notice'; code: string; params?: Record<string, unknown> }
   | { ev: 'proxy_apply'; host: string; port: number; bypass: string[] }
-  | { ev: 'proxy_clear' };
+  | { ev: 'proxy_clear' }
+  /** Настройки изменились (в этом окне, в другом или из консоли) — перечитать. */
+  | { ev: 'settings' };
