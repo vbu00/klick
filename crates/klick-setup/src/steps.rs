@@ -25,6 +25,9 @@ const RUN_NAME: &str = "kl!ck";
 /// «Включено» для «Автозагрузки» в Диспетчере задач.
 const APPROVED_ON: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const LNK: &str = "kl!ck.lnk";
+/// Схема ссылок `klick://add` со страниц подписок: браузер запускает `klick.exe "klick://…"`.
+/// В разделе пользователя, как и автозапуск.
+const SCHEME_KEY: &str = r"Software\Classes\klick";
 const NOTIFY_SETTINGS: &str = r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings";
 /// Здесь Windows помнит значки трея: показывать ли на панели задач.
 const TRAY_SETTINGS: &str = r"Control Panel\NotifyIconSettings";
@@ -517,11 +520,12 @@ fn dir_size(dir: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-/// Ярлык в «Пуске» — всегда: по нему Windows показывает уведомления от имени kl!ck.
-/// На рабочем столе и автозапуск — как выбрали; при обновлении — как было.
+/// Ярлык в «Пуске» — всегда: по нему Windows показывает уведомления от имени kl!ck. Схема `klick` —
+/// тоже всегда. На рабочем столе и автозапуск — как выбрали; при обновлении — как было.
 fn shortcuts(dir: &Path, req: &Request, upgrading: bool) {
     let exe = dir.join("klick.exe");
     let _ = win::shortcut(&win::start_menu().join(LNK), &exe, "", AUMID);
+    set_scheme(&exe);
 
     let desktops: Vec<PathBuf> = [Some(win::public_desktop()), win::user_desktop()].into_iter().flatten().map(|d| d.join(LNK)).collect();
     if upgrading {
@@ -570,6 +574,39 @@ fn remove_autostart(dir: &Path) {
     if let Some(k) = Key::open(HKEY_CURRENT_USER, APPROVED_KEY) {
         k.delete_value(RUN_NAME);
     }
+}
+
+/// Ссылки `klick://` открывают этот klick.exe. Браузер при первой ссылке спросит «Открыть kl!ck?».
+fn set_scheme(exe: &Path) {
+    let exe = exe.display();
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, SCHEME_KEY) {
+        k.set_string("", "URL:kl!ck");
+        k.set_string("URL Protocol", "");
+    }
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, &format!(r"{SCHEME_KEY}\DefaultIcon")) {
+        k.set_string("", &format!("\"{exe}\",0"));
+    }
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, &format!(r"{SCHEME_KEY}\shell\open\command")) {
+        k.set_string("", &format!("\"{exe}\" \"%1\""));
+    }
+}
+
+/// Схему убираем, только если она ведёт в эту папку: чужую (другая копия, отладочная сборка) не трогаем.
+fn remove_scheme(dir: &Path) {
+    let command = Key::open(HKEY_CURRENT_USER, &format!(r"{SCHEME_KEY}\shell\open\command")).and_then(|k| k.string(""));
+    if command.as_deref().and_then(command_exe).is_some_and(|exe| win::inside(Path::new(exe), dir)) {
+        win::delete_key(HKEY_CURRENT_USER, SCHEME_KEY);
+    }
+}
+
+/// Программа из команды вида `"C:\…\klick.exe" "%1"` (или без кавычек).
+fn command_exe(command: &str) -> Option<&str> {
+    let c = command.trim();
+    let exe = match c.strip_prefix('"') {
+        Some(rest) => rest.split('"').next()?,
+        None => c.split(' ').next()?,
+    };
+    (!exe.is_empty()).then_some(exe)
 }
 
 // ── Прежняя kl!ck ──────────────────────────────────────────────────────
@@ -743,6 +780,7 @@ fn uninstall(req: &Request, dir: &Path, r: &mut Run) -> Result<Vec<String>, Fail
     r.begin(Task::Remove);
     remove_links_into(&dirs);
     remove_autostart(dir);
+    remove_scheme(dir);
     forget_tray_icons(&dirs);
     win::delete_key(HKEY_CURRENT_USER, &format!(r"{NOTIFY_SETTINGS}\{AUMID}"));
     if !remove_program(dir) {
@@ -925,6 +963,16 @@ mod tests {
         assert_eq!(tasks(&req(Kind::Update, false), &info(false))[0], Task::Stop);
         assert_eq!(tasks(&req(Kind::Uninstall, false), &info(false)).len(), 4);
         assert_eq!(tasks(&req(Kind::Uninstall, true), &info(false)).last(), Some(&Task::Data));
+    }
+
+    #[test]
+    fn scheme_command_names_the_program() {
+        assert_eq!(command_exe(r#""C:\Program Files\klick\klick.exe" "%1""#), Some(r"C:\Program Files\klick\klick.exe"));
+        // Так пишет схему плагин deep-link в отладочной сборке.
+        assert_eq!(command_exe(r#""D:\dev\target\debug\klick.exe" "%1""#), Some(r"D:\dev\target\debug\klick.exe"));
+        assert_eq!(command_exe(r"C:\klick\klick.exe %1"), Some(r"C:\klick\klick.exe"));
+        assert_eq!(command_exe(""), None);
+        assert_eq!(command_exe(r#""""#), None);
     }
 
     #[test]

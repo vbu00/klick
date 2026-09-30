@@ -1,5 +1,6 @@
 # Проверка установщика kl!ck внутри Песочницы Windows. Запускается сама при входе (LogonCommand).
-# Прежняя kl!ck (0.2) → установка klick-setup.exe → все проверки службы на установленной копии (run.ps1)
+# Прежняя kl!ck (0.2) → установка klick-setup.exe → ссылки klick://add в установленной kl!ck
+# → все проверки службы на установленной копии (run.ps1)
 # → переустановка с занятой папкой (откат) и без → удаление копией из папки программы (данные остаются)
 # → установка в свою папку без ярлыков → удаление с данными → окно установщика.
 # CI (sandbox\ci.ps1): вместо файлов 0.2 с компьютера — настоящая kl!ck 0.3.0, собранная из исходников,
@@ -51,6 +52,12 @@ function Http([string]$exe, [string]$url = 'https://www.gstatic.com/generate_204
     if ($code) { "$code".Trim() } else { '000' }
 }
 function Svc { Get-Service klick -ErrorAction SilentlyContinue }
+# Сколько подключений у службы; -1 — служба не ответила.
+function Conns {
+    $s = & "$root\bin\klick-cli.exe" --prod settings 2>$null | Out-String
+    try { @(($s | ConvertFrom-Json).connections).Count } catch { -1 }
+}
+. "$PSScriptRoot\ui.ps1"
 # Копию установщика из папки программы и саму папку убирают через секунду после выхода — подождать.
 function Gone([string]$p, [int]$seconds = 15) { $end = (Get-Date).AddSeconds($seconds); while ((Test-Path -LiteralPath $p) -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 500 }; -not (Test-Path -LiteralPath $p) }
 
@@ -61,6 +68,7 @@ $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $approved = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
 $notif = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings'
 $tray = 'HKCU:\Control Panel\NotifyIconSettings'
+$scheme = 'HKCU:\Software\Classes\klick'
 $startLnk = 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\kl!ck.lnk'
 $publicLnk = 'C:\Users\Public\Desktop\kl!ck.lnk'
 $userLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'kl!ck.lnk'
@@ -141,6 +149,47 @@ try {
     Check 'прежняя kl!ck: уведомления забыты, Klutz на месте' (-not (RegHas "$notif\com.vbu00.klick") -and (RegHas "$notif\com.vbu00.klutz"))
     Set-ItemProperty -LiteralPath $is -Name ProxyEnable -Value 0 -Type DWord
 
+    # 1б. Ссылка klick://add со страницы подписки: открывает установленную kl!ck на экране «Добавить»,
+    #     показывает домен, а не ссылку; следующие ссылки и ярлык — в ту же копию; плохая — «Ссылка не подходит».
+    Check 'схема klick:// зарегистрирована на установленную kl!ck' ((RegVal $scheme '(default)') -eq 'URL:kl!ck' -and $null -ne (RegVal $scheme 'URL Protocol') -and (RegVal "$scheme\shell\open\command" '(default)') -eq "`"$inst\klick.exe`" `"%1`"" -and (RegVal "$scheme\DefaultIcon" '(default)') -eq "`"$inst\klick.exe`",0") (RegVal "$scheme\shell\open\command" '(default)')
+    KlickProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    $connsBefore = Conns
+    Start-Process 'klick://add/https%3A%2F%2Fsecond.example.org%2Fs%2FSECRET-link-one'
+    $win = WaitKlick 30
+    Check 'ссылка запустила kl!ck' ($null -ne $win)
+    if ($win) {
+        $ui = WaitUi $win.Id @('second.example.org') 60
+        Log "    в окне: $ui"
+        Check 'по ссылке открылся экран «Добавить»: виден домен' ($ui.Contains('second.example.org') -and $ui.Contains('Добавить подписку'))
+        Check 'самой ссылки в окне нет' (-not $ui.Contains('SECRET'))
+        Screenshot "$out\deeplink-window.png"
+
+        Start-Process 'klick://add?url=https%3A%2F%2Fcp.cloudflare.com%2Fklick%2FSECRET-link-two&name=CI%20link&v=2'
+        $ui = WaitUi $win.Id @('cp.cloudflare.com') 20
+        Start-Process "$inst\klick.exe"
+        Start-Sleep 4
+        $procs = KlickProcs
+        Check 'вторая ссылка и ярлык — в ту же копию kl!ck' ($procs.Count -eq 1 -and $ui.Contains('cp.cloudflare.com') -and -not $ui.Contains('SECRET')) ("klick.exe: {0}; в окне: {1}" -f $procs.Count, $ui)
+
+        # «Добавить»: служба качает подписку (здесь — не подписка) и сообщает ошибку; ссылки нет в журнале.
+        $pressed = UiPress $win.Id 'Добавить подписку'
+        $ui = WaitUi $win.Id @('Не удалось скачать подписку', 'Панель подписки', 'Формат не распознан', 'В подписке нет серверов', 'По ссылке открывается страница') 40
+        Check 'подписку добавляет только кнопка: служба её скачала и отказала' ($pressed -and $ui -match 'Не удалось скачать|Панель подписки|Формат не распознан|нет серверов|открывается страница') $ui
+
+        Start-Process 'klick://add?url=javascript%3Aalert(1)'
+        $ui = WaitUi $win.Id @('Ссылка не подходит') 3
+        Check 'плохая ссылка: «Ссылка не подходит»' ($ui.Contains('Ссылка не подходит'))
+        Start-Process 'klick://add?url=http%3A%2F%2Fsecond.example.org%2Fs'
+        $ui = WaitUi $win.Id @('Ссылка не подходит') 3
+        Check 'http:// в выпуске: «Ссылка не подходит»' ($ui.Contains('Ссылка не подходит'))
+    }
+    $logText = Get-Content 'C:\ProgramData\klick\logs\*.log' -Raw -ErrorAction SilentlyContinue
+    Check 'ссылок подписки нет в журнале службы' (-not ($logText -match 'SECRET-link'))
+    $connsAfter = Conns
+    Check 'по ссылкам ничего не добавилось' ($connsBefore -ge 0 -and $connsAfter -eq $connsBefore) ("подключений было {0}, стало {1}" -f $connsBefore, $connsAfter)
+    KlickProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    KlickProcs | Wait-Process -Timeout 15 -ErrorAction SilentlyContinue
+
     # 2. Все проверки службы — на установленной копии
     Log '--- run.ps1 -Preinstalled -KeepInstalled ---'
     & "$root\run.ps1" -Preinstalled -KeepInstalled
@@ -184,6 +233,7 @@ try {
     Check 'записи в «Установленных приложениях» нет' (-not (RegHas $uninst))
     Check 'ярлыков нет' (-not (Test-Path -LiteralPath $startLnk) -and -not (Test-Path -LiteralPath $publicLnk))
     Check 'автозапуска нет' ($null -eq (RegVal $run 'kl!ck') -and $null -eq (RegVal $approved 'kl!ck'))
+    Check 'схемы klick:// нет: ссылки больше ничего не открывают' (-not (RegHas $scheme))
     Check 'значок трея забыт, чужой на месте' (-not (RegHas "$tray\3333") -and (RegHas "$tray\2222"))
     Check 'уведомления забыты' (-not (RegHas "$notif\app.klick.desktop"))
     $proxy = Get-ItemProperty -LiteralPath $is
@@ -204,6 +254,7 @@ try {
     Check 'служба работает из своей папки' ((Svc).Status -eq 'Running' -and (Get-CimInstance Win32_Service -Filter "Name='klick'").PathName -like "*$custom*")
     Check 'без ярлыка на рабочем столе, в «Пуске» есть' (-not (Test-Path -LiteralPath $publicLnk) -and (LnkTarget $startLnk) -eq "$custom\klick.exe")
     Check 'без автозапуска' ($null -eq (RegVal $run 'kl!ck'))
+    Check 'схема klick:// ведёт в свою папку' ((RegVal "$scheme\shell\open\command" '(default)') -eq "`"$custom\klick.exe`" `"%1`"") (RegVal "$scheme\shell\open\command" '(default)')
     $acl = (Get-Acl $custom).Access
     $users = @($acl | Where-Object { $_.IdentityReference.Value -match 'Users$|Пользователи$' })
     $canWrite = @($users | Where-Object { $_.FileSystemRights -match 'Write|Modify|FullControl' })
@@ -216,6 +267,7 @@ try {
     $code = Setup @('--silent', '--uninstall', '--wipe')
     Check 'удаление с данными: код 0' ($code -eq 0) "код $code"
     Check 'своей папки нет' (Gone $custom)
+    Check 'схемы klick:// нет' (-not (RegHas $scheme))
     Check 'данных службы нет' (-not (Test-Path 'C:\ProgramData\klick'))
     Check 'данных окна нет' (-not (Test-Path "$env:LOCALAPPDATA\klick") -and -not (Test-Path "$env:LOCALAPPDATA\app.klick.desktop"))
     Check 'служба удалена' (-not (Svc))

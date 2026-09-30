@@ -1,6 +1,7 @@
 # Проверка kl!ck с настоящими серверами из подписки — на раннере CI (sandbox\ci.ps1) или тестовом компьютере.
 # Ссылка подписки — в переменной KLICK_TEST_SUB, в отчёт она не пишется. kl!ck ставится установщиком,
-# в конце удаляется вместе с данными. Сценарии: прокси и VPN (TUN) «всё через VPN», системный прокси для
+# в конце удаляется вместе с данными. Сценарии: та же подписка второй раз и ссылкой klick://add («Уже
+# добавлено»), прокси и VPN (TUN) «всё через VPN», системный прокси для
 # обычных программ, UDP, DNS, смена сервера, по 6 включений и выключений в каждом режиме, смена режима на ходу,
 # 3 минуты под нагрузкой (обрывы, перезапуски ядра, память), сеть без зашифрованного DNS, Kill Switch со сбоями
 # ядра и службы, скорость «Отключить», удаление при включённом VPN.
@@ -109,6 +110,7 @@ function IpSystemProxy {
     $r = "$r".Trim()
     if ($r -match '^\d+\.\d+\.\d+\.\d+$') { $r } else { '' }
 }
+. "$PSScriptRoot\ui.ps1"
 function Mb([int]$id) { $p = Get-Process -Id $id -ErrorAction SilentlyContinue; if ($p) { [math]::Round($p.WorkingSet64 / 1MB) } else { 0 } }
 
 try {
@@ -130,6 +132,23 @@ try {
     # 2. Подписка, серверы, задержка
     $added = KlickCli add $sub
     Check 'подписка добавлена' ($LASTEXITCODE -eq 0 -and $added -notmatch 'error|ошибк') (($added -replace [regex]::Escape($sub), '<ссылка>') -split "`n" | Select-Object -First 1)
+    # Та же подписка второй раз — не дубль: из командной строки и ссылкой klick://add со страницы подписки.
+    $again = KlickCli add $sub
+    Check 'та же подписка второй раз: «уже добавлено»' ($again -match 'conn\.exists') (($again -replace [regex]::Escape($sub), '<ссылка>') -split "`n" | Select-Object -First 1)
+    Start-Process "$inst\klick.exe"
+    $win = WaitKlick 30
+    if ($win) {
+        $null = WaitUi $win.Id @('Главная') 40
+        Start-Process ('klick://add?url=' + [uri]::EscapeDataString($sub))
+        $ui = WaitUi $win.Id @('Уже добавлено') 15
+        Check 'ссылка klick://add на неё же: «Уже добавлено», экран «Добавить» не открылся' ($ui.Contains('Уже добавлено') -and -not $ui.Contains('Добавить подписку'))
+        Check 'ссылки подписки в окне нет' (-not $ui.Contains($sub))
+        Check 'окно kl!ck одно' ((KlickProcs).Count -eq 1) ("klick.exe: " + (KlickProcs).Count)
+    } else { Check 'окно kl!ck запустилось' $false }
+    KlickProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    KlickProcs | Wait-Process -Timeout 15 -ErrorAction SilentlyContinue
+    $n = @((KlickJson settings).connections).Count
+    Check 'подключение одно, дубля нет' ($n -eq 1) "подключений: $n"
     $servers = @(KlickJson servers)
     Log ("    серверов: {0} · {1}" -f $servers.Count, ((@($servers | ForEach-Object { $_.kind }) | Sort-Object -Unique) -join ', '))
     $lat = @(KlickJson latency)

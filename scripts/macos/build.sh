@@ -86,6 +86,9 @@ if [[ $debug == 1 ]]; then tauri_flags+=(--debug); fi
 (cd "$root/crates/klick-ui" && "$tauri" "${tauri_flags[@]}")
 app="$root/target/$triple/$profile/bundle/macos/kl!ck.app"
 [[ -d "$app" ]] || { echo "не нашёл $app" >&2; exit 1; }
+# Ссылки klick://add открывают kl!ck: схема должна попасть в Info.plist пакета (из crates/klick-ui/Info.plist).
+plutil -extract CFBundleURLTypes json -o - "$app/Contents/Info.plist" 2>/dev/null | grep -q '"klick"' \
+    || { echo "в Info.plist пакета нет схемы klick (CFBundleURLTypes)" >&2; exit 1; }
 if ! codesign --verify --deep --strict "$app" 2>/dev/null; then
     echo "подпись не прошла проверку — подписываю ad-hoc"
     codesign --force --deep --sign - "$app"

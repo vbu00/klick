@@ -1,5 +1,6 @@
 # Сборка и проверка kl!ck для macOS на настоящем Mac (Apple Silicon): kl!ck.app и .pkg,
-# тесты, конфиги ядра (mihomo -t) и сквозная проверка с установкой службы (scripts/macos/smoke-test.sh).
+# тесты, конфиги ядра (mihomo -t), сквозная проверка с установкой службы (scripts/macos/smoke-test.sh)
+# и ссылки klick://add после установки пакета (scripts/macos/deeplink-test.sh).
 # Запуск вручную (Actions → macOS → Run workflow) со ссылкой подписки проверяет ещё и настоящие серверы
 # (scripts/macos/real-test.sh). Ссылка не сохраняется в репозитории и скрыта в журнале.
 # Каждая сборка ставится ещё и поверх прошлого выпуска для macOS из Releases (если он есть).
@@ -82,6 +83,10 @@ jobs:
       - name: Сквозная проверка на этом Mac
         run: sudo scripts/macos/smoke-test.sh "dist/kl!ck.app"
 
+      - name: Ссылки klick:// после установки пакета
+        if: ${{ !cancelled() }}
+        run: sudo scripts/macos/deeplink-test.sh "$(ls dist/klick-[0-9]*.pkg | head -1)"
+
       - name: Проверка с настоящими серверами
         if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.sub != '' }}
         run: |
@@ -140,6 +145,10 @@ jobs:
 
       - name: Сквозная проверка
         run: sudo scripts/macos/smoke-test.sh "dist/kl!ck.app"
+
+      - name: Ссылки klick:// после установки пакета
+        if: ${{ !cancelled() }}
+        run: sudo scripts/macos/deeplink-test.sh "$(ls dist/klick-[0-9]*.pkg | head -1)"
 
       - name: Проверка с настоящими серверами
         if: ${{ !cancelled() && inputs.sub != '' }}

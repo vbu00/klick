@@ -5,6 +5,7 @@
 //! поэтому целиком покрывается обычными тестами и переносится на другие ОС.
 
 pub mod compile;
+pub mod deeplink;
 pub mod guard;
 pub mod macos;
 pub mod model;

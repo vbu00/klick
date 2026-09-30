@@ -21,7 +21,7 @@ Copy-Item "$app\resources" "$stage\resources" -Recurse
 $wv = "$PSScriptRoot\cache\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 if (Test-Path $wv) { Copy-Item $wv "$stage\webview2.exe" }
 # PowerShell 5.1 inside the Sandbox reads a script as UTF-8 only when it has a BOM.
-$scripts = @('run.ps1', 'setup-test.ps1')
+$scripts = @('run.ps1', 'setup-test.ps1', 'ui.ps1')
 if ($Script) { $scripts += "$Script.ps1" }
 foreach ($s in $scripts) {
     $text = [IO.File]::ReadAllText("$PSScriptRoot\$s", [Text.Encoding]::UTF8)

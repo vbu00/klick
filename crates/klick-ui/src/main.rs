@@ -1,9 +1,11 @@
 //! Окно kl!ck: интерфейс из `app/ui`, мост к службе, значок и своё окно трея,
-//! системный прокси по состоянию службы (на macOS его ставит служба), уведомления Windows и macOS.
+//! системный прокси по состоянию службы (на macOS его ставит служба), уведомления Windows и macOS,
+//! ссылки `klick://add` со страницы подписки.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod deeplink;
 mod notify;
 #[cfg(windows)]
 mod sysproxy;
@@ -18,6 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 
 /// Служба для разработки слушает другой канал: `KLICK_DEV=1`.
@@ -327,6 +330,14 @@ fn autostart() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 
 fn main() {
     let builder = tauri::Builder::default()
+        // Первым: вторая копия (ярлык, ссылка klick:// в Windows) передаёт аргументы первой и выходит.
+        // Ссылку из них плагин сам отдаёт в on_open_url; окно показываем, кроме автозапуска в трей.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !argv.iter().any(|a| a == "--hidden") {
+                show_main(app);
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
@@ -342,7 +353,20 @@ fn main() {
     });
     builder
         .manage(bridge::Bridge::new(pipe_name()))
-        .invoke_handler(tauri::generate_handler![bridge::service_call, bridge::service_up, notify::notify, open_main, open_tray, hide_tray, fit_tray, clipboard_text, app_exit, repair_service])
+        .manage(deeplink::Pending::default())
+        .invoke_handler(tauri::generate_handler![
+            bridge::service_call,
+            bridge::service_up,
+            notify::notify,
+            open_main,
+            open_tray,
+            hide_tray,
+            fit_tray,
+            clipboard_text,
+            app_exit,
+            repair_service,
+            deeplink::take_pending_link
+        ])
         .setup(|app| {
             bridge::start_events(app.handle().clone());
             fit_main(app.handle());
@@ -353,6 +377,26 @@ fn main() {
             // Окно создаётся скрытым: при автозапуске оно остаётся в трее.
             if !std::env::args().any(|a| a == "--hidden") {
                 show_main(app.handle());
+            }
+
+            // klick://add: пока kl!ck работает — от второй копии (Windows) или от системы (macOS);
+            // при запуске по ссылке — из аргументов этого же процесса.
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |e| {
+                for url in e.urls() {
+                    deeplink::open(&handle, url.as_str());
+                }
+            });
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    deeplink::open(app.handle(), url.as_str());
+                }
+            }
+            // Отладочная сборка без установщика: схему klick в реестре пишет она сама.
+            // Выпуск регистрирует klick-setup, на macOS — Info.plist пакета.
+            #[cfg(all(debug_assertions, windows))]
+            if let Err(e) = app.deep_link().register_all() {
+                eprintln!("схема klick не зарегистрирована: {e}");
             }
 
             // Windows: левый щелчок — главное окно; правый — своё окно трея вместо системного меню

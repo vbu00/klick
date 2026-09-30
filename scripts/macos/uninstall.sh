@@ -38,6 +38,16 @@ for home in /Users/*; do
     fi
 done
 
-rm -rf "/Applications/kl!ck.app"
+# Ссылки klick:// больше ничего не открывают: убрать программу из LaunchServices (у root и у того, кто за Mac).
+app="/Applications/kl!ck.app"
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -d "$app" ]]; then
+    "$lsregister" -u "$app" 2>/dev/null || true
+    console="$(/usr/bin/stat -f%Su /dev/console)"
+    if [[ -n "$console" && "$console" != "root" && "$console" != "loginwindow" ]]; then
+        /bin/launchctl asuser "$(/usr/bin/id -u "$console")" /usr/bin/sudo -u "$console" "$lsregister" -u "$app" 2>/dev/null || true
+    fi
+fi
+rm -rf "$app"
 /usr/sbin/pkgutil --forget app.klick.pkg >/dev/null 2>&1 || true
 echo "kl!ck удалён${wipe:+ вместе с данными}"

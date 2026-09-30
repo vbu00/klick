@@ -267,6 +267,8 @@ try {
     Set-ItemProperty $key ProxyServer '127.0.0.1:7890'
     Set-ItemProperty $key ProxyEnable 1
     Stop-Process -Id $winProc.Id -Force -ErrorAction SilentlyContinue
+    # Вторая копия окна, пока первая ещё не закрылась, передаёт ей аргументы и выходит — дождаться.
+    Wait-Process -Id $winProc.Id -Timeout 15 -ErrorAction SilentlyContinue
     $winProc = Start-Process "$inst\klick.exe" -ArgumentList '--hidden' -RedirectStandardError "$out\ui2.err" -PassThru
     Start-Sleep 6
     $reg = ProxyReg

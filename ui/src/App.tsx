@@ -16,13 +16,19 @@ export function App() {
 }
 
 function MainWindow() {
-  const { nav } = useStore();
+  const { nav, incoming } = useStore();
   const [tab, setTab] = useState<Tab>('home');
 
   useEffect(() => {
-    const t = nav ? NAV_TAB[nav.target] : undefined;
+    // `conn:<id>` — показать подключение на главной («Уже добавлено»).
+    const t = nav ? (nav.target.startsWith('conn:') ? 'home' : NAV_TAB[nav.target]) : undefined;
     if (t) setTab(t);
   }, [nav]);
+
+  // Ссылка klick://add: экран «Добавить» с уже вставленной подпиской.
+  useEffect(() => {
+    if (incoming) setTab('add');
+  }, [incoming]);
 
   return (
     <div className="window">

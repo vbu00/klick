@@ -19,7 +19,7 @@ Copy-Item "$Build\klick-service.exe", "$Build\klick-cli.exe", "$Build\klick.exe"
 Copy-Item "$Build\klick-setup.exe" "$root\klick-setup.exe"
 Copy-Item "$Build\resources" "$root\resources" -Recurse
 # Windows PowerShell 5.1 reads a script as UTF-8 only when it has a BOM.
-foreach ($s in 'run.ps1', 'setup-test.ps1', 'ks-browser.ps1', 'real-test.ps1') {
+foreach ($s in 'run.ps1', 'setup-test.ps1', 'ks-browser.ps1', 'real-test.ps1', 'ui.ps1') {
     $text = [IO.File]::ReadAllText("$PSScriptRoot\$s", [Text.Encoding]::UTF8)
     [IO.File]::WriteAllText("$root\$s", $text, (New-Object Text.UTF8Encoding $true))
 }

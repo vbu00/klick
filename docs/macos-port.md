@@ -177,6 +177,12 @@ kl!ck — [vbu00](https://github.com/vbu00) (разработка) и [Dmitriy M
   «Добавлены фоновые объекты» — это нормально.
 * `pbpaste` запускается с `LANG=en_US.UTF-8`: у программ, открытых из Finder, `LANG` не задан, и
   кириллица в ссылке превратилась бы в знаки вопроса.
+* Ссылки `klick://add` (см. README): второй процесс на Mac не запускается — система передаёт ссылку
+  работающей kl!ck (Apple Event → `RunEvent::Opened` → плагин deep-link). Схема — в `CFBundleURLTypes`
+  из `crates/klick-ui/Info.plist` (Tauri вливает его в `Info.plist` пакета, `build.sh` проверяет).
+  LaunchServices узнаёт о программе сразу после установки: postinstall вызывает `lsregister -f` у root и
+  у того, кто за Mac (база у каждого пользователя своя); `uninstall.sh` — `lsregister -u`.
+  `register_all()` плагина на macOS не нужен и не поддерживается.
 
 ### Подпись и Gatekeeper
 * Без аккаунта разработчика сборка подписывается ad-hoc. Такой `.pkg`/`.app` из интернета macOS не
@@ -197,6 +203,7 @@ kl!ck — [vbu00](https://github.com/vbu00) (разработка) и [Dmitriy M
 scripts/macos/build.sh              # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
 scripts/macos/build.sh --native     # только архитектура этого Mac — быстрее
 sudo scripts/macos/smoke-test.sh 'dist/kl!ck.app'   # сквозная проверка (меняет настройки сети! только тестовый Mac)
+sudo scripts/macos/deeplink-test.sh dist/klick-*.pkg  # ссылки klick://add после установки пакета
 scripts/check-configs.sh            # все варианты конфига через mihomo -t
 ```
 
@@ -234,6 +241,10 @@ KLICK_DEV=1 cargo run -p klick-ui    # окно со службой для ра�
   (раннер GitHub с macOS 15): установка службы в launchd, права на сокет и данные, прокси и DNS у всех
   сетевых служб (после отключения настройки сети — ровно как были), «Отключить» быстрее 2 с, TUN и подмена DNS, Kill Switch на копии `curl` со сбоями стража, службы, сервера
   VPN и ядра, восстановление после kill -9 службы, удаление без следов в настройках сети и pf.
+* Ссылки `klick://add` после установки `.pkg` (`scripts/macos/deeplink-test.sh`): схема ведёт в
+  `/Applications/kl!ck.app` сразу после установки, `open klick://…` запускает kl!ck, следующие ссылки —
+  в ту же копию, ничего не добавляется само, ссылки нет в журналах службы и окна, после удаления схема
+  в удалённую программу не ведёт.
 
 ## Что проверить руками на Mac (чек-лист)
 
@@ -251,6 +262,7 @@ KLICK_DEV=1 cargo run -p klick-ui    # окно со службой для ра�
 - [ ] Kill Switch при сбоях: выдернуть сервер (выключить его в панели), `sudo pkill -9 -f klick-service` — Telegram ни на секунду не выходит напрямую; `sudo pfctl -a com.apple/090.klick -s rules` показывает правила.
 - [ ] Программы, которые сами привязываются к сетевому интерфейсу (другие VPN, FaceTime, «Общий доступ к Интернету»), пока включён Kill Switch.
 - [ ] «Запущено сейчас» и «Сейчас в сети»: названия программ (Chrome, Telegram, Яндекс Браузер), выбор программы через «Обзор…».
+- [ ] Ссылка `klick://add?url=…` из Safari и Chrome: kl!ck закрыт, свёрнут в строку меню, уже открыт — всегда экран «Добавить» с доменом подписки; уже добавленная — «Уже добавлено».
 - [ ] Удаление `uninstall.sh`: прокси и DNS как до установки, нет демона и агента автозапуска.
 
 ## Что дальше

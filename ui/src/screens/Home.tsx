@@ -31,9 +31,16 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const { nav, consumeNav } = store;
 
   // Нажали на уведомление: раскрыть серверы или подсказку про соседей.
+  // `conn:<id>` — показать это подключение, как если бы его выбрали в списке («Уже добавлено»).
   useEffect(() => {
     if (!nav) return;
-    if (nav.target === 'servers') setExpanded(true);
+    if (nav.target.startsWith('conn:')) {
+      const id = nav.target.slice('conn:'.length);
+      setViewId(id);
+      setExpanded(false);
+      const st = store.settings;
+      if (store.state?.vpn === 'off' && st && st.active_connection !== id && st.connections.some((c) => c.id === id)) void store.selectConnection(id);
+    } else if (nav.target === 'servers') setExpanded(true);
     else if (nav.target === 'neighbors') setHelpOpen(true);
     else if (nav.target !== 'card') return;
     consumeNav();

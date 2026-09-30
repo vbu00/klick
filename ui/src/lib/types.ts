@@ -217,6 +217,14 @@ export interface ErrorInfo {
   params?: Record<string, unknown>;
 }
 
+/** Ссылка `klick://add`, которую окно ещё не показало. `url` нет — ссылка не прошла проверки. */
+export interface PendingLink {
+  url: string | null;
+  name: string | null;
+  /** Домен подписки: его показываем вместо всей ссылки — токен в ней секрет. */
+  host: string | null;
+}
+
 export type KEvent =
   | { ev: 'state'; state: StateView }
   | { ev: 'traffic'; up: number; down: number }

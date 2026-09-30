@@ -144,6 +144,8 @@ export function errorText(code: string, params?: Params): string {
       return 'Уже в списке';
     case 'conn.not_found':
       return 'Подключение не найдено';
+    case 'conn.exists':
+      return 'Уже добавлено';
     case 'service.stopping':
     case 'service.unreachable':
       return 'Служба kl!ck не отвечает';

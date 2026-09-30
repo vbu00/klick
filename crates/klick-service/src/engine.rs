@@ -544,6 +544,10 @@ impl Engine {
                 Ok(self.view_json())
             }
             Command::AddConnection { source, name } => self.add_connection(source, name).await,
+            Command::FindConnection { source } => {
+                let found = self.find_connection(&source).map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() });
+                serde_json::to_value(found).map_err(internal)
+            }
             Command::ImportFile { file_name, content } => self.import_file(file_name, content).await,
             Command::RefreshConnection { id } => self.refresh(&id).await,
             Command::RemoveConnection { id } => self.remove(&id).await,
@@ -1813,8 +1817,16 @@ impl Engine {
 
     // ── Подключения ────────────────────────────────────────────────────────
 
+    fn find_connection(&self, source: &str) -> Option<&Connection> {
+        added_by_source(&self.settings.connections, &self.secrets.0, source)
+    }
+
     async fn add_connection(&mut self, source: String, name: Option<String>) -> Result<Value, ErrorInfo> {
         let source = source.trim().to_string();
+        // Та же ссылка второй раз — не дубль, а «Уже добавлено»: окно откроет это подключение.
+        if let Some(c) = self.find_connection(&source) {
+            return Err(ErrorInfo::with("conn.exists", json!({ "id": c.id, "name": c.name })));
+        }
         let kind = subparse::detect_source(&source).ok_or_else(|| ErrorInfo::new("input.unknown_format"))?;
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
@@ -2078,9 +2090,44 @@ impl Engine {
     }
 }
 
+/// Подключение, добавленное по этой же ссылке. Ссылки сравниваются как есть: токен в них точный.
+fn added_by_source<'a>(connections: &'a [Connection], secrets: &HashMap<String, String>, source: &str) -> Option<&'a Connection> {
+    let source = source.trim();
+    connections.iter().find(|c| secrets.get(&c.id).is_some_and(|s| s.trim() == source))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::version_newer;
+    use super::{added_by_source, version_newer};
+    use klick_core::{Connection, ConnectionKind};
+    use std::collections::HashMap;
+
+    #[test]
+    fn same_link_is_found_not_added_twice() {
+        let conn = |id: &str| Connection {
+            id: id.into(),
+            name: id.into(),
+            kind: ConnectionKind::Subscription,
+            info: None,
+            updated_at: None,
+            update_interval_hours: None,
+            selected_server: None,
+        };
+        let connections = [conn("a"), conn("b")];
+        let secrets = HashMap::from([
+            ("a".to_string(), "https://sub.example.com/s/one".to_string()),
+            ("b".to_string(), "https://sub.example.com/s/two\n".to_string()),
+            // Ссылка удалённого подключения, если бы осталась, ничего не находит.
+            ("gone".to_string(), "https://sub.example.com/s/gone".to_string()),
+        ]);
+        let found = |s: &str| added_by_source(&connections, &secrets, s).map(|c| c.id.as_str());
+        assert_eq!(found("https://sub.example.com/s/one"), Some("a"));
+        assert_eq!(found("  https://sub.example.com/s/two "), Some("b"));
+        assert_eq!(found("https://sub.example.com/s/gone"), None);
+        // Токен другой — это другая подписка.
+        assert_eq!(found("https://sub.example.com/s/ONE"), None);
+        assert_eq!(found("https://sub.example.com/s/on"), None);
+    }
 
     #[test]
     fn versions_compare_as_numbers() {

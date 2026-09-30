@@ -44,6 +44,9 @@ pub enum Command {
     SetRouting { routing: Routing },
     /// Ссылка на подписку или одиночная ссылка.
     AddConnection { source: String, name: Option<String> },
+    /// Подключение с этой ссылкой, если она уже добавлена (`ConnectionView` или `null`): ссылка
+    /// `klick://add` на уже добавленную подписку открывает её, а не заводит вторую.
+    FindConnection { source: String },
     /// Содержимое файла конфигурации: окно читает файл само, служба пути от пользователя не открывает.
     ImportFile { file_name: String, content: String },
     RefreshConnection { id: String },

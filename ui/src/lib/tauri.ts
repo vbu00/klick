@@ -6,7 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isMac } from './platform';
 import type { Transport } from './transport';
-import type { KEvent } from './types';
+import type { KEvent, PendingLink } from './types';
 
 /** Окно внутри Tauri: команды и события идут через Rust-часть к службе. */
 export function createTauriTransport(): Transport {
@@ -51,6 +51,8 @@ export function createTauriTransport(): Transport {
     notify: (title, text, target) => invoke('notify', { title, text, target: target ?? null }),
     onNavigate: (cb) => subscribe<string>('klick://navigate', cb),
     onExitRequest: (cb) => subscribe<null>('klick://exit-request', () => cb()),
+    takePendingLink: () => invoke<PendingLink | null>('take_pending_link'),
+    onAddLink: (cb) => subscribe<null>('klick://add-link', () => cb()),
     autostart: {
       get: () => isEnabled(),
       set: (on) => (on ? enable() : disable()),

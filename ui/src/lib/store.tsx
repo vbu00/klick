@@ -5,7 +5,7 @@ import { DROP_NOTICES, errorText, noticeTarget, noticeText } from './i18n';
 import { planToggle, positionVerb } from './live';
 import type { Transport } from './transport';
 import { applyTheme, resolveTheme, systemDark } from './theme';
-import type { ErrorInfo, KEvent, KillSwitch, Mode, Preferences, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target } from './types';
+import type { ConnectionView, ErrorInfo, KEvent, KillSwitch, Mode, Preferences, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target } from './types';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'dim';
 
@@ -15,6 +15,14 @@ export interface Toast {
   text?: string;
   tone: Tone;
   action?: { label: string; run: () => void };
+}
+
+/** Подписка из ссылки `klick://add`, прошедшей проверки: экран «Добавить» с уже вставленной ссылкой. */
+export interface IncomingLink {
+  url: string;
+  name: string;
+  host: string;
+  seq: number;
 }
 
 interface Traffic {
@@ -43,8 +51,10 @@ interface S {
   catalog: Service[];
   /** Понятные названия программ по папкам правил и Kill Switch — от службы. */
   programNames: Record<string, string>;
-  /** Куда перейти: нажали на уведомление Windows. */
+  /** Куда перейти: нажали на уведомление Windows; `conn:<id>` — показать это подключение. */
   nav: { target: string; seq: number } | null;
+  /** Ссылка `klick://add`, которую ещё не показал экран «Добавить». */
+  incoming: IncomingLink | null;
 }
 
 type A =
@@ -62,6 +72,7 @@ type A =
   | { t: 'killswitch'; ks: KillSwitch }
   | { t: 'names'; names: Record<string, string> }
   | { t: 'nav'; target: string | null }
+  | { t: 'incoming'; link: IncomingLink | null }
   | { t: 'list'; position: Routing; list: Rule[] };
 
 const HIST = 60;
@@ -82,6 +93,7 @@ const initial: S = {
   catalog: [],
   programNames: {},
   nav: null,
+  incoming: null,
 };
 
 const running = (st: StateView | null) => !!st && (st.vpn === 'connected' || st.vpn === 'reconnecting' || st.vpn === 'server_down');
@@ -125,6 +137,8 @@ function reducer(s: S, a: A): S {
       return { ...s, catalog: a.list };
     case 'nav':
       return { ...s, nav: a.target ? { target: a.target, seq: (s.nav?.seq ?? 0) + 1 } : null };
+    case 'incoming':
+      return { ...s, incoming: a.link };
     case 'names':
       return { ...s, programNames: { ...s.programNames, ...a.names } };
     case 'killswitch':
@@ -151,6 +165,8 @@ export interface Store extends S {
   setRussia(key: 'ru_domains' | 'ru_ips', on: boolean): Promise<void>;
   /** Экран обработал переход — забыть о нём. */
   consumeNav(): void;
+  /** Экран «Добавить» взял ссылку `klick://add` — забыть о ней. */
+  consumeIncoming(): void;
   /** Настройки поведения и оформления: передаются только изменённые поля. */
   setPrefs(p: Preferences): Promise<boolean>;
   ksSet(enabled: boolean): Promise<void>;
@@ -321,6 +337,32 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     };
   }, [transport, reload, loadServers, toast]);
 
+  // Ссылка klick://add со страницы подписки. Окно забирает её само: при запуске по ссылке она пришла
+  // раньше, чем страница начала слушать события. Сама ссылка ничего не добавляет — только открывает экран.
+  const linkSeq = useRef(0);
+  useEffect(() => {
+    if (transport.window !== 'main') return;
+    const take = async () => {
+      const p = await transport.takePendingLink().catch(() => null);
+      if (!p) return;
+      if (!p.url) {
+        toast('Ссылка не подходит', 'Подписка не добавлена', 'bad');
+        return;
+      }
+      // Эта подписка уже есть — открыть её, а не заводить вторую.
+      const found = await transport.call<ConnectionView | null>('find_connection', { source: p.url }).catch(() => null);
+      if (found) {
+        toast('Уже добавлено', found.name, 'dim');
+        dispatch({ t: 'nav', target: `conn:${found.id}` });
+        return;
+      }
+      dispatch({ t: 'incoming', link: { url: p.url, name: p.name ?? '', host: p.host ?? '', seq: ++linkSeq.current } });
+    };
+    const off = transport.onAddLink(() => void take());
+    void take();
+    return off;
+  }, [transport, toast]);
+
   const call = useCallback(
     async <T,>(cmd: string, args?: unknown): Promise<T | undefined> => {
       try {
@@ -384,8 +426,19 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       },
       addLink: async (source, name) => {
-        const r = await call('add_connection', { source, name: name || null });
-        if (r === undefined) return false;
+        try {
+          await transport.call('add_connection', { source, name: name || null });
+        } catch (e) {
+          const err = e as ErrorInfo;
+          // Эта ссылка уже добавлена: открыть то подключение вместо второго такого же.
+          if (err?.code === 'conn.exists' && typeof err.params?.id === 'string') {
+            toast('Уже добавлено', typeof err.params.name === 'string' ? err.params.name : undefined, 'dim');
+            dispatch({ t: 'nav', target: `conn:${err.params.id}` });
+            return true;
+          }
+          failed(e);
+          return false;
+        }
         toast('Подключение добавлено', 'Проверьте задержку серверов', 'ok');
         await reload();
         return true;
@@ -409,6 +462,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         if (settings) dispatch({ t: 'settings', settings });
       },
       consumeNav: () => dispatch({ t: 'nav', target: null }),
+      consumeIncoming: () => dispatch({ t: 'incoming', link: null }),
       setPrefs: async (prefs) => {
         const settings = await call<Settings>('set_preferences', { prefs });
         if (settings) dispatch({ t: 'settings', settings });

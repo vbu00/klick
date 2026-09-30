@@ -1,6 +1,6 @@
 // «Добавить подключение» — как в макете: по ссылке или из файла.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type { Tab } from '../components/Chrome';
 import { protocolName } from '../lib/format';
@@ -25,14 +25,38 @@ function detect(input: string): Detect {
 
 export function Add({ onTab }: { onTab: (t: Tab) => void }) {
   const store = useStore();
+  const { incoming, consumeIncoming } = store;
   const [tab, setTab] = useState<'link' | 'file'>('link');
   const [link, setLink] = useState('');
   const [name, setName] = useState('');
+  /** Подписка пришла ссылкой klick://add: вместо всей ссылки — её домен. */
+  const [fromPage, setFromPage] = useState<{ host: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
   const d = detect(link);
   const canAdd = (d.kind === 'sub' || d.kind === 'link') && !busy;
+
+  // Ссылка klick://add: подписка уже вставлена, добавляет её человек своей кнопкой.
+  useEffect(() => {
+    if (!incoming) return;
+    setTab('link');
+    setLink(incoming.url);
+    setName(incoming.name);
+    setFromPage({ host: incoming.host });
+    consumeIncoming();
+  }, [incoming, consumeIncoming]);
+
+  useEffect(() => {
+    if (fromPage) addRef.current?.focus();
+  }, [fromPage]);
+
+  const reset = () => {
+    setLink('');
+    setName('');
+    setFromPage(null);
+  };
 
   const addLink = async () => {
     if (!canAdd) return;
@@ -40,11 +64,37 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
     const ok = await store.addLink(link.trim(), d.kind === 'sub' ? name.trim() : undefined);
     setBusy(false);
     if (ok) {
-      setLink('');
-      setName('');
+      reset();
       onTab('home');
     }
   };
+
+  if (fromPage && tab === 'link') {
+    return (
+      <div className="screen">
+        <div className="screen-title">Добавить подписку</div>
+        <div className="from-page">
+          <div className="caps">Ссылка со страницы в браузере</div>
+          <div className="from-page-host">{fromPage.host || 'ссылка подписки'}</div>
+          <span>Загрузим список серверов, лимит трафика и срок действия. Добавляйте, только если эту страницу открыли вы сами — у своего VPN-сервиса.</span>
+        </div>
+        <input className="name-input" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder="Название (необязательно)" />
+        <button ref={addRef} className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink} aria-label="Добавить подписку">
+          {busy ? 'Добавляем…' : 'Добавить'}
+        </button>
+        <button
+          className="btn-card"
+          disabled={busy}
+          onClick={() => {
+            reset();
+            onTab('home');
+          }}
+        >
+          Отмена
+        </button>
+      </div>
+    );
+  }
 
   const addFile = async (file: File | undefined) => {
     if (!file || busy) return;

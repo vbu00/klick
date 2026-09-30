@@ -1,4 +1,4 @@
-import type { KEvent } from './types';
+import type { KEvent, PendingLink } from './types';
 
 /** Как окно говорит со службой. В Tauri — через канал управления, в браузере — с тестовой службой. */
 export interface Transport {
@@ -34,6 +34,10 @@ export interface Transport {
   onNavigate(cb: (target: string) => void): () => void;
   /** «Выход» из меню значка: окно трея спрашивает, что делать с VPN. */
   onExitRequest(cb: () => void): () => void;
+  /** Ссылка `klick://add`, с которой открыли kl!ck; отдаётся один раз. */
+  takePendingLink(): Promise<PendingLink | null>;
+  /** Пришла ссылка `klick://add`: забрать её через takePendingLink. */
+  onAddLink(cb: () => void): () => void;
 }
 
 export function isTauri(): boolean {

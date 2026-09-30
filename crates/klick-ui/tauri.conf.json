@@ -42,6 +42,13 @@
       "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["klick"]
+      }
+    }
+  },
   "bundle": {
     "active": false,
     "icon": [

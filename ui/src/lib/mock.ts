@@ -14,6 +14,7 @@ import type {
   KEvent,
   KsProgramView,
   LogLine,
+  PendingLink,
   ProgramView,
   Routing,
   Rule,
@@ -174,6 +175,8 @@ class MockService {
   private st!: StateView;
   private settings!: Settings;
   private servers!: Record<string, ServerView[]>;
+  /** Ссылки подключений по id — как secrets.bin у службы. */
+  private sources: Record<string, string> = {};
   private timer?: ReturnType<typeof setInterval>;
   private level = 4;
   private flowsSince = Date.now();
@@ -188,6 +191,7 @@ class MockService {
     const { connections, servers } = seed();
     this.servers = servers;
     const empty = sc === 'empty';
+    this.sources = empty ? {} : { alex: 'https://panel.example.com/sub/alex', grpc: 'vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc#grpc' };
     this.settings = {
       mode: 'tun',
       routing: 'selected',
@@ -266,6 +270,11 @@ class MockService {
 
   private running() {
     return this.st.vpn === 'connected' || this.st.vpn === 'reconnecting' || this.st.vpn === 'server_down';
+  }
+
+  private bySource(source: string): Connection | undefined {
+    const src = source.trim();
+    return this.settings.connections.find((c) => this.sources[c.id]?.trim() === src);
   }
 
   private emit(e: KEvent) {
@@ -381,13 +390,20 @@ class MockService {
           this.st = { ...this.st, vpn: 'off', since: null };
         }
         this.settings.connections = this.settings.connections.filter((c) => c.id !== args.id);
+        delete this.sources[args.id];
         if (wasActive) this.settings.active_connection = this.settings.connections[0]?.id ?? null;
         this.emitState();
         return this.st;
       }
+      case 'find_connection': {
+        const c = this.bySource(String(args.source ?? ''));
+        return c ? { id: c.id, name: c.name, info: c.info } : null;
+      }
       case 'add_connection': {
         const src = String(args.source ?? '').trim();
         const scheme = src.split('://')[0]?.toLowerCase();
+        const dup = this.bySource(src);
+        if (dup) return fail('conn.exists', { id: dup.id, name: dup.name });
         await wait(800);
         const id = Math.random().toString(16).slice(2, 10);
         let c: Connection;
@@ -405,6 +421,7 @@ class MockService {
           return fail('input.unknown_format');
         }
         this.settings.connections.push(c);
+        this.sources[id] = src;
         if (!this.settings.active_connection) this.settings.active_connection = id;
         this.emitState();
         return { id, name: c.name, info: c.info };
@@ -576,10 +593,27 @@ class MockService {
 
 let autostart = true;
 
+/** Превью: `?add=<https-ссылка>&name=…` — окно открыли ссылкой klick://add; `?add=bad` — ссылка не подошла.
+ *  Настоящий разбор — в klick-core (deeplink.rs), здесь только чтобы посмотреть экраны. */
+function previewLink(url: string | null, name: string | null): PendingLink | null {
+  if (url === null) return null;
+  if (!/^https:\/\/[^\s/?#]+\S*$/.test(url)) return { url: null, name: null, host: null };
+  return { url, name: name?.slice(0, 64) || null, host: new URL(url).hostname };
+}
+
 export function createMockTransport(): Transport {
   const params = new URLSearchParams(location.search);
   const svc = new MockService((params.get('s') as Scenario) || 'off');
-  (window as any).__klickMock = { setScenario: (s: Scenario) => svc.reset(s) };
+  let pending = previewLink(params.get('add'), params.get('name'));
+  const linkListeners = new Set<() => void>();
+  (window as any).__klickMock = {
+    setScenario: (s: Scenario) => svc.reset(s),
+    /** Ссылка klick://add пришла, пока окно открыто: `__klickMock.openLink('https://…', 'Имя')`. */
+    openLink: (url: string, name?: string) => {
+      pending = previewLink(url, name ?? null);
+      linkListeners.forEach((cb) => cb());
+    },
+  };
   const view = params.get('view') === 'tray' ? 'tray' : 'main';
   return {
     kind: 'mock',
@@ -606,6 +640,15 @@ export function createMockTransport(): Transport {
     notify: async (title, text, target) => console.info('[превью] уведомление Windows:', title, text, target),
     onNavigate: () => () => undefined,
     onExitRequest: () => () => undefined,
+    takePendingLink: async () => {
+      const p = pending;
+      pending = null;
+      return p;
+    },
+    onAddLink: (cb) => {
+      linkListeners.add(cb);
+      return () => void linkListeners.delete(cb);
+    },
     autostart: {
       get: async () => autostart,
       set: async (on) => {
