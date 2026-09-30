@@ -5,11 +5,11 @@
   <img src="docs/logo/wordmark-light.svg" width="360" alt="kl!ck" />
 </picture>
 
-**VPN-клиент для Windows на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
+**VPN-клиент для Windows и macOS на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
 
 Подписки Remnawave · Marzban · 3x-ui · VLESS/Reality · Hysteria2 · TUIC · Trojan · Shadowsocks · WireGuard
 
-[Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
+[Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
 </div>
 
@@ -132,6 +132,30 @@ DPAPI), журнал. Папка закрыта от обычных пользо
 Runtime (Microsoft), если его нет; по кнопке — за проверкой IP (ipify.org,
 proxycheck.io) и номером последней версии (GitHub API).
 
+## macOS
+
+kl!ck работает и на macOS 12+ (Apple Silicon и Intel) — то же окно, та же служба и те же функции;
+Kill Switch — брандмауэром pf. Пакет пока не подписан сертификатом Apple, поэтому ставится из
+Терминала (`installer` ставит его без вопроса Gatekeeper):
+
+```sh
+curl -fL -o /tmp/klick.pkg https://github.com/vbu00/klick/releases/latest/download/klick-macos.pkg
+sudo installer -pkg /tmp/klick.pkg -target /
+open -a 'kl!ck'
+```
+
+Пакет ставит окно в «Программы» и службу (демон launchd `app.klick.service`); данные — в
+`/Library/Application Support/klick`. Обновление — те же команды: служба перезапустится и, если VPN
+был включён, включит его снова. Пути с `kl!ck` в zsh пишите в **одинарных** кавычках.
+
+```sh
+'/Applications/kl!ck.app/Contents/MacOS/klick-cli' --prod status      # состояние VPN
+sudo '/Applications/kl!ck.app/Contents/Resources/uninstall.sh'        # удалить (подключения и настройки остаются)
+sudo '/Applications/kl!ck.app/Contents/Resources/uninstall.sh' --wipe # удалить всё
+```
+
+Как устроен порт и чем macOS отличается от Windows — в [docs/macos-port.md](docs/macos-port.md).
+
 ## Сборка
 
 Нужны Rust (stable, MSVC), Node.js 20.19+ и PowerShell.
@@ -141,8 +165,14 @@ cd ui; npm install; cd ..
 powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 ```
 
+На Mac (Xcode Command Line Tools, Rust, Node.js 20.19+):
+
+```sh
+scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
+```
+
 Ядро mihomo и база стран в git не хранятся: `build.ps1` скачивает
-официальный релиз и проверяет sha256 (`tools\fetch-core.ps1`).
+официальный релиз и проверяет sha256 (`tools\fetch-core.ps1`), на Mac — `scripts/macos/fetch-core.sh`.
 Как устроены исходники, служба для разработки, превью окна и проверка в
 Песочнице Windows — в [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
@@ -150,6 +180,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 
 - [**vbu00**](https://github.com/vbu00) — разработка
 - [**Dmitriy Medvedev**](https://github.com/aleuuu) — дизайн интерфейса и логотип
+- [**limeflash**](https://github.com/limeflash) — порт на macOS
 
 Логотип-клавиша в пяти цветах и вордмарк — в [`docs/logo`](docs/logo).
 

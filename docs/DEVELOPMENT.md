@@ -14,7 +14,11 @@
 | `crates/klick-setup` | Установщик на Tauri 2: ставит, обновляет, переустанавливает и удаляет kl!ck, убирает прежнюю kl!ck 0.2–0.3. Программа вшита в exe |
 | `ui` | Интерфейс окна и установщика (`setup.html`): React + Vite + TypeScript, по макетам Димы |
 | `resources` | Ядро mihomo 1.19.31, база стран, стартовые наборы, каталог сервисов |
-| `sandbox` | Автоматическая проверка в Песочнице Windows |
+| `sandbox` | Автоматическая проверка в Песочнице Windows (и на раннерах GitHub — `sandbox\ci.ps1`) |
+| `scripts/macos` | macOS: сборка `.app` и `.pkg`, удаление, сквозные проверки на Mac |
+
+macOS-часть службы — `crates/klick-service/src/unix` (launchd, Unix-сокет, pf, SystemConfiguration), в
+остальных крейтах — под `#[cfg]`; поведение Windows она не меняет. Подробно — [macos-port.md](macos-port.md).
 
 ## Сборка
 
@@ -40,6 +44,26 @@ cargo build
 powershell -ExecutionPolicy Bypass -File build.ps1          # dist\klick-setup.exe (release)
 powershell -ExecutionPolicy Bypass -File build.ps1 -Debug   # то же в отладочной сборке
 ```
+
+## macOS
+
+На Mac нужны Xcode Command Line Tools, Rust и Node.js 20.19+.
+
+```sh
+scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
+scripts/macos/build.sh --native    # только архитектура этого Mac — быстрее
+scripts/macos/fetch-core.sh        # только ядро и база стран (для разработки)
+cargo build -p klick-service -p klick-cli
+sudo target/debug/klick-service console --allow-tun --allow-ks   # служба для разработки, канал /tmp/klick-dev.sock
+KLICK_DEV=1 cargo run -p klick-ui
+```
+
+Превью окна как на Mac — `http://127.0.0.1:5173/?os=mac&s=connected`. Проверки: `scripts/check-configs.sh`
+(все варианты конфига через `mihomo -t`), `sudo scripts/macos/smoke-test.sh 'dist/kl!ck.app'` (сквозная;
+меняет настройки сети — только на тестовом Mac) и workflow `.github/workflows/macos.yml` на раннерах
+GitHub: macOS 14–27, Apple Silicon и Intel, с установкой службы, с настоящей подпиской (ссылка — при ручном
+запуске, в журнале скрыта) и обновлением поверх прошлого выпуска. Выпуск: Actions → macOS → Run workflow
+с флажком «Выпустить» — пакет уходит в Releases (`klick-macos.pkg`) к тегу `v<версия>`.
 
 ## Установщик
 
@@ -97,6 +121,11 @@ powershell -File sandbox\start.ps1
 ```
 
 Скрипт собирает папку с программой, открывает Песочницу и ждёт отчёт. Внутри `sandbox\run.ps1` ставит службу, поднимает тестовый «VPN-сервер» (второй mihomo с socks5), проходит сценарии и выключает Песочницу. Ключи настоящих серверов не нужны.
+
+Те же сценарии (`run.ps1`, `setup-test.ps1` поверх настоящей kl!ck 0.3.0, `ks-browser.ps1`) гоняет CI на
+раннерах GitHub с Windows Server 2022 и 2025 — workflow `.github/workflows/windows.yml`, через
+`sandbox\ci.ps1`; при ручном запуске со ссылкой подписки — ещё и `sandbox\real-test.ps1` с настоящими
+серверами (ссылка в журнале скрыта).
 
 Установщик — там же:
 
