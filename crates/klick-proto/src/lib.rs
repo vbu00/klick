@@ -12,6 +12,16 @@ use serde_json::Value;
 pub const PIPE: &str = r"\\.\pipe\klick";
 /// Канал службы, запущенной для разработки в консоли.
 pub const PIPE_DEV: &str = r"\\.\pipe\klick-dev";
+/// macOS: Unix-сокет рабочей службы. Создавать файлы в `/var/run` может только root,
+/// поэтому подменить службу обычная программа не может.
+pub const SOCKET: &str = "/var/run/klick.sock";
+/// macOS: сокет службы, запущенной для разработки в консоли.
+pub const SOCKET_DEV: &str = "/tmp/klick-dev.sock";
+
+/// Канал управления рабочей службы на этой системе.
+pub const CONTROL: &str = if cfg!(windows) { PIPE } else { SOCKET };
+/// Канал управления службы для разработки на этой системе.
+pub const CONTROL_DEV: &str = if cfg!(windows) { PIPE_DEV } else { SOCKET_DEV };
 
 /// Сообщение от окна.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,7 +67,7 @@ pub enum Command {
     KillSwitchProgram { folder: String, enabled: bool },
     /// Программы Kill Switch и сколько exe в каждой папке нашлось: 0 — программа не найдена.
     KillSwitchStatus,
-    /// Окно запустилось после входа в Windows: вернуть VPN, если он был включён и включено «Восстанавливать подключение».
+    /// Окно запустилось после входа в систему: вернуть VPN, если он был включён и включено «Восстанавливать подключение».
     Resume,
     /// Версии, порт, папка данных, система — для «О приложении» и «Продвинутых».
     About,
@@ -104,7 +114,7 @@ pub struct AboutView {
     pub core_version: Option<String>,
     pub mixed_port: u16,
     pub data_dir: String,
-    /// «Windows 11 · 24H2 · x64».
+    /// «Windows 11 · 24H2 · x64», «macOS 15.1 Sequoia · Apple Silicon».
     pub os: String,
     /// Служба для разработки.
     pub dev: bool,
@@ -178,7 +188,7 @@ pub struct IpReport {
 pub struct ConnView {
     pub host: String,
     pub process: Option<String>,
-    /// Полный путь к exe: из него окно делает правило для программы.
+    /// Полный путь к исполняемому файлу: из него окно делает правило для программы.
     #[serde(default)]
     pub process_path: Option<String>,
     /// `vpn`, `direct` или `block`.
@@ -335,7 +345,8 @@ pub struct StateView {
     pub system_proxy: Option<SystemProxy>,
 }
 
-/// Системный прокси Windows, который ставит kl!ck.
+/// Системный прокси, который ставит kl!ck: на Windows — окно (у каждого пользователя свой),
+/// на macOS — служба (настройки сети там общие и требуют прав администратора).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SystemProxy {
     pub host: String,

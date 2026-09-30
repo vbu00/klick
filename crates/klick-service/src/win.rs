@@ -132,6 +132,11 @@ pub fn interface_luid(alias: &str) -> Option<u64> {
     }
 }
 
+/// Поднят ли адаптер TUN ядра.
+pub fn tun_up() -> bool {
+    interface_luid(crate::engine::TUN_DEVICE).is_some()
+}
+
 /// Папка данных рабочей службы: доступ только у системы и администраторов, с наследованием.
 /// Там лежат ключи серверов, поэтому обычные программы пользователя их читать не должны.
 pub fn restrict_to_admins(path: &std::path::Path) -> Result<()> {

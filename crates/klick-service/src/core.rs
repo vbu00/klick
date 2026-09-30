@@ -1,5 +1,7 @@
-//! Ядро mihomo: запуск, готовность, остановка и API через именованный канал.
+//! Ядро mihomo: запуск, готовность, остановка и API через именованный канал (Windows)
+//! или Unix-сокет (macOS).
 
+#[cfg(windows)]
 use crate::win::Job;
 use anyhow::{bail, Context, Result};
 use bytes::Bytes;
@@ -14,11 +16,17 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, BufReader};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 use tokio::sync::oneshot;
 
+#[cfg(windows)]
 const ERROR_PIPE_BUSY: i32 = 231;
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Обычный запрос к ядру отвечает за миллисекунды; дольше — значит, ядро зависло.
+const CALL_LIMIT: Duration = Duration::from_secs(10);
 
 /// API ядра. Каждый запрос — отдельное подключение к каналу.
 #[derive(Clone, Debug)]
@@ -32,6 +40,7 @@ impl CoreApi {
         Self { pipe: pipe.into(), secret: secret.into() }
     }
 
+    #[cfg(windows)]
     async fn open(&self) -> Result<NamedPipeClient> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
@@ -43,6 +52,11 @@ impl CoreApi {
                 Err(e) => return Err(e).context("канал ядра недоступен"),
             }
         }
+    }
+
+    #[cfg(unix)]
+    async fn open(&self) -> Result<tokio::net::UnixStream> {
+        tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")
     }
 
     async fn send(&self, method: Method, path: &str, body: Option<&Value>) -> Result<hyper::Response<hyper::body::Incoming>> {
@@ -66,13 +80,19 @@ impl CoreApi {
     }
 
     pub async fn call(&self, method: Method, path: &str, body: Option<&Value>) -> Result<(StatusCode, Bytes)> {
-        let res = self.send(method, path, body).await?;
-        let status = res.status();
-        let bytes = tokio::time::timeout(Duration::from_secs(30), res.into_body().collect())
-            .await
-            .context("ядро не ответило за 30 с")??
-            .to_bytes();
-        Ok((status, bytes))
+        self.call_within(method, path, body, CALL_LIMIT).await
+    }
+
+    /// Запрос целиком — подключение, заголовки, тело — не дольше `limit`. Зависшее ядро не должно
+    /// останавливать службу: пока она ждёт ответа, не работает даже кнопка «Отключить».
+    pub async fn call_within(&self, method: Method, path: &str, body: Option<&Value>, limit: Duration) -> Result<(StatusCode, Bytes)> {
+        let request = async {
+            let res = self.send(method, path, body).await?;
+            let status = res.status();
+            let bytes = res.into_body().collect().await?.to_bytes();
+            Ok::<_, anyhow::Error>((status, bytes))
+        };
+        tokio::time::timeout(limit, request).await.map_err(|_| anyhow::anyhow!("ядро не ответило за {} с", limit.as_secs()))?
     }
 
     pub async fn get_json(&self, path: &str) -> Result<Value> {
@@ -114,7 +134,7 @@ impl CoreApi {
     /// Задержка через сервер или группу; `None` — нет ответа за `timeout_ms`.
     pub async fn proxy_delay(&self, name: &str, url: &str, timeout_ms: u32) -> Result<Option<u32>> {
         let path = format!("/proxies/{}/delay?url={}&timeout={timeout_ms}", enc(name), enc(url));
-        let (status, body) = self.call(Method::GET, &path, None).await?;
+        let (status, body) = self.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 2_000)).await?;
         if !status.is_success() {
             return Ok(None);
         }
@@ -125,7 +145,7 @@ impl CoreApi {
     /// Задержка всех серверов группы разом.
     pub async fn group_delay(&self, group: &str, url: &str, timeout_ms: u32) -> Result<HashMap<String, u32>> {
         let path = format!("/group/{}/delay?url={}&timeout={timeout_ms}", enc(group), enc(url));
-        let (status, body) = self.call(Method::GET, &path, None).await?;
+        let (status, body) = self.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 3_000)).await?;
         if !status.is_success() {
             return Ok(HashMap::new());
         }
@@ -138,7 +158,7 @@ impl CoreApi {
     /// Перечитать конфиг без перезапуска: тумблер, списки, Kill Switch.
     pub async fn reload(&self, config: &Path) -> Result<()> {
         let body = json!({ "path": config.to_string_lossy() });
-        let (status, text) = self.call(Method::PUT, "/configs?force=true", Some(&body)).await?;
+        let (status, text) = self.call_within(Method::PUT, "/configs?force=true", Some(&body), Duration::from_secs(20)).await?;
         if !status.is_success() {
             bail!("ядро не приняло конфиг ({status}): {}", String::from_utf8_lossy(&text));
         }
@@ -156,7 +176,7 @@ impl CoreApi {
 
     /// Потоковый ответ построчно: `/traffic`, `/connections`, `/logs`. Возвращается, когда поток закрылся.
     pub async fn stream<F: FnMut(Value) + Send>(&self, path: &str, mut on_item: F) -> Result<()> {
-        let mut res = self.send(Method::GET, path, None).await?;
+        let mut res = tokio::time::timeout(CALL_LIMIT, self.send(Method::GET, path, None)).await.context("ядро не ответило")??;
         if !res.status().is_success() {
             bail!("ядро ответило {} на {path}", res.status());
         }
@@ -274,7 +294,11 @@ pub struct CoreProcess {
     pub pid: Option<u32>,
     kill: Option<oneshot::Sender<()>>,
     done: Option<oneshot::Receiver<()>>,
+    #[cfg(windows)]
     _job: Job,
+    /// macOS: pid-файл ядра, по нему следующий запуск завершит ядро, оставшееся после сбоя.
+    #[cfg(unix)]
+    pidfile: std::path::PathBuf,
     tail: Arc<Mutex<VecDeque<String>>>,
 }
 
@@ -292,6 +316,10 @@ impl CoreProcess {
         if !exe.exists() {
             bail!("нет файла ядра {}", exe.display());
         }
+        #[cfg(unix)]
+        let pidfile = std::path::PathBuf::from(format!("{}.pid", api.pipe));
+        #[cfg(unix)]
+        crate::sys::kill_stale(&pidfile, exe);
         let mut cmd = tokio::process::Command::new(exe);
         cmd.arg("-d")
             .arg(home)
@@ -301,17 +329,24 @@ impl CoreProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .creation_flags(CREATE_NO_WINDOW);
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
         for var in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"] {
             cmd.env_remove(var);
         }
         let mut child = cmd.spawn().with_context(|| format!("не запустить {}", exe.display()))?;
+        #[cfg(windows)]
         let job = Job::kill_on_close()?;
+        #[cfg(windows)]
         if let Some(h) = child.raw_handle() {
             job.assign(h)?;
         }
         let pid = child.id();
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            let _ = std::fs::write(&pidfile, pid.to_string());
+        }
 
         let tail = Arc::new(Mutex::new(VecDeque::with_capacity(32)));
         for stream in [child.stdout.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>), child.stderr.take().map(|s| Box::new(s) as _)]
@@ -363,6 +398,17 @@ impl CoreProcess {
                     on_exit(code);
                 }
                 _ = kill_rx => {
+                    // macOS: сначала просим ядро завершиться само — оно уберёт маршруты адаптера и сохранит кэш.
+                    #[cfg(unix)]
+                    if let Some(pid) = child.id() {
+                        unsafe {
+                            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+                        }
+                        if tokio::time::timeout(Duration::from_secs(3), child.wait()).await.is_ok() {
+                            let _ = done_tx.send(());
+                            return;
+                        }
+                    }
                     let _ = child.kill().await;
                     let _ = child.wait().await;
                     let _ = done_tx.send(());
@@ -370,7 +416,17 @@ impl CoreProcess {
             }
         });
 
-        Ok(CoreProcess { api, pid, kill: Some(kill_tx), done: Some(done_rx), _job: job, tail })
+        Ok(CoreProcess {
+            api,
+            pid,
+            kill: Some(kill_tx),
+            done: Some(done_rx),
+            #[cfg(windows)]
+            _job: job,
+            #[cfg(unix)]
+            pidfile,
+            tail,
+        })
     }
 
     /// Последние строки журнала ядра: для кода ошибки и отчёта.
@@ -385,6 +441,8 @@ impl CoreProcess {
         if let Some(done) = self.done.take() {
             let _ = tokio::time::timeout(Duration::from_secs(5), done).await;
         }
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(&self.pidfile);
     }
 }
 

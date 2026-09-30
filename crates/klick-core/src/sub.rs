@@ -50,6 +50,9 @@ pub fn link_name(uri: &str) -> Option<String> {
     (!host.is_empty() && !host.contains('=')).then(|| host.to_string())
 }
 
+/// Срок позже 2090 года — это «без срока», а не «осталось 26 000 дней».
+const NO_EXPIRY_AFTER: f64 = 3_786_912_000.0;
+
 /// Заголовок `subscription-userinfo: upload=…; download=…; total=…; expire=…`.
 pub fn parse_userinfo(header: &str) -> Option<SubInfo> {
     let mut info = SubInfo::default();
@@ -62,7 +65,8 @@ pub fn parse_userinfo(header: &str) -> Option<SubInfo> {
             ("upload", Some(n)) => info.upload = n as u64,
             ("download", Some(n)) => info.download = n as u64,
             ("total", Some(n)) => info.total = n as u64,
-            ("expire", Some(n)) => info.expire = (n > 0.0).then_some(n as i64),
+            // Бессрочную подписку панели помечают по-разному: 0 или дата около 2100 года.
+            ("expire", Some(n)) => info.expire = (n > 0.0 && n < NO_EXPIRY_AFTER).then_some(n as i64),
             _ => continue,
         }
         any = true;
@@ -209,6 +213,8 @@ mod tests {
         assert_eq!(info.expire, Some(1795000000));
         let unlimited = parse_userinfo("upload=0;download=10.5;total=0;expire=0").unwrap();
         assert_eq!(unlimited.expire, None);
+        // Remnawave и другие панели: бессрочная подписка — дата около 2100 года.
+        assert_eq!(parse_userinfo("upload=0; download=0; total=0; expire=4110000000").unwrap().expire, None);
         assert_eq!(unlimited.download, 10);
         assert_eq!(parse_userinfo("garbage"), None);
     }

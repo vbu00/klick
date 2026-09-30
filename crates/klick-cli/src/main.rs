@@ -5,8 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use klick_core::{Mode, Route, Routing, Rule, ServerDownPolicy, Target};
 use klick_proto::{Command, Preferences, Request, ServerMsg};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::windows::named_pipe::ClientOptions;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 #[derive(Parser)]
 #[command(name = "klick-cli", about = "Управление службой kl!ck из консоли")]
@@ -271,11 +270,11 @@ fn command(cmd: Cmd) -> Result<Command> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let pipe = if cli.prod { klick_proto::PIPE } else { klick_proto::PIPE_DEV };
+    let pipe = if cli.prod { klick_proto::CONTROL } else { klick_proto::CONTROL_DEV };
     let watch = matches!(cli.cmd, Cmd::Watch);
     let cmd = if watch { Command::Subscribe } else { command(cli.cmd)? };
 
-    let client = ClientOptions::new().open(pipe).with_context(|| format!("служба не отвечает на {pipe}"))?;
+    let client = connect(pipe).await.with_context(|| format!("служба не отвечает на {pipe}"))?;
     let (read, mut write) = tokio::io::split(client);
     let mut lines = BufReader::new(read).lines();
     let req = Request { id: 1, cmd };
@@ -306,4 +305,14 @@ async fn main() -> Result<()> {
             ServerMsg::Event(ev) => println!("{}", serde_json::to_string(&ev)?),
         }
     }
+}
+
+#[cfg(windows)]
+async fn connect(pipe: &str) -> std::io::Result<impl AsyncRead + AsyncWrite> {
+    tokio::net::windows::named_pipe::ClientOptions::new().open(pipe)
+}
+
+#[cfg(unix)]
+async fn connect(socket: &str) -> std::io::Result<impl AsyncRead + AsyncWrite> {
+    tokio::net::UnixStream::connect(socket).await
 }

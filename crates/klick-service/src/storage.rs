@@ -1,7 +1,7 @@
 //! Настройки и ключи на диске. Ключи (ссылки подписок) — отдельным зашифрованным файлом.
 
 use crate::paths::Paths;
-use crate::win;
+use crate::sys;
 use anyhow::{Context, Result};
 use klick_core::{Catalog, Settings};
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ pub struct Secrets(pub HashMap<String, String>);
 impl Secrets {
     pub fn load(paths: &Paths) -> Self {
         let Ok(blob) = std::fs::read(&paths.secrets) else { return Self::default() };
-        match win::unprotect(&blob).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+        match sys::unprotect(&blob).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
             Some(map) => Secrets(map),
             None => {
                 tracing::warn!("secrets.bin не расшифровывается: ссылки подписок придётся добавить заново");
@@ -41,8 +41,14 @@ impl Secrets {
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
         let plain = serde_json::to_vec(&self.0)?;
-        let blob = win::protect(&plain)?;
-        write_atomic(&paths.secrets, &blob)
+        let blob = sys::protect(&plain)?;
+        write_atomic(&paths.secrets, &blob)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&paths.secrets, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
     }
 }
 

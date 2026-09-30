@@ -1,5 +1,6 @@
 //! Модель настроек. Это то, что пользователь меняет в интерфейсе, и то, что служба хранит на диске.
 
+use crate::os::Os;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
@@ -408,7 +409,7 @@ pub fn normalize_cidr(input: &str) -> Result<String, InputError> {
     Ok(format!("{ip}/{prefix}"))
 }
 
-/// Папка программы: абсолютный путь Windows без завершающего слэша.
+/// Папка программы на Windows: абсолютный путь без завершающего слэша. На macOS — [`crate::macos::normalize_folder`].
 pub fn normalize_folder(input: &str) -> Result<String, InputError> {
     let s = input.trim().trim_matches('"').replace('/', "\\");
     let s = s.trim_end_matches('\\');
@@ -424,11 +425,25 @@ pub fn normalize_folder(input: &str) -> Result<String, InputError> {
     Ok(s.to_string())
 }
 
-/// Папка программы для правила и Kill Switch. Из пути к exe берётся папка установки: папки
+/// Папка программы для правила и Kill Switch на той системе, под которую собрана программа.
+pub fn program_folder(input: &str) -> Result<String, InputError> {
+    program_folder_on(Os::CURRENT, input, None)
+}
+
+/// Папка программы для правила и Kill Switch. `is_file` — подсказка службы, которая видит диск:
+/// на Windows exe узнаётся по расширению, а на macOS у программы без пакета `.app` расширения нет.
+pub fn program_folder_on(os: Os, input: &str, is_file: Option<bool>) -> Result<String, InputError> {
+    match os {
+        Os::Windows => windows_program_folder(input),
+        Os::MacOs => crate::macos::program_folder(input, is_file),
+    }
+}
+
+/// Windows: из пути к exe берётся папка установки: папки
 /// версий (`app-1.0.9175`, `131.0.2903.70`, `version-6f8e…`) и `Versions` над ними пропускаются,
 /// чтобы правило пережило обновление программы. Корень диска, Program Files, «Загрузки»,
 /// профиль и другие общие папки не подходят: правило задело бы чужие программы.
-pub fn program_folder(input: &str) -> Result<String, InputError> {
+fn windows_program_folder(input: &str) -> Result<String, InputError> {
     let path = normalize_folder(input)?;
     let mut folder = path.clone();
     if path.to_ascii_lowercase().ends_with(".exe") {
@@ -458,7 +473,7 @@ fn last_segment(path: &str) -> &str {
 }
 
 /// `app-1.0.9175`, `131.0.2903.70`, `v2.4.1`, `version-6f8e1a2b3c4d5e6f`.
-fn is_version_dir(name: &str) -> bool {
+pub(crate) fn is_version_dir(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     if let Some(hex) = lower.strip_prefix("version-") {
         return !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit());
@@ -548,6 +563,11 @@ fn punycode_label(label: &str) -> Result<String, InputError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Примеры в тестах ниже — пути Windows; macOS проверяется в `crate::macos`.
+    fn program_folder(p: &str) -> Result<String, InputError> {
+        program_folder_on(Os::Windows, p, None)
+    }
 
     #[test]
     fn domains_are_normalized() {

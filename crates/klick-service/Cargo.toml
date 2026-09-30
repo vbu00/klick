@@ -1,6 +1,6 @@
 [package]
 name = "klick-service"
-description = "Служба kl!ck: ядро, Kill Switch, подписки, канал управления"
+description = "Служба kl!ck: ядро, Kill Switch, подписки, канал управления (Windows и macOS)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -22,9 +22,20 @@ bytes = "1"
 reqwest = { version = "0.12", features = ["gzip", "json"] }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+aes-gcm = "0.10"
+getrandom = "0.3"
+plist = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+[target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
 
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
 features = [
     "Win32_Foundation",

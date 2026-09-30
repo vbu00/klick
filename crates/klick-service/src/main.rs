@@ -1,20 +1,58 @@
-//! Служба kl!ck. Рабочий запуск — через Windows (`run`), для разработки — `console`.
+//! Служба kl!ck. Рабочий запуск — через службы Windows или launchd на macOS (`run`),
+//! для разработки — `console`.
 
 mod core;
 mod engine;
 mod ipcheck;
-mod killswitch;
 mod logring;
-mod neighbors;
-mod netwatch;
 mod paths;
 mod pipe;
-mod programs;
 mod storage;
 mod subs;
+
+// Windows: WFP, реестр, службы Windows.
+#[cfg(windows)]
+mod killswitch;
+#[cfg(windows)]
+mod neighbors;
+#[cfg(windows)]
+mod netwatch;
+#[cfg(windows)]
+mod programs;
+#[cfg(windows)]
 mod svc;
+#[cfg(windows)]
 mod userproxy;
+#[cfg(windows)]
 mod win;
+#[cfg(windows)]
+use win as sys;
+
+// macOS: launchd, networksetup, ядро-страж Kill Switch. Те же имена модулей, что у Windows.
+#[cfg(unix)]
+#[path = "unix/killswitch.rs"]
+mod killswitch;
+#[cfg(unix)]
+#[path = "unix/neighbors.rs"]
+mod neighbors;
+#[cfg(unix)]
+#[path = "unix/netconf.rs"]
+mod netconf;
+#[cfg(unix)]
+#[path = "unix/netwatch.rs"]
+mod netwatch;
+#[cfg(unix)]
+#[path = "unix/pf.rs"]
+mod pf;
+#[cfg(unix)]
+#[path = "unix/programs.rs"]
+mod programs;
+#[cfg(unix)]
+#[path = "unix/launchd.rs"]
+mod svc;
+#[cfg(unix)]
+#[path = "unix/sys.rs"]
+mod sys;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -41,18 +79,28 @@ enum Cmd {
         /// Разрешить адаптер TUN (нужны права администратора).
         #[arg(long)]
         allow_tun: bool,
-        /// Разрешить фильтры Kill Switch (нужны права администратора).
-        #[arg(long)]
+        /// Разрешить Kill Switch: фильтры WFP на Windows, ядро-страж на macOS (нужны права администратора).
+        #[arg(long, alias = "allow-ks")]
         allow_wfp: bool,
     },
-    /// Точка входа службы; запускает Windows.
+    /// Точка входа службы; запускает Windows или launchd.
     Run,
     /// Зарегистрировать службу и запустить её.
     Install,
     /// Остановить и удалить службу.
-    Uninstall,
+    Uninstall {
+        /// Удалить и данные: подключения, настройки, журнал.
+        #[cfg(unix)]
+        #[arg(long)]
+        wipe: bool,
+    },
     /// Убрать все фильтры Kill Switch из брандмауэра.
+    #[cfg(windows)]
     CleanupWfp,
+    /// Вернуть системный прокси и DNS, которые поменял kl!ck, и снять правила Kill Switch в pf
+    /// (после сбоя или перед удалением).
+    #[cfg(unix)]
+    CleanupNetwork,
 }
 
 fn main() -> Result<()> {
@@ -61,12 +109,18 @@ fn main() -> Result<()> {
         Cmd::Console { root, allow_tun, allow_wfp } => console(root, allow_tun, allow_wfp),
         Cmd::Run => svc::run_dispatcher(),
         Cmd::Install => svc::install(),
-        Cmd::Uninstall => svc::uninstall(),
+        #[cfg(windows)]
+        Cmd::Uninstall {} => svc::uninstall(),
+        #[cfg(unix)]
+        Cmd::Uninstall { wipe } => svc::uninstall(wipe),
+        #[cfg(windows)]
         Cmd::CleanupWfp => {
             let removed = killswitch::Wfp::open()?.clear()?;
             println!("фильтров Kill Switch удалено: {removed}");
             Ok(())
         }
+        #[cfg(unix)]
+        Cmd::CleanupNetwork => svc::cleanup_network(),
     }
 }
 
@@ -76,9 +130,11 @@ fn console(root: Option<PathBuf>, allow_tun: bool, allow_wfp: bool) -> Result<()
         .with(tracing_subscriber::fmt::layer().with_filter(filter))
         .with(logring::RingLayer.with_filter(LevelFilter::INFO))
         .init();
-    if (allow_tun || allow_wfp) && !win::is_elevated() {
-        bail!("--allow-tun и --allow-wfp требуют запуска от администратора");
+    if (allow_tun || allow_wfp) && !sys::is_elevated() {
+        bail!("--allow-tun и --allow-wfp требуют запуска от администратора{}", if cfg!(windows) { "" } else { " (sudo)" });
     }
+    #[cfg(unix)]
+    sys::raise_fd_limit();
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
         let paths = Paths::development(root)?;
@@ -95,7 +151,8 @@ fn console(root: Option<PathBuf>, allow_tun: bool, allow_wfp: bool) -> Result<()
     })
 }
 
-/// Журнал рабочей службы: `%ProgramData%\klick\logs\service.log`, короткий, без адресов сайтов.
+/// Журнал рабочей службы: `%ProgramData%\klick\logs\service.log` (на macOS —
+/// `/Library/Application Support/klick/logs/service.log`), короткий, без адресов сайтов.
 pub fn init_file_log(paths: &Paths) -> Result<()> {
     let file = std::fs::OpenOptions::new().create(true).append(true).open(paths.logs.join("service.log"))?;
     let _ = tracing_subscriber::registry()

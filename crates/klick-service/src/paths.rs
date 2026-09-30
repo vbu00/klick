@@ -3,9 +3,17 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
+/// Имя файла ядра в `resources/core`.
+const CORE_EXE: &str = if cfg!(windows) { "mihomo.exe" } else { "mihomo" };
+
+/// macOS: папка данных рабочей службы (настройки, ключи, журнал), открыта только root.
+#[cfg(unix)]
+pub const DATA_DIR: &str = "/Library/Application Support/klick";
+
 #[derive(Clone, Debug)]
 pub struct Paths {
-    /// Настройки, ключи, журнал: `%ProgramData%\klick` или `.dev-data` в папке проекта.
+    /// Настройки, ключи, журнал: `%ProgramData%\klick` (Windows), `/Library/Application Support/klick`
+    /// (macOS) или `.dev-data` в папке проекта.
     pub data: PathBuf,
     /// Домашняя папка ядра: конфиг, серверы, наборы, база стран.
     pub core_home: PathBuf,
@@ -25,7 +33,7 @@ impl Paths {
         Paths {
             providers: core_home.join("providers"),
             sets: core_home.join("sets"),
-            core_exe: resources.join("core").join("mihomo.exe"),
+            core_exe: resources.join("core").join(CORE_EXE),
             logs: data.join("logs"),
             settings: data.join("settings.json"),
             secrets: data.join("secrets.bin"),
@@ -36,11 +44,22 @@ impl Paths {
     }
 
     /// Рабочая служба: данные в `%ProgramData%\klick`, ресурсы рядом с exe.
+    #[cfg(windows)]
     pub fn production() -> Result<Self> {
         let program_data = std::env::var_os("ProgramData").context("нет переменной ProgramData")?;
         let exe = std::env::current_exe()?;
         let dir = exe.parent().context("нет папки exe")?.to_path_buf();
         Ok(Self::new(PathBuf::from(program_data).join("klick"), dir.join("resources")))
+    }
+
+    /// macOS: служба в `/Library/PrivilegedHelperTools/klick`, ядро рядом с ней, наборы в `resources`.
+    #[cfg(unix)]
+    pub fn production() -> Result<Self> {
+        let exe = std::env::current_exe()?;
+        let dir = exe.parent().context("нет папки exe")?.to_path_buf();
+        let mut paths = Self::new(PathBuf::from(DATA_DIR), dir.join("resources"));
+        paths.core_exe = dir.join(CORE_EXE);
+        Ok(paths)
     }
 
     /// Разработка: ищем папку проекта с `resources` вверх от exe.
@@ -72,12 +91,12 @@ impl Paths {
 fn find_root(exe: &Path) -> Result<PathBuf> {
     let mut dir = exe.parent();
     while let Some(d) = dir {
-        if d.join("resources").join("core").join("mihomo.exe").exists() {
+        if d.join("resources").join("core").join(CORE_EXE).exists() {
             return Ok(d.to_path_buf());
         }
         dir = d.parent();
     }
-    bail!("не нашёл папку проекта с resources\\core\\mihomo.exe выше {}", exe.display())
+    bail!("не нашёл папку проекта с resources/core/{CORE_EXE} выше {}", exe.display())
 }
 
 /// Чем отличаются рабочая служба и служба для разработки.
@@ -87,15 +106,20 @@ pub struct Profile {
     pub pipe: String,
     pub core_pipe: String,
     pub tester_pipe: String,
+    /// macOS: сокет ядра-стража Kill Switch.
+    #[cfg(unix)]
+    pub guard_pipe: String,
     pub mixed_port: u16,
     /// Можно ли поднимать адаптер TUN. В разработке — только с флагом.
     pub tun_allowed: bool,
-    /// Можно ли трогать брандмауэр. В разработке — только с флагом и правами администратора.
+    /// Можно ли включать Kill Switch: фильтры WFP на Windows, ядро-страж на macOS.
+    /// В разработке — только с флагом и правами администратора.
     pub wfp_allowed: bool,
     pub core_log_level: String,
 }
 
 impl Profile {
+    #[cfg(windows)]
     pub fn production() -> Self {
         Profile {
             dev: false,
@@ -109,6 +133,7 @@ impl Profile {
         }
     }
 
+    #[cfg(windows)]
     pub fn development(allow_tun: bool, allow_wfp: bool) -> Self {
         Profile {
             dev: true,
@@ -120,5 +145,38 @@ impl Profile {
             wfp_allowed: allow_wfp,
             core_log_level: "info".into(),
         }
+    }
+}
+
+/// macOS: сокеты ядра — в папке, открытой только владельцу (у сокета ядра нет пароля).
+/// Путь Unix-сокета на macOS не длиннее 104 байт, поэтому папка короткая.
+#[cfg(unix)]
+impl Profile {
+    pub fn production() -> Self {
+        Self::unix(false, klick_proto::SOCKET, "/var/run/klick", 7890, true, true, "warning")
+    }
+
+    pub fn development(allow_tun: bool, allow_wfp: bool) -> Self {
+        let run = format!("/tmp/klick-dev-{}", unsafe { libc::geteuid() });
+        Self::unix(true, klick_proto::SOCKET_DEV, &run, 17890, allow_tun, allow_wfp, "info")
+    }
+
+    fn unix(dev: bool, pipe: &str, run: &str, mixed_port: u16, tun_allowed: bool, wfp_allowed: bool, log: &str) -> Self {
+        Profile {
+            dev,
+            pipe: pipe.into(),
+            core_pipe: format!("{run}/core.sock"),
+            tester_pipe: format!("{run}/tester.sock"),
+            guard_pipe: format!("{run}/guard.sock"),
+            mixed_port,
+            tun_allowed,
+            wfp_allowed,
+            core_log_level: log.into(),
+        }
+    }
+
+    /// Папка сокетов ядра.
+    pub fn run_dir(&self) -> PathBuf {
+        Path::new(&self.core_pipe).parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("/tmp"))
     }
 }
