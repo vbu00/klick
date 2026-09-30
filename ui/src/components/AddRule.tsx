@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { routeName } from '../lib/i18n';
+import { isMac } from '../lib/platform';
 import { defaultRoute } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { ProgramView, Routing, Rule, Target } from '../lib/types';
@@ -141,7 +142,7 @@ export function AddRule({ position, onClose }: { position: Routing; onClose: () 
               })}
             </div>
             <button className="ax-browse" onClick={() => void browse()}>
-              Выбрать .exe…
+              {isMac ? 'Выбрать программу…' : 'Выбрать .exe…'}
             </button>
           </>
         ) : null}

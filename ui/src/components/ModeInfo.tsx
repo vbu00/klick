@@ -1,6 +1,7 @@
 // Лист «Как работает режим» из макета: схема, два пункта и «Выбрать». Режимов у нас два — без «Proxy».
 
 import { useState } from 'react';
+import { OS_NAME } from '../lib/platform';
 import type { Mode } from '../lib/types';
 import { Sheet } from './Chrome';
 import { Seg } from './Controls';
@@ -32,8 +33,8 @@ const MODES: Record<Mode, ModeDiagram> = {
     pill: 'Системный прокси',
     split: true,
     points: [
-      ['var(--accent)', 'Windows сама передаёт адрес прокси программам — большинство подхватывает его без настройки.'],
-      ['var(--dim)', 'Игры, UDP-трафик и программы, которые не слушаются настроек Windows, идут напрямую.'],
+      ['var(--accent)', `${OS_NAME} сама передаёт адрес прокси программам — большинство подхватывает его без настройки.`],
+      ['var(--dim)', `Игры, UDP-трафик и программы, которые не слушаются настроек ${OS_NAME}, идут напрямую.`],
     ],
   },
 };

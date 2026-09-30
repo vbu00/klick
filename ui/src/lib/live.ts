@@ -3,7 +3,7 @@
 // потом правила программ, потом сайтов, сервисов и IP — поэтому, если у программы своё правило,
 // её сайты по одному не переключаются.
 
-import { programName, serviceForHost, unicodeDomain } from './rules';
+import { baseProcess, programName, serviceForHost, unicodeDomain } from './rules';
 import type { ConnView, KillSwitch, Route, Routing, Rule, Service, Target } from './types';
 
 /** Что решает, куда пойдёт соединение, — для тумблера и подписи. */
@@ -38,7 +38,7 @@ export interface AppRow {
   locked: boolean;
 }
 
-/** Понятные имена частых программ: `msedge.exe` → Edge. */
+/** Понятные имена частых программ: `msedge.exe` → Edge, `Google Chrome Helper` → Chrome. */
 const ALIASES: Record<string, string> = {
   msedge: 'Edge',
   chrome: 'Chrome',
@@ -52,12 +52,20 @@ const ALIASES: Record<string, string> = {
   spotify: 'Spotify',
   svchost: 'Система',
   system: 'Система',
+  // macOS
+  'google chrome': 'Chrome',
+  'microsoft edge': 'Edge',
+  'yandex': 'Яндекс Браузер',
+  'brave browser': 'Brave',
+  'com.apple.webkit.networking': 'Safari и WebKit',
+  mdnsresponder: 'Система',
+  'plugin-container': 'Firefox',
 };
 
 export function appName(c: Pick<ConnView, 'process' | 'process_path'>, names: Record<string, string>): string {
   if (c.process_path && names[c.process_path]) return names[c.process_path];
   if (!c.process) return 'Неизвестная программа';
-  const base = c.process.replace(/\.exe$/i, '');
+  const base = baseProcess(c.process);
   return ALIASES[base.toLowerCase()] ?? programName(c.process);
 }
 
@@ -83,11 +91,15 @@ export function baseDomain(host: string): string {
 
 const lower = (s: string) => s.toLowerCase();
 
+/** Путь внутри папки. Разделитель — `\\` на Windows и `/` на macOS. */
 function inFolder(path: string, folder: string): boolean {
   const p = lower(path);
-  const f = lower(folder).replace(/\\+$/, '');
-  return p === f || p.startsWith(`${f}\\`);
+  const f = lower(folder).replace(/[\\/]+$/, '');
+  return p === f || p.startsWith(`${f}\\`) || p.startsWith(`${f}/`);
 }
+
+/** Сколько уровней в пути папки: глубже — точнее. */
+const depth = (folder: string) => folder.split(/[\\/]/).filter(Boolean).length;
 
 function hostMatches(host: string, domain: string): boolean {
   const h = lower(host);
@@ -109,7 +121,7 @@ export function programRule(list: Rule[], path: string | null): Rule | undefined
   if (!path) return undefined;
   return list
     .filter((r) => r.enabled !== false && r.target.kind === 'program' && inFolder(path, r.target.value))
-    .sort((a, b) => b.target.value.split('\\').length - a.target.value.split('\\').length)[0];
+    .sort((a, b) => depth(b.target.value) - depth(a.target.value))[0];
 }
 
 /** Включённое правило сайта, сервиса или IP для хоста: точное раньше общего, своё раньше сервиса. */
@@ -189,7 +201,7 @@ export function findProgramRule(list: Rule[], path: string): number {
   let best = -1;
   list.forEach((r, i) => {
     if (r.target.kind !== 'program' || !inFolder(path, r.target.value)) return;
-    if (best < 0 || r.target.value.split('\\').length > list[best].target.value.split('\\').length) best = i;
+    if (best < 0 || depth(r.target.value) > depth(list[best].target.value)) best = i;
   });
   return best;
 }

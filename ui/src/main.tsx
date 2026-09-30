@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { StoreProvider } from './lib/store';
+import { PLATFORM } from './lib/platform';
 import { applyCachedTheme } from './lib/theme';
 import { createTransport } from './lib/transport';
 import { Preview } from './Preview';
@@ -17,6 +18,7 @@ applyCachedTheme();
 
 createTransport().then((transport) => {
   if (transport.kind === 'tauri') document.body.classList.add('in-tauri');
+  document.body.classList.add(`os-${PLATFORM}`);
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <StoreProvider transport={transport}>

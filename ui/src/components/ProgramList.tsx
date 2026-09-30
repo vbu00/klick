@@ -2,6 +2,7 @@
 // Общий для листа «Добавить в список» и выбора программ Kill Switch.
 
 import { useEffect, useMemo, useState } from 'react';
+import { isMac } from '../lib/platform';
 import { shortPath } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { ProgramView } from '../lib/types';
@@ -26,7 +27,7 @@ export function ProgramList({ selected, onToggle, taken }: { selected: string[];
 
   return (
     <>
-      <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по названию или .exe" />
+      <input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={isMac ? 'Поиск по названию' : 'Поиск по названию или .exe'} />
       <div className="pick-head">
         <span className="caps">Запущено сейчас · {running ? running.length : '…'}</span>
         <span className="pick-hint">по сетевой активности</span>
@@ -35,7 +36,7 @@ export function ProgramList({ selected, onToggle, taken }: { selected: string[];
       {running && shown.length === 0 ? (
         <div className="pick-empty">
           <b>Ничего не найдено</b>
-          Программа не запущена? Выберите её .exe вручную через «Обзор…».
+          {isMac ? 'Программа не запущена? Выберите её в папке «Программы» через «Обзор…».' : 'Программа не запущена? Выберите её .exe вручную через «Обзор…».'}
         </div>
       ) : null}
       {shown.map((p) => {

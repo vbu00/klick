@@ -6,6 +6,7 @@ import { Sheet, type Tab } from '../components/Chrome';
 import { SwitchDiagram } from '../components/SwitchDiagram';
 import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, pingColor, pingText, protocolName } from '../lib/format';
 import { errorText, modeName, routingName } from '../lib/i18n';
+import { isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
 import type { Connection, ServerView } from '../lib/types';
 
@@ -239,7 +240,11 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
         <Sheet onClose={() => setHelpOpen(false)}>
           <h3>{neighbors.join(', ')} мешает режиму VPN</h3>
           <p>Он перехватывает трафик на всех сетевых адаптерах, включая адаптер kl!ck, поэтому часть сайтов через VPN может не открываться.</p>
-          <p>Остановите обход в Klutz или zapret, пока включён VPN, или переключитесь на системный прокси — с ним zapret уживается.</p>
+          {isMac ? (
+            <p>Выключите его, пока работает kl!ck: два VPN сразу мешают друг другу. Обход блокировок (zapret, SpoofDPI) можно оставить, если переключиться на системный прокси.</p>
+          ) : (
+            <p>Остановите обход в Klutz или zapret, пока включён VPN, или переключитесь на системный прокси — с ним zapret уживается.</p>
+          )}
           <div className="sheet-actions">
             <button onClick={() => setHelpOpen(false)}>Понятно</button>
             <button

@@ -1,14 +1,20 @@
 //! Мост окна к службе: команды — отдельным подключением к каналу, события — постоянным.
+//! Windows — именованный канал, macOS — Unix-сокет.
 
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(windows)]
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(windows)]
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 
+#[cfg(windows)]
 const ERROR_PIPE_BUSY: i32 = 231;
 /// Канал рабочей службы (как `klick_proto::PIPE`); служба для разработки — без проверки.
+#[cfg(windows)]
 const WORK_PIPE: &str = r"\\.\pipe\klick";
 
 pub struct Bridge {
@@ -23,6 +29,7 @@ impl Bridge {
     }
 }
 
+#[cfg(windows)]
 async fn open(pipe: &str) -> std::io::Result<NamedPipeClient> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -48,6 +55,7 @@ async fn open(pipe: &str) -> std::io::Result<NamedPipeClient> {
 /// Владельца видно любому, кто подключился к каналу: нужно только право READ_CONTROL, а оно входит
 /// в обычный доступ на чтение. Процесс службы при этом не открываем — обычному пользователю Windows
 /// его не откроет, и проверка по процессу отвергла бы настоящую службу.
+#[cfg(windows)]
 fn served_by_system(pipe: &NamedPipeClient) -> bool {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::{LocalFree, HANDLE, HLOCAL};
@@ -64,6 +72,12 @@ fn served_by_system(pipe: &NamedPipeClient) -> bool {
         let _ = LocalFree(HLOCAL(sd.0));
         ok
     }
+}
+
+/// macOS: сокет службы лежит в /var/run, куда пишет только root, — занять его имя чужая программа не может.
+#[cfg(unix)]
+async fn open(socket: &str) -> std::io::Result<tokio::net::UnixStream> {
+    tokio::net::UnixStream::connect(socket).await
 }
 
 fn unreachable() -> Value {
@@ -153,7 +167,7 @@ pub fn start_events(app: AppHandle) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

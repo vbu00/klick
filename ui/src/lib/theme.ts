@@ -1,6 +1,7 @@
 // Темы из макета: палитры основ, цвета акцента и выбор темы. Тему хранит служба (настройки у ПК одни),
 // а окно держит копию в localStorage, чтобы при запуске сразу открыться в своих цветах.
 
+import { OS_NAME } from './platform';
 import type { Appearance, ThemeBase, ThemeMode } from './types';
 
 type Palette = Record<string, string>;
@@ -29,7 +30,7 @@ export const THEMES: [ThemeMode, string][] = [
 ];
 
 export const THEME_DESC: Record<ThemeMode, string> = {
-  system: 'Повторяет тему Windows и переключается вместе с ней.',
+  system: `Повторяет тему ${OS_NAME} и переключается вместе с ней.`,
   light: 'Светлый фон и тёмный текст — удобно при ярком освещении.',
   dark: 'Тёмный фон — меньше нагрузки на глаза вечером.',
   custom: 'Выберите основу и цвет акцента ниже.',

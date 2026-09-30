@@ -71,6 +71,8 @@
 }
 .tb-btn:hover { background: var(--hover); }
 .tb-btn.close:hover { background: #c42b1c; color: #fff; }
+/* macOS: слева системные «светофоры» поверх прозрачного заголовка. */
+.os-mac .titlebar { padding-left: 84px; }
 
 .content {
   flex: 1;
@@ -709,6 +711,22 @@
 }
 .offline b { font-size: 16px; }
 .offline span { font-size: 13px; color: var(--text3); line-height: 1.5; }
+.offline-action {
+  margin-top: 12px;
+  height: 38px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 19px;
+  background: var(--text);
+  color: var(--onText);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.offline-action:active { transform: scale(0.97); }
+.offline-action:disabled { opacity: 0.6; cursor: default; }
 
 /* Превью в браузере: переключатель состояний под окном */
 .preview { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px 16px; }

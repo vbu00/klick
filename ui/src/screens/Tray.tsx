@@ -13,6 +13,7 @@ import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
 import { errorText, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget } from '../lib/live';
 import { plural } from '../lib/rules';
+import { isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
 import type { Transport } from '../lib/transport';
 import type { AboutView, Connection, ConnView, ExitAction, ServerView, VpnState } from '../lib/types';
@@ -145,9 +146,10 @@ export function Tray() {
   const apps = useMemo(() => groupLive(conns, list, settings?.kill_switch, catalog, programNames), [conns, list, settings?.kill_switch, catalog, programNames]);
 
   const exitWith = async (action: Exclude<ExitAction, 'ask'>, remember: boolean) => {
-    if (remember) await store.setPrefs({ on_exit: action });
+    if (remember) await settle(store.setPrefs({ on_exit: action }), 2000);
     if (action === 'disconnect') {
-      await store.disconnect();
+      // Служба может быть занята (переподключается) — выход её не ждёт: команда уже у неё в очереди.
+      await settle(store.disconnect(), 5000);
       await transport.exit(true);
     } else {
       await transport.exit(false);
@@ -180,7 +182,7 @@ export function Tray() {
               Служба не отвечает
             </span>
             <span className="tr-big sm">Нет связи</span>
-            <span className="tr-sub">Переустановите kl!ck или перезагрузите компьютер</span>
+            <span className="tr-sub">{isMac ? 'Откройте окно kl!ck — там можно перезапустить службу' : 'Переустановите kl!ck или перезагрузите компьютер'}</span>
           </span>
           </div>
         </div>
@@ -662,6 +664,11 @@ function TraySettings({ onBack }: { onBack: () => void }) {
   );
 }
 
+/** Дождаться обещания, но не дольше `ms`; ошибка — не повод не выйти. */
+function settle(p: Promise<unknown>, ms: number): Promise<unknown> {
+  return Promise.race([p.catch(() => undefined), new Promise((done) => setTimeout(done, ms))]);
+}
+
 function ExitSheet({ onPick, onClose }: { onPick: (a: Exclude<ExitAction, 'ask'>, remember: boolean) => Promise<void>; onClose: () => void }) {
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -673,7 +680,11 @@ function ExitSheet({ onPick, onClose }: { onPick: (a: Exclude<ExitAction, 'ask'>
   return (
     <Sheet onClose={onClose}>
       <h3>Выйти из kl!ck?</h3>
-      <p>VPN сейчас включён. Служба может держать его и без окна — тогда вернуться к kl!ck можно из меню «Пуск».</p>
+      <p>
+        {isMac
+          ? 'VPN сейчас включён. Служба может держать его и без окна — тогда вернуться к kl!ck можно из Launchpad или папки «Программы».'
+          : 'VPN сейчас включён. Служба может держать его и без окна — тогда вернуться к kl!ck можно из меню «Пуск».'}
+      </p>
       <div className="exit-choices">
         <button className="exit-choice main" disabled={busy} onClick={() => void pick('disconnect')}>
           Отключить VPN и выйти

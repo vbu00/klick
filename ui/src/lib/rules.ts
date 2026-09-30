@@ -20,21 +20,24 @@ const GENERIC = new Set(['app', 'application', 'bin', 'bin64', 'x64', 'x86', 'wi
 /** Пакет Microsoft Store: `Имя_Версия_Архитектура__Издатель`. */
 const MSIX = /^(.+?)_\d+(\.\d+)+_(x64|x86|arm64|arm|neutral)__[a-z0-9]+$/i;
 
-/** Название программы по папке правила: «…\Discord» → Discord, «…\Claude_2.9939.2.0_x64__…\app» → Claude. */
+/** Название программы по папке правила: «…\Discord» → Discord, «…\Claude_2.9939.2.0_x64__…\app» → Claude,
+ *  «/Applications/Discord.app» → Discord. */
 export function programTitle(folder: string): string {
-  const parts = folder.split('\\').filter(Boolean);
+  const parts = folder.split(/[\\/]/).filter(Boolean);
   for (let i = parts.length - 1; i > 0; i--) {
     const m = MSIX.exec(parts[i]);
     if (m) return m[1].split('.').pop() || m[1];
+    if (/\.app$/i.test(parts[i])) return parts[i].slice(0, -4);
     if (!GENERIC.has(parts[i].toLowerCase())) return parts[i];
   }
   return parts[parts.length - 1] ?? folder;
 }
 
-/** Путь покороче: «C:\Users\user\AppData\Local\Discord» → «…\AppData\Local\Discord». */
+/** Путь покороче: «C:\Users\user\AppData\Local\Discord» → «…\AppData\Local\Discord». Разделитель — как в самом пути. */
 export function shortPath(path: string, keep = 3): string {
-  const parts = path.split('\\');
-  return parts.length > keep + 1 ? `…\\${parts.slice(-keep).join('\\')}` : path;
+  const sep = path.includes('\\') ? '\\' : '/';
+  const parts = path.split(sep).filter((p, i) => p || i > 0);
+  return parts.length > keep + 1 ? `…${sep}${parts.slice(-keep).join(sep)}` : path;
 }
 
 export function ruleTitle(rule: Rule, catalog: Service[], names: Record<string, string> = {}): string {
@@ -72,11 +75,20 @@ export function serviceForHost(host: string, catalog: Service[]): Service | unde
 }
 
 /** Браузер ходит на любые сайты, поэтому у него интереснее сайт, чем имя программы. */
-const BROWSERS = new Set(['chrome', 'msedge', 'firefox', 'opera', 'brave', 'browser', 'vivaldi', 'arc', 'zen', 'librewolf', 'waterfox', 'thorium', 'chromium', 'yandex']);
+const BROWSERS = new Set([
+  'chrome', 'msedge', 'firefox', 'opera', 'brave', 'browser', 'vivaldi', 'arc', 'zen', 'librewolf', 'waterfox', 'thorium', 'chromium', 'yandex',
+  // macOS: имена процессов без «Helper»
+  'google chrome', 'microsoft edge', 'brave browser', 'safari', 'com.apple.webkit.networking', 'plugin-container',
+]);
+
+/** Имя процесса без `.exe` и без помощника macOS: «Google Chrome Helper (Renderer)» → «Google Chrome». */
+export function baseProcess(process: string): string {
+  return process.replace(/\.exe$/i, '').replace(/ Helper( \([^)]*\))?$/, '');
+}
 
 /** «steam.exe» → «Steam». */
 export function programName(process: string): string {
-  const name = process.replace(/\.exe$/i, '');
+  const name = baseProcess(process);
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
@@ -84,7 +96,7 @@ export function programName(process: string): string {
 export function flowLabel(c: ConnView, catalog: Service[]): string {
   const svc = serviceForHost(c.host, catalog);
   if (svc) return svc.name;
-  const exe = c.process?.replace(/\.exe$/i, '').toLowerCase();
+  const exe = c.process ? baseProcess(c.process).toLowerCase() : undefined;
   if (c.host && (!exe || BROWSERS.has(exe))) return unicodeDomain(c.host.replace(/^www\./, ''));
   return c.process ? programName(c.process) : c.host;
 }

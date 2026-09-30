@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { isMac } from './platform';
 import type { Transport } from './transport';
 import type { KEvent } from './types';
 
@@ -33,7 +34,10 @@ export function createTauriTransport(): Transport {
       hide: () => void win.hide(),
     },
     pickExe: async () => {
-      const path = await open({ title: 'Выберите программу', multiple: false, directory: false, filters: [{ name: 'Программы', extensions: ['exe'] }] });
+      // macOS: программа — пакет .app, по умолчанию из папки «Программы».
+      const path = isMac
+        ? await open({ title: 'Выберите программу', multiple: false, directory: false, defaultPath: '/Applications', filters: [{ name: 'Программы', extensions: ['app'] }] })
+        : await open({ title: 'Выберите программу', multiple: false, directory: false, filters: [{ name: 'Программы', extensions: ['exe'] }] });
       return typeof path === 'string' ? path : null;
     },
     openUrl: (url) => openUrl(url),
@@ -41,6 +45,7 @@ export function createTauriTransport(): Transport {
     hideTray: () => void invoke('hide_tray'),
     fitTray: (height) => void invoke('fit_tray', { height }),
     clipboardText: () => invoke<string>('clipboard_text'),
+    repairService: () => invoke('repair_service'),
     exit: (clearProxy) => invoke('app_exit', { clearProxy }),
     isActive: async () => (await win.isVisible()) && (await win.isFocused()) && !(await win.isMinimized()),
     notify: (title, text, target) => invoke('notify', { title, text, target: target ?? null }),

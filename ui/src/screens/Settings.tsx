@@ -8,14 +8,25 @@ import { Icon } from '../components/Icon';
 import { KsInfo } from '../components/KsInfo';
 import { ProgramList } from '../components/ProgramList';
 import { errorText, exitName, serverDown } from '../lib/i18n';
+import { isMac, OS_NAME, TRAY_NAME } from '../lib/platform';
 import { plural, programTitle, shortPath } from '../lib/rules';
 import { useStore } from '../lib/store';
 import { ACCENTS, BASES, PALETTES, THEME_DESC, THEMES, systemDark } from '../lib/theme';
 import type { AboutView, Appearance, ErrorInfo, ExitAction, KsProgramView, LogLine, ServerDown, UpdateView } from '../lib/types';
 
+/** «Запускать с Windows»; на Mac — как называет это сама система. */
+const autostartTitle = isMac ? 'Открывать при входе в систему' : 'Запускать с Windows';
+
 type Sub = null | 'ks' | 'down' | 'theme' | 'log' | 'about';
 
 const REPO = 'https://github.com/vbu00/klick';
+
+/** Авторы kl!ck; порт на macOS — только в версии для Mac. */
+const AUTHORS: [string, string, string][] = [
+  ['vbu00', 'Разработка', 'https://github.com/vbu00'],
+  ['Dmitriy Medvedev', 'Дизайн интерфейса и логотип', 'https://github.com/aleuuu'],
+  ...(isMac ? [['limeflash', 'Порт на macOS', 'https://github.com/limeflash'] as [string, string, string]] : []),
+];
 
 /** Скопировать в буфер обмена и сказать об этом. */
 function useCopy() {
@@ -132,7 +143,7 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       <SectionHead title="Общие" />
       <div className="card-list">
-        <Row title="Запускать с Windows" sub="Свёрнутым в трей" right={<Toggle label="Запускать с Windows" on={!!autostart} disabled={autostart === null} onChange={(v) => void setAuto(v)} />} />
+        <Row title={autostartTitle} sub={`Свёрнутым в ${TRAY_NAME}`} right={<Toggle label={autostartTitle} on={!!autostart} disabled={autostart === null} onChange={(v) => void setAuto(v)} />} />
         <Row
           wrap
           title="Обновлять подписки"
@@ -142,7 +153,7 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
         <Row
           wrap
           title="Уведомлять об обрывах"
-          sub="Уведомление Windows, когда связь пропала и вернулась"
+          sub={`Уведомление ${OS_NAME}, когда связь пропала и вернулась`}
           right={<Toggle label="Уведомлять об обрывах" on={settings.notify} onChange={(v) => void store.setPrefs({ notify: v })} />}
         />
         <Row title="При выходе из kl!ck" sub={exitName[settings.on_exit]} onClick={() => setExitSheet(true)} chevron />
@@ -324,7 +335,7 @@ function KillSwitchScreen({ onBack }: { onBack: () => void }) {
       </div>
       <div className="foot-note">Приложения, не отмеченные здесь, при выключенном VPN работают как обычно — напрямую. Гарантию «ни пакета мимо VPN» даёт только Kill Switch.</div>
       <div className="note-card">
-        Пока VPN выключен, провайдер может увидеть, какие сайты пыталась открыть защищённая программа: имена сайтов Windows спрашивает сама. Соединения при этом не будет.
+        Пока VPN выключен, провайдер может увидеть, какие сайты пыталась открыть защищённая программа: имена сайтов {OS_NAME} спрашивает сама. Соединения при этом не будет.
       </div>
       {settings.mode === 'sys_proxy' ? (
         <div className="note-card">В режиме системного прокси программа из списка работает, только если сама ходит через прокси, иначе остаётся без сети. Надёжнее — режим VPN (TUN).</div>
@@ -611,6 +622,13 @@ function AboutScreen({ onBack }: { onBack: () => void }) {
         <KV k="Папка данных" mono>
           {about?.data_dir ?? '…'}
         </KV>
+      </div>
+
+      <SectionHead title="Авторы" />
+      <div className="card-list">
+        {AUTHORS.map(([name, role, url]) => (
+          <Row key={name} title={name} sub={role} onClick={() => void transport.openUrl(url)} chevron />
+        ))}
       </div>
 
       <div className="card-list mt12">

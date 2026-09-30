@@ -1,5 +1,6 @@
 // Тестовая служба для превью в браузере: ведёт себя как настоящая, но ничего не трогает.
 
+import { isMac } from './platform';
 import { inKillSwitch, programRule, siteRule } from './live';
 import type { Transport } from './transport';
 import type {
@@ -472,7 +473,9 @@ class MockService {
       case 'resume':
         return this.st;
       case 'about': {
-        const about: AboutView = { version: '0.4.0', core_version: 'v1.19.31', mixed_port: 7890, data_dir: 'C:\\ProgramData\\klick', os: 'Windows 11 · 25H2 · x64', dev: false };
+        const about: AboutView = isMac
+          ? { version: '0.4.0', core_version: 'v1.19.31', mixed_port: 7890, data_dir: '/Library/Application Support/klick', os: 'macOS 15.1 Sequoia · Apple Silicon', dev: false }
+          : { version: '0.4.0', core_version: 'v1.19.31', mixed_port: 7890, data_dir: 'C:\\ProgramData\\klick', os: 'Windows 11 · 25H2 · x64', dev: false };
         return about;
       }
       case 'log':
@@ -591,12 +594,13 @@ export function createMockTransport(): Transport {
       return () => void off();
     },
     win: { minimize() {}, hide() {} },
-    pickExe: async () => 'C:\\Games\\Genshin Impact\\Genshin Impact Game\\GenshinImpact.exe',
+    pickExe: async () => (isMac ? '/Applications/Discord.app' : 'C:\\Games\\Genshin Impact\\Genshin Impact Game\\GenshinImpact.exe'),
     openUrl: async (url) => void window.open(url, '_blank', 'noopener'),
     openMain: (target) => console.info('[превью] открыть главное окно', target ?? ''),
     hideTray: () => console.info('[превью] спрятать окно трея'),
     fitTray: () => undefined,
     clipboardText: async () => 'vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc#Превью',
+    repairService: async () => console.info('[превью] перезапуск службы'),
     exit: async (clearProxy) => console.info('[превью] выход', { clearProxy }),
     isActive: async () => document.visibilityState === 'visible' && document.hasFocus(),
     notify: async (title, text, target) => console.info('[превью] уведомление Windows:', title, text, target),

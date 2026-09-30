@@ -1,5 +1,6 @@
 // Тексты интерфейса. Служба присылает коды, окно переводит. Английский добавится отдельным словарём.
 
+import { isMac } from './platform';
 import type { ExitAction, Mode, Route, Routing, ServerDown, Target } from './types';
 
 export const modeName: Record<Mode, string> = {
@@ -127,7 +128,7 @@ export function errorText(code: string, params?: Params): string {
     case 'list.not_found':
       return 'Правило уже удалено';
     case 'killswitch.no_programs':
-      return 'В папке нет программ (.exe)';
+      return isMac ? 'Программа не найдена' : 'В папке нет программ (.exe)';
     case 'input.bad_appearance':
       return 'Такой темы нет';
     case 'update.disabled':

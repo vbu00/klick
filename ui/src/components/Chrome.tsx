@@ -1,11 +1,12 @@
 // Рамка окна: заголовок с кнопками, нижняя панель, всплывающие сообщения, лист снизу, «служба не отвечает».
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import statusDefault from '../assets/status/default.svg';
 import statusError from '../assets/status/error.svg';
 import statusEmpty from '../assets/status/no-connection.svg';
 import statusSuccess from '../assets/status/success.svg';
 import statusWarning from '../assets/status/warning.svg';
+import { isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
 import type { VpnState } from '../lib/types';
 import { Icon, type IconName } from './Icon';
@@ -29,7 +30,8 @@ function statusIcon(vpn: VpnState | undefined, empty: boolean, serviceUp: boolea
   }
 }
 
-/** Окно фиксированного размера: кнопки «развернуть» нет. */
+/** Окно фиксированного размера: кнопки «развернуть» нет. На macOS кнопки окна — системные «светофоры»
+ *  слева (заголовок окна прозрачный), свои кнопки не рисуем. */
 export function TitleBar() {
   const { transport, state, serviceUp } = useStore();
   const icon = statusIcon(state?.vpn, !!state && !state.connection, serviceUp);
@@ -40,12 +42,16 @@ export function TitleBar() {
         kl!ck
       </span>
       <div className="drag" data-tauri-drag-region />
-      <button className="tb-btn" aria-label="Свернуть" onClick={() => transport.win.minimize()}>
-        <Icon name="winMin" size={16} />
-      </button>
-      <button className="tb-btn close" aria-label="Свернуть в трей" onClick={() => transport.win.hide()}>
-        <Icon name="winClose" size={16} />
-      </button>
+      {isMac ? null : (
+        <>
+          <button className="tb-btn" aria-label="Свернуть" onClick={() => transport.win.minimize()}>
+            <Icon name="winMin" size={16} />
+          </button>
+          <button className="tb-btn close" aria-label="Свернуть в трей" onClick={() => transport.win.hide()}>
+            <Icon name="winClose" size={16} />
+          </button>
+        </>
+      )}
     </header>
   );
 }
@@ -116,16 +122,38 @@ export function Sheet({ onClose, children, tall }: { onClose: () => void; childr
 }
 
 export function Offline() {
-  const { serviceUp, transport } = useStore();
+  const { serviceUp, transport, state, toast } = useStore();
+  const [busy, setBusy] = useState(false);
   if (serviceUp) return null;
+  // macOS: службу можно поднять прямо отсюда — система спросит пароль администратора.
+  const canRepair = isMac;
+  const repair = async () => {
+    setBusy(true);
+    try {
+      await transport.repairService();
+      toast('Служба перезапущена', 'VPN выключен — включите его, когда будете готовы', 'ok');
+    } catch (e) {
+      if (String(e) !== 'cancelled') toast('Службу не удалось перезапустить', String(e).slice(0, 160), 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="offline">
       <b>Служба kl!ck не отвечает</b>
       <span>
-        {transport.kind === 'tauri'
-          ? 'Окно работает, но без службы VPN не включить. Переустановите kl!ck или перезагрузите компьютер.'
-          : 'Тестовая служба недоступна.'}
+        {transport.kind !== 'tauri' && !canRepair
+          ? 'Тестовая служба недоступна.'
+          : canRepair
+            ? 'Окно работает, но без службы VPN не включить. Перезапустите её — macOS спросит пароль администратора.'
+            : 'Окно работает, но без службы VPN не включить. Переустановите kl!ck или перезагрузите компьютер.'}
+        {isMac && state?.kill_switch ? ' Если в Kill Switch есть программы, прямые подключения закрыты, пока служба не вернётся.' : null}
       </span>
+      {canRepair ? (
+        <button className="offline-action" disabled={busy} onClick={() => void repair()}>
+          {busy ? 'Перезапускаю…' : 'Перезапустить службу'}
+        </button>
+      ) : null}
     </div>
   );
 }
