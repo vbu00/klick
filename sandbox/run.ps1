@@ -22,6 +22,17 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
     Log "$mark $name$tail"
 }
 function KlickCli { (& "$inst\klick-cli.exe" --prod @args 2>&1 | Out-String).Trim() }
+# Окно подключилось к службе: служба пишет об этом строку в журнал. Сколько таких строк уже есть.
+function WindowLinks { @(Get-Content 'C:\ProgramData\klick\logs\service.log' -Encoding UTF8 -ErrorAction SilentlyContinue | Select-String 'подключилось окно').Count }
+# Дождаться новой такой строки: WebView2 на новой машине стартует долго, фиксированной паузы мало.
+function WaitWindow([int]$before, [int]$seconds = 45) {
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+        if ((WindowLinks) -gt $before) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    $false
+}
 # ConvertFrom-Json в PowerShell 5.1 отдаёт JSON-массив одним объектом; ForEach-Object раскладывает его на элементы.
 function KlickJson { $t = & "$inst\klick-cli.exe" --prod @args 2>$null | Out-String; try { $t | ConvertFrom-Json | ForEach-Object { $_ } } catch { $null } }
 function WaitVpn([string]$want, [int]$seconds) {
@@ -251,9 +262,10 @@ try {
 
     # 7б. Системный прокси ставит и снимает окно kl!ck
     $backup = Join-Path $env:LOCALAPPDATA 'klick\proxy-backup.json'
+    $seen = WindowLinks
     $winProc = Start-Process "$inst\klick.exe" -ArgumentList '--hidden' -RedirectStandardError "$out\ui.err" -PassThru
-    Start-Sleep 6
-    Check 'окно kl!ck запустилось в трее' (-not $winProc.HasExited)
+    $up = WaitWindow $seen
+    Check 'окно kl!ck запустилось в трее и на связи со службой' (-not $winProc.HasExited -and $up)
     KlickCli connect | Out-Null
     Start-Sleep 3
     $reg = ProxyReg
@@ -269,8 +281,10 @@ try {
     Stop-Process -Id $winProc.Id -Force -ErrorAction SilentlyContinue
     # Вторая копия окна, пока первая ещё не закрылась, передаёт ей аргументы и выходит — дождаться.
     Wait-Process -Id $winProc.Id -Timeout 15 -ErrorAction SilentlyContinue
+    $seen = WindowLinks
     $winProc = Start-Process "$inst\klick.exe" -ArgumentList '--hidden' -RedirectStandardError "$out\ui2.err" -PassThru
-    Start-Sleep 6
+    $null = WaitWindow $seen
+    Start-Sleep 2
     $reg = ProxyReg
     Check 'чужой прокси на 127.0.0.1:7890 kl!ck не снимает' ($reg.ProxyEnable -eq 1) ("ProxyEnable=" + $reg.ProxyEnable)
     Set-ItemProperty $key ProxyEnable 0

@@ -92,6 +92,9 @@ async fn handle<S: AsyncRead + AsyncWrite + Send + 'static>(pipe: S, engine: Eng
         let msg = match serde_json::from_str::<Request>(&line) {
             Ok(req) => {
                 if req.cmd == Command::Subscribe && forward.is_none() {
+                    // Окно слушает события службы. По этой строке проверки узнают, что окно запустилось
+                    // и уже на связи: на новой машине WebView2 стартует секунды.
+                    tracing::info!("подключилось окно kl!ck (или klick-cli watch)");
                     let mut rx = engine.events.subscribe();
                     let tx = out_tx.clone();
                     forward = Some(tokio::spawn(async move {
