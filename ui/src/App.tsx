@@ -8,7 +8,7 @@ import { Settings } from './screens/Settings';
 import { Tray } from './screens/Tray';
 
 /** Нажали на уведомление: на какую вкладку оно ведёт. Экран внутри вкладки откроет сам. */
-const NAV_TAB: Record<string, Tab> = { servers: 'home', card: 'home', neighbors: 'home', killswitch: 'settings', log: 'settings', settings: 'settings' };
+const NAV_TAB: Record<string, Tab> = { servers: 'home', card: 'home', neighbors: 'home', browser_proxy: 'home', killswitch: 'settings', log: 'settings', settings: 'settings' };
 
 export function App() {
   const { transport } = useStore();

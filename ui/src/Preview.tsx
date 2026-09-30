@@ -11,6 +11,7 @@ const SCENARIOS: [Scenario, string][] = [
   ['down', 'Сервер не отвечает'],
   ['error', 'Ошибка'],
   ['neighbors', 'Мешает zapret'],
+  ['browser', 'Мешает расширение браузера'],
 ];
 
 export function Preview({ children }: { children: ReactNode }) {

@@ -1,5 +1,6 @@
 //! Служба kl!ck. Рабочий запуск — через Windows (`run`), для разработки — `console`.
 
+mod browsers;
 mod core;
 mod engine;
 mod ipcheck;

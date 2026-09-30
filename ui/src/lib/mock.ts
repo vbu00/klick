@@ -23,7 +23,7 @@ import type {
   UpdateView,
 } from './types';
 
-export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors';
+export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors' | 'browser';
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -188,7 +188,7 @@ class MockService {
     this.servers = servers;
     const empty = sc === 'empty';
     this.settings = {
-      mode: 'tun',
+      mode: sc === 'browser' ? 'sys_proxy' : 'tun',
       routing: 'selected',
       lists: seedLists(),
       connections: empty ? [] : connections,
@@ -225,12 +225,12 @@ class MockService {
       [-120, 'error', 'ядро: соединение через VPN не удалось (адрес скрыт)'],
     ].map(([d, level, text]) => ({ at: Date.now() + (d as number) * 1000, level: level as LogLine['level'], text: text as string }));
     const vpn: StateView['vpn'] = (
-      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected' } as const
+      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected', browser: 'connected' } as const
     )[sc];
     const running = vpn === 'connected' || vpn === 'reconnecting' || vpn === 'server_down';
     this.st = {
       vpn,
-      mode: 'tun',
+      mode: sc === 'browser' ? 'sys_proxy' : 'tun',
       routing: 'selected',
       kill_switch: true,
       connection: this.view(),
@@ -241,6 +241,7 @@ class MockService {
     };
     if (running) this.startTraffic();
     if (sc === 'neighbors') setTimeout(() => this.emit({ ev: 'notice', code: 'neighbors.conflict', params: { names: ['zapret'] } }), 700);
+    if (sc === 'browser') setTimeout(() => this.emit({ ev: 'notice', code: 'neighbors.browser_proxy', params: { names: ['Touch VPN в Chrome'] } }), 700);
     this.service.forEach((cb) => cb(true));
   }
 

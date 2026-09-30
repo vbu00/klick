@@ -1,5 +1,6 @@
-//! Соседи на компьютере: zapret, GoodbyeDPI (драйвер WinDivert), другие VPN и прокси-ядра.
-//! Они перехватывают тот же трафик, что и kl!ck, поэтому окно подсказывает, что с ними сделать.
+//! Соседи на компьютере: zapret, GoodbyeDPI (драйвер WinDivert), другие VPN и прокси-ядра,
+//! расширения браузеров, перехватившие прокси. Они забирают тот же трафик, что и kl!ck,
+//! поэтому окно подсказывает, что с ними сделать.
 
 use crate::win::wide;
 use std::path::Path;
@@ -40,21 +41,24 @@ pub fn scan(own_core: &Path) -> Vec<Neighbor> {
     for (name, path) in processes() {
         let lower = name.to_ascii_lowercase();
         if let Some((_, kind, title)) = KNOWN.iter().find(|(exe, _, _)| *exe == lower) {
-            push(&mut out, Neighbor { kind: (*kind).into(), name: (*title).into(), conflicts_with_tun: *kind == "dpi_bypass" || *kind == "vpn" });
+            push(&mut out, Neighbor { kind: (*kind).into(), name: (*title).into(), conflicts_with_tun: *kind == "dpi_bypass" || *kind == "vpn", conflicts_with_proxy: false });
         } else if lower == "mihomo.exe" || lower.starts_with("clash") {
             let ours = path.as_deref().is_some_and(|p| Path::new(p).eq(own_core));
             if !ours {
-                push(&mut out, Neighbor { kind: "proxy_core".into(), name: name.clone(), conflicts_with_tun: false });
+                push(&mut out, Neighbor { kind: "proxy_core".into(), name: name.clone(), conflicts_with_tun: false, conflicts_with_proxy: false });
             }
         }
     }
     for adapter in vpn_adapters() {
-        push(&mut out, Neighbor { kind: "vpn_adapter".into(), name: adapter, conflicts_with_tun: true });
+        push(&mut out, Neighbor { kind: "vpn_adapter".into(), name: adapter, conflicts_with_tun: true, conflicts_with_proxy: false });
     }
     for svc in ["WinDivert", "WinDivert14", "WinDivert1.4"] {
         if service_running(svc) {
-            push(&mut out, Neighbor { kind: "windivert".into(), name: svc.into(), conflicts_with_tun: true });
+            push(&mut out, Neighbor { kind: "windivert".into(), name: svc.into(), conflicts_with_tun: true, conflicts_with_proxy: false });
         }
+    }
+    for h in crate::browsers::scan() {
+        push(&mut out, Neighbor { kind: "browser_proxy".into(), name: format!("{} в {}", h.what, h.browser), conflicts_with_tun: false, conflicts_with_proxy: true });
     }
     out
 }
