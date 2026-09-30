@@ -2,7 +2,8 @@
 # Роль VPN-сервера играет второй mihomo внутри Песочницы (socks5), поэтому ключи настоящих серверов не нужны.
 # -Preinstalled: kl!ck уже поставил установщик (setup-test.ps1), здесь только проверки.
 # -KeepInstalled: не удалять службу в конце и не выключать Песочницу — дальше проверяет установщик.
-param([switch]$Preinstalled, [switch]$KeepInstalled)
+# -NoShutdown: не выключать компьютер в конце (CI: раннер GitHub, sandbox\ci.ps1).
+param([switch]$Preinstalled, [switch]$KeepInstalled, [switch]$NoShutdown)
 
 $ErrorActionPreference = 'Continue'
 $root = 'C:\klick'
@@ -86,7 +87,9 @@ try {
     Check 'папка данных закрыта от обычных пользователей' (-not ($who -match 'Users|Пользователи|Authenticated|Everyone|Все')) ($who -join ', ')
 
     # 2. Тестовый «VPN-сервер»: второй mihomo с socks5
-    $nic = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1
+    # Карта с маршрутом по умолчанию: на раннере CI рядом бывают виртуальные (vEthernet у Docker).
+    $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1
+    $nic = if ($route) { Get-NetAdapter -InterfaceIndex $route.ifIndex } else { Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1 }
     $ip = (Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 | Select-Object -First 1).IPAddress
     Log "сетевая карта: $($nic.Name), адрес $ip"
     $srv = 'C:\srv'
@@ -192,6 +195,8 @@ try {
     # 5. «Только выбранное»: обычный сайт напрямую, заблокированный сервис через VPN
     KlickCli routing selected | Out-Null
     Start-Sleep 1
+    # Обычный сайт — не www.gstatic.com: через него служба сама проверяет связь через VPN (PROBE_URL),
+    # и её проверка, совпавшая по времени (например, после смены сети), попадала в журнал «сервера».
     $n0 = (SrvLines).Count
     # Обычный сайт — не gstatic: через «сервер» его раз в 30 с запрашивает проверка связи самого ядра.
     $sel = Http 'curl.exe' 'https://www.wikipedia.org/'
@@ -348,7 +353,9 @@ finally {
     } else {
         Get-Process mihomo -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Set-Content "$out\done.txt" 'done'
-        Start-Sleep 2
-        shutdown.exe /s /t 0
+        if (-not $NoShutdown) {
+            Start-Sleep 2
+            shutdown.exe /s /t 0
+        }
     }
 }

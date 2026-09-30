@@ -77,7 +77,14 @@ async function cdp() {
       pending.delete(msg.id);
     } else if (msg.method) listeners.forEach((l) => l(msg));
   };
-  const send = (method, params = {}) => new Promise((r) => { const id = ++seq; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
+  // Не ждать Edge вечно: зависший ответ по протоколу отладки — ошибка шага, а не зависший сценарий.
+  const send = (method, params = {}, ms = 30000) =>
+    new Promise((r, j) => {
+      const id = ++seq;
+      const timer = setTimeout(() => { pending.delete(id); j(new Error(`${method}: Edge не ответил за ${ms / 1000} с`)); }, ms);
+      pending.set(id, (msg) => { clearTimeout(timer); r(msg); });
+      ws.send(JSON.stringify({ id, method, params }));
+    });
   await send('Page.enable');
   await send('Network.enable');
   await send('Network.setCacheDisabled', { cacheDisabled: true });
@@ -93,7 +100,13 @@ async function cdp() {
       };
       listeners.push(on);
       const sep = url.includes('?') ? '&' : '?';
-      const r = await send('Page.navigate', { url: `${url}${sep}t=${Date.now()}` });
+      let r;
+      try {
+        r = await send('Page.navigate', { url: `${url}${sep}t=${Date.now()}` });
+      } catch (e) {
+        listeners.splice(listeners.indexOf(on), 1);
+        return e.message;
+      }
       const navErr = r.result?.errorText && r.result.errorText !== 'net::ERR_ABORTED' ? r.result.errorText : null;
       const deadline = Date.now() + 20000;
       while (!status && !failed && !navErr && Date.now() < deadline) await sleep(200);
@@ -105,6 +118,7 @@ async function cdp() {
 }
 
 async function step(name, action, expect, url = URL) {
+  console.log(`… ${name}`);
   if (action) action();
   await sleep(2500);
   const st = state();

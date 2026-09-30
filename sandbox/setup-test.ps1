@@ -2,6 +2,9 @@
 # Прежняя kl!ck (0.2) → установка klick-setup.exe → все проверки службы на установленной копии (run.ps1)
 # → переустановка с занятой папкой (откат) и без → удаление копией из папки программы (данные остаются)
 # → установка в свою папку без ярлыков → удаление с данными → окно установщика.
+# CI (sandbox\ci.ps1): вместо файлов 0.2 с компьютера — настоящая kl!ck 0.3.0, собранная из исходников,
+# ставится своим установщиком NSIS без окна (C:\klick\old-nsis.exe); -NoShutdown — не выключать компьютер.
+param([switch]$NoShutdown)
 
 $ErrorActionPreference = 'Continue'
 $root = 'C:\klick'
@@ -67,8 +70,16 @@ try {
 
     # 0. Прежняя kl!ck 0.2.1: файлы, её деинсталлятор, «ядро» работает, задача, правило брандмауэра,
     #    системный прокси поверх «корпоративного», настройки в профиле, ярлыки, значок трея, уведомления.
-    New-Item -ItemType Directory -Force "$oldDir\bin" | Out-Null
-    Copy-Item "$root\old\*" $oldDir -Recurse -Force
+    if (Test-Path "$root\old-nsis.exe") {
+        $p = Start-Process "$root\old-nsis.exe" -ArgumentList '/S' -Wait -PassThru
+        Log "прежняя kl!ck 0.3.0: установщик NSIS /S -> код $($p.ExitCode)"
+        Get-Process klick -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Get-Process mihomo -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force "$oldDir\bin" | Out-Null
+    } else {
+        New-Item -ItemType Directory -Force "$oldDir\bin" | Out-Null
+        Copy-Item "$root\old\*" $oldDir -Recurse -Force
+    }
     Copy-Item "$env:WINDIR\System32\PING.EXE" "$oldDir\bin\mihomo.exe" -Force
     $fakeCore = Start-Process "$oldDir\bin\mihomo.exe" -ArgumentList '-t', '127.0.0.1' -WindowStyle Hidden -PassThru
     New-Item -Path $oldUninst -Force | Out-Null
@@ -162,7 +173,14 @@ try {
     $code = Setup @('--uninstall', '--silent') "$inst\klick-setup.exe"
     Check 'удаление: код 0' ($code -eq 0) "код $code"
     Check 'служба удалена' (-not (Svc))
-    Check 'папки программы нет' (Gone $inst) ((@(Get-ChildItem $inst -Recurse -ErrorAction SilentlyContinue) | ForEach-Object { $_.Name }) -join ', ')
+    # Сколько папка программы живёт после удаления и что в ней остаётся (на раннерах CI — минуты).
+    $t0 = Get-Date
+    $still = @(Get-ChildItem -LiteralPath $inst -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($inst.Length + 1) })
+    Log ("    сразу после удаления в папке программы: {0}" -f $(if ($still) { $still -join ', ' } else { 'пусто или папки нет' }))
+    $gone = Gone $inst 15
+    $secs = ((Get-Date) - $t0).TotalSeconds
+    if (-not $gone) { $gone = Gone $inst 300; Log ("    папка пропала только через {0:N0} с" -f ((Get-Date) - $t0).TotalSeconds) }
+    Check 'папки программы нет (за 15 с)' ($secs -le 16 -and $gone) ("{0:N1} с" -f $secs)
     Check 'записи в «Установленных приложениях» нет' (-not (RegHas $uninst))
     Check 'ярлыков нет' (-not (Test-Path -LiteralPath $startLnk) -and -not (Test-Path -LiteralPath $publicLnk))
     Check 'автозапуска нет' ($null -eq (RegVal $run 'kl!ck') -and $null -eq (RegVal $approved 'kl!ck'))
@@ -222,6 +240,8 @@ catch {
 finally {
     Log ("ИТОГ УСТАНОВЩИКА: провалов {0}" -f $script:fails)
     Set-Content "$out\setup-done.txt" 'done'
-    Start-Sleep 2
-    shutdown.exe /s /t 0
+    if (-not $NoShutdown) {
+        Start-Sleep 2
+        shutdown.exe /s /t 0
+    }
 }

@@ -3,6 +3,9 @@
 # системного прокси, что у Chrome. kl!ck ставится установщиком, окно kl!ck работает (оно и ставит
 # системный прокси), Edge живёт всё время, как браузер у человека; VPN включается и выключается много раз.
 
+# -NoShutdown: не выключать компьютер в конце (CI: раннер GitHub, sandbox\ci.ps1).
+param([switch]$NoShutdown)
+
 $ErrorActionPreference = 'Continue'
 $root = 'C:\klick'
 $out = Join-Path $root 'results'
@@ -23,7 +26,8 @@ try {
     Copy-Item "$root\bin\klick-cli.exe" $inst -Force
 
     # Тестовый «VPN-сервер»: второй mihomo с socks5 (как в run.ps1)
-    $nic = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1
+    $route = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object RouteMetric | Select-Object -First 1
+    $nic = if ($route) { Get-NetAdapter -InterfaceIndex $route.ifIndex } else { Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -ne 'klick' } | Select-Object -First 1 }
     $ip = (Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 | Select-Object -First 1).IPAddress
     $srv = 'C:\srv'
     New-Item -ItemType Directory -Force $srv | Out-Null
@@ -51,14 +55,24 @@ try {
     Log "окно kl!ck: pid $($win.Id), работает: $(-not $win.HasExited)"
 
     # Сценарий в браузере — node + протокол отладки Edge
-    & "$root\node\node.exe" "$root\ks-browser.mjs" 2>&1 | ForEach-Object { Log "$_" }
+    # Не дольше 20 минут: зависший браузер не должен держать проверку бесконечно.
+    $node = Start-Process "$root\node\node.exe" -ArgumentList "`"$root\ks-browser.mjs`"" -RedirectStandardOutput "$out\ks-node.out" -RedirectStandardError "$out\ks-node.err" -WindowStyle Hidden -PassThru
+    if (-not $node.WaitForExit(20 * 60 * 1000)) {
+        Log 'ОШИБКА СЦЕНАРИЯ: браузерная часть не закончилась за 20 минут, останавливаю'
+        & taskkill.exe /PID $node.Id /T /F | Out-Null
+    }
+    Get-Content "$out\ks-node.out", "$out\ks-node.err" -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Log "$_" }
 }
 catch {
     Log "ОШИБКА СЦЕНАРИЯ: $($_.Exception.Message)"
 }
 finally {
+    # Окно kl!ck и тестовый сервер наследуют вывод этого сценария: живые, они держат его открытым.
+    foreach ($p in @($win, $srvProc)) { if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
     Copy-Item 'C:\ProgramData\klick\logs\service.log' "$out\service.log" -ErrorAction SilentlyContinue
     Set-Content "$out\script-done.txt" 'done'
-    Start-Sleep 2
-    shutdown.exe /s /t 0
+    if (-not $NoShutdown) {
+        Start-Sleep 2
+        shutdown.exe /s /t 0
+    }
 }

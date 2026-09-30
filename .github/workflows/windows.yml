@@ -1,0 +1,177 @@
+# Сборка и проверка kl!ck для Windows на раннерах GitHub: ядро mihomo (сверка SHA-256), build.ps1
+# (окно, служба, klick-setup.exe), тесты. Потом на Windows Server 2022 и 2025 — те же сценарии, что
+# в Песочнице Windows (sandbox\run.ps1, setup-test.ps1, ks-browser.ps1), каждый на чистой машине:
+#   service    — служба, TUN, прокси, Kill Switch, падения, смена сети, удаление (run.ps1)
+#   setup      — установщик поверх настоящей kl!ck 0.3.0 (собирается здесь же из vbu00/klick), все
+#                проверки службы на установленной копии, переустановка, удаление (setup-test.ps1)
+#   ks-browser — Edge в Kill Switch, VPN много раз включается и выключается (ks-browser.ps1)
+#   real       — с настоящими серверами из подписки (real-test.ps1), только при ручном запуске со ссылкой.
+# Ссылка подписки не сохраняется в репозитории и скрыта в журнале.
+name: Windows
+
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml']
+  workflow_dispatch:
+    inputs:
+      sub:
+        description: Ссылка подписки для проверки с настоящими серверами (необязательно)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc -V
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # Ядро и база стран не в git: tools\fetch-core.ps1 (его зовёт и build.ps1). Через cmd: Windows
+      # PowerShell 5.1, запущенный из pwsh, получает чужой PSModulePath и не находит Get-FileHash.
+      - name: Ядро mihomo и база стран (сверка SHA-256)
+        shell: cmd
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch-core.ps1
+
+      - name: Зависимости интерфейса
+        working-directory: ui
+        run: npm ci
+
+      - name: Сборка (build.ps1)
+        env:
+          KLICK_RELEASES_REPO: vbu00/klick
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
+
+      - name: Папка для проверок
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target\release\klick-service.exe, target\release\klick-cli.exe, target\release\klick.exe, dist\klick-setup.exe out
+          Copy-Item resources out\resources -Recurse
+          Get-ChildItem out -Recurse -File | ForEach-Object { '{0,10:N0}  {1}' -f $_.Length, $_.FullName.Substring((Resolve-Path out).Path.Length + 1) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: klick-windows
+          path: out
+
+      # После выкладки сборки: если тесты упадут, сценарии всё равно проверят программу.
+      # build.rs установщика берёт в архив klick.exe и klick-service.exe из target\<профиль>; отладочных
+      # нет (build.ps1 собирает release) — берём release, иначе cargo test на чистой машине не соберётся.
+      - name: Тесты
+        env:
+          KLICK_PAYLOAD_BIN: ${{ github.workspace }}\target\release
+        run: cargo test --workspace
+
+  # Прежняя kl!ck 0.3.0 из исходников vbu00/klick: её установщик NSIS ставится без окна (/S).
+  old:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: vbu00/klick
+          ref: v0.3.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # cmd, а не pwsh: Windows PowerShell 5.1, запущенный из pwsh, получает чужой PSModulePath
+      # и не находит Get-FileHash (его зовёт tools\fetch-core.ps1).
+      - name: Сборка kl!ck 0.3.0 (NSIS)
+        shell: cmd
+        run: |
+          call npm ci || exit /b 1
+          call npm run core || exit /b 1
+          call npx tauri build || exit /b 1
+          dir src-tauri\target\release\bundle\nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: klick-0.3.0-nsis
+          path: src-tauri/target/release/bundle/nsis/*.exe
+
+  check:
+    needs: [build, old]
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-2025]
+        scenario: [service, setup, ks-browser, real]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Скрыть ссылку подписки в журнале
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          $sub = (Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json).inputs.sub
+          if ($sub) { Write-Host "::add-mask::$sub" }
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: klick-windows
+          path: build
+
+      - uses: actions/download-artifact@v4
+        if: matrix.scenario == 'setup'
+        with:
+          name: klick-0.3.0-nsis
+          path: old
+
+      - uses: actions/setup-node@v4
+        if: matrix.scenario == 'ks-browser'
+        with:
+          node-version: 22
+
+      - name: Сценарий ${{ matrix.scenario }}
+        if: matrix.scenario != 'real' || (github.event_name == 'workflow_dispatch' && inputs.sub != '')
+        shell: pwsh
+        run: |
+          $map = @{ service = 'run'; setup = 'setup'; 'ks-browser' = 'ks-browser'; real = 'real' }
+          $old = Get-ChildItem old -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ('${{ matrix.scenario }}' -eq 'real') {
+            $env:KLICK_TEST_SUB = (Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json).inputs.sub
+          }
+          $a = @{ Scenario = $map['${{ matrix.scenario }}']; Build = (Resolve-Path build).Path }
+          if ($old) { $a.Old = $old.FullName }
+          & sandbox\ci.ps1 @a
+          exit $LASTEXITCODE
+
+      # Отчёты и журнал службы — для разбора. Кроме проверки с подпиской: артефакты видны всем с доступом к репозиторию.
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.scenario != 'real'
+        with:
+          name: results-${{ matrix.runner }}-${{ matrix.scenario }}
+          path: C:\klick\results
+          if-no-files-found: ignore
