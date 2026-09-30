@@ -47,6 +47,8 @@ interface S {
   toasts: Toast[];
   /** Кто мешает режиму VPN: zapret, другой VPN. Узнаём из уведомления службы при подключении. */
   neighbors: string[];
+  /** Расширения браузеров, перехватившие прокси: мешают режиму «Системный прокси». */
+  browserProxy: string[];
   /** Каталог сервисов для списков. */
   catalog: Service[];
   /** Понятные названия программ по папкам правил и Kill Switch — от службы. */
@@ -68,6 +70,7 @@ type A =
   | { t: 'toast'; toast: Toast }
   | { t: 'dismiss'; id: number }
   | { t: 'neighbors'; names: string[] }
+  | { t: 'browserProxy'; names: string[] }
   | { t: 'catalog'; list: Service[] }
   | { t: 'killswitch'; ks: KillSwitch }
   | { t: 'names'; names: Record<string, string> }
@@ -90,6 +93,7 @@ const initial: S = {
   traffic: emptyTraffic(),
   toasts: [],
   neighbors: [],
+  browserProxy: [],
   catalog: [],
   programNames: {},
   nav: null,
@@ -103,7 +107,7 @@ function reducer(s: S, a: A): S {
     case 'service':
       return { ...s, serviceUp: a.up };
     case 'state':
-      return { ...s, state: a.state, loaded: true, traffic: running(a.state) ? s.traffic : emptyTraffic(), neighbors: running(a.state) ? s.neighbors : [] };
+      return { ...s, state: a.state, loaded: true, traffic: running(a.state) ? s.traffic : emptyTraffic(), neighbors: running(a.state) ? s.neighbors : [], browserProxy: running(a.state) ? s.browserProxy : [] };
     case 'settings':
       return { ...s, settings: a.settings };
     case 'servers':
@@ -133,6 +137,8 @@ function reducer(s: S, a: A): S {
       return { ...s, toasts: s.toasts.filter((x) => x.id !== a.id) };
     case 'neighbors':
       return { ...s, neighbors: a.names };
+    case 'browserProxy':
+      return { ...s, browserProxy: a.names };
     case 'catalog':
       return { ...s, catalog: a.list };
     case 'nav':
@@ -306,6 +312,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         dispatch({ t: 'traffic', up: e.up, down: e.down });
       } else if (e.ev === 'notice') {
         if (e.code === 'neighbors.conflict' && Array.isArray(e.params?.names)) dispatch({ t: 'neighbors', names: e.params.names as string[] });
+        if (e.code === 'neighbors.browser_proxy' && Array.isArray(e.params?.names)) dispatch({ t: 'browserProxy', names: e.params.names as string[] });
         const n = noticeText(e.code, e.params);
         if (!n) return;
         // Уведомления Windows показывает только главное окно — и только когда его не видно.

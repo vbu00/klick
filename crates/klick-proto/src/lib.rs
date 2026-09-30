@@ -206,12 +206,15 @@ pub struct ConnView {
 /// Сосед на компьютере, который перехватывает тот же трафик.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NeighborView {
-    /// `dpi_bypass`, `vpn`, `proxy_core`, `vpn_adapter`, `windivert`.
+    /// `dpi_bypass`, `vpn`, `proxy_core`, `vpn_adapter`, `windivert`, `browser_proxy`.
     pub kind: String,
-    /// `zapret`, `GoodbyeDPI`, `WireGuard`, имя адаптера…
+    /// `zapret`, `GoodbyeDPI`, `WireGuard`, имя адаптера, «Touch VPN в Chrome»…
     pub name: String,
     /// Мешает ли режиму VPN (TUN).
     pub conflicts_with_tun: bool,
+    /// Мешает ли режиму «Системный прокси»: браузер берёт прокси у расширения, а не у Windows.
+    #[serde(default)]
+    pub conflicts_with_proxy: bool,
 }
 
 /// Неудачное соединение из «Не открывается?».

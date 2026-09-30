@@ -22,11 +22,12 @@ export function useNow(active: boolean): number {
 
 export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const store = useStore();
-  const { state, settings, servers, pinging, traffic, isRunning, neighbors } = store;
+  const { state, settings, servers, pinging, traffic, isRunning, neighbors, browserProxy } = store;
   const [viewId, setViewId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [switchTo, setSwitchTo] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [browserHelp, setBrowserHelp] = useState(false);
   const now = useNow(isRunning);
   const { nav, consumeNav } = store;
 
@@ -42,6 +43,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
       if (store.state?.vpn === 'off' && st && st.active_connection !== id && st.connections.some((c) => c.id === id)) void store.selectConnection(id);
     } else if (nav.target === 'servers') setExpanded(true);
     else if (nav.target === 'neighbors') setHelpOpen(true);
+    else if (nav.target === 'browser_proxy') setBrowserHelp(true);
     else if (nav.target !== 'card') return;
     consumeNav();
   }, [nav, consumeNav]);
@@ -172,6 +174,14 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
             <small>Нажмите, чтобы узнать, что сделать</small>
           </div>
         </button>
+      ) : browserProxy.length && state.mode === 'sys_proxy' ? (
+        <button className="banner" onClick={() => setBrowserHelp(true)} style={{ cursor: 'pointer' }}>
+          <span className="dot7" />
+          <div>
+            Браузер идёт мимо kl!ck
+            <small>Прокси перехватило расширение: {browserProxy.join(', ')}</small>
+          </div>
+        </button>
       ) : null}
 
       {conns.length > 1 ? (
@@ -238,6 +248,29 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
               }}
             >
               Переключить
+            </button>
+          </div>
+        </Sheet>
+      ) : null}
+
+      {browserHelp ? (
+        <Sheet onClose={() => setBrowserHelp(false)}>
+          <h3>Браузер идёт мимо kl!ck</h3>
+          <p>
+            Расширение {browserProxy.join(', ')} управляет прокси браузера. Пока оно установлено и включено, браузер берёт прокси у него, а не системный прокси kl!ck, — и сайты открываются
+            мимо VPN или через серверы расширения.
+          </p>
+          <p>Выключите или удалите это расширение на странице расширений браузера. Или переключитесь на режим VPN (TUN): он ловит трафик всех программ, но браузер всё равно может уходить через серверы расширения.</p>
+          <div className="sheet-actions">
+            <button onClick={() => setBrowserHelp(false)}>Понятно</button>
+            <button
+              className="main"
+              onClick={() => {
+                setBrowserHelp(false);
+                void store.transport.call('set_mode', { mode: 'tun' }).catch(() => undefined);
+              }}
+            >
+              VPN (TUN)
             </button>
           </div>
         </Sheet>

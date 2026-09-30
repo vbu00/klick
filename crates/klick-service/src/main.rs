@@ -1,6 +1,7 @@
 //! Служба kl!ck. Рабочий запуск — через службы Windows или launchd на macOS (`run`),
 //! для разработки — `console`.
 
+mod browsers;
 mod core;
 mod engine;
 mod ipcheck;

@@ -1012,10 +1012,17 @@ impl Engine {
         self.restarts = 0;
         self.set_state(if ok { VpnState::Connected } else { VpnState::Reconnecting }, None);
         self.save_runtime(true);
+        let found = neighbors::scan(&self.paths.core_exe);
         if capture == Capture::Tun {
-            let conflicts: Vec<String> = neighbors::scan(&self.paths.core_exe).into_iter().filter(|n| n.conflicts_with_tun).map(|n| n.name).collect();
+            let conflicts: Vec<String> = found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect();
             if !conflicts.is_empty() {
                 self.notice("neighbors.conflict", json!({ "names": conflicts }));
+            }
+        } else {
+            // Браузер с VPN-расширением берёт прокси у расширения и идёт мимо kl!ck.
+            let browsers: Vec<String> = found.iter().filter(|n| n.conflicts_with_proxy).map(|n| n.name.clone()).collect();
+            if !browsers.is_empty() {
+                self.notice("neighbors.browser_proxy", json!({ "names": browsers }));
             }
         }
         Ok(())

@@ -68,6 +68,7 @@ export function noticeTarget(code: string): string | undefined {
   if (code === 'vpn.down' || code === 'vpn.restored' || code === 'server.switched') return 'servers';
   if (code.startsWith('sub.')) return 'card';
   if (code === 'neighbors.conflict') return 'neighbors';
+  if (code === 'neighbors.browser_proxy') return 'browser_proxy';
   if (code.startsWith('killswitch.')) return 'killswitch';
   if (code === 'vpn.core_crashed') return 'log';
   return undefined;
@@ -182,6 +183,10 @@ export function noticeText(code: string, params?: Params): NoticeText | null {
     case 'neighbors.conflict': {
       const names = Array.isArray(params?.names) ? (params?.names as string[]).join(', ') : '';
       return { title: `Мешает: ${names}`, text: 'Он перехватывает трафик режима VPN', tone: 'warn' };
+    }
+    case 'neighbors.browser_proxy': {
+      const names = Array.isArray(params?.names) ? (params?.names as string[]).join(', ') : '';
+      return { title: 'Браузер идёт мимо kl!ck', text: `Прокси браузера перехватило расширение: ${names}`, tone: 'warn' };
     }
     case 'sub.expired':
       return { title: 'Подписка закончилась', text: str(params?.name), tone: 'bad' };
