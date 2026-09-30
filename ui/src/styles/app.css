@@ -530,6 +530,12 @@
 }
 .link-input.ok { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .link-input.bad { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
+/* Ссылка klick://add: крупно только домен подписки. */
+.link-from { margin-top: 18px; padding: 16px; border-radius: 14px; background: var(--card); display: flex; flex-direction: column; gap: 6px; }
+.link-from b { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.link-from > span:not(.caps) { font-size: 12px; color: var(--text3); line-height: 1.45; text-wrap: pretty; }
+.link-from-other { align-self: flex-start; margin-top: 4px; padding: 6px 12px; border-radius: 9px; background: var(--elem); color: var(--text2); font-size: 12px; font-weight: 600; }
+.link-from-other:hover { background: var(--elemHover); }
 .detect { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--card); }
 .detect .dot8 { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .detect b { display: block; font-size: 13px; font-weight: 600; }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { Incoming } from './screens/Add';
 import { BottomNav, Offline, TitleBar, Toasts, type Tab } from './components/Chrome';
 import { useStore } from './lib/store';
 import { Add } from './screens/Add';
@@ -16,8 +17,25 @@ export function App() {
 }
 
 function MainWindow() {
-  const { nav } = useStore();
+  const { nav, transport, toast } = useStore();
   const [tab, setTab] = useState<Tab>('home');
+  const [incoming, setIncoming] = useState<Incoming | null>(null);
+
+  // Ссылка klick://add: при запуске и каждый раз, когда приходит новая. Сама она ничего не добавляет.
+  useEffect(() => {
+    const take = async () => {
+      const p = await transport.takePendingLink().catch(() => null);
+      if (!p) return;
+      if (p.kind === 'invalid') {
+        toast('Ссылка не подходит', 'kl!ck принимает только https-ссылки на подписку', 'bad');
+        return;
+      }
+      setIncoming({ url: p.url, name: p.name, seq: Date.now() });
+      setTab('add');
+    };
+    void take();
+    return transport.onAddLink(() => void take());
+  }, [transport, toast]);
 
   useEffect(() => {
     const t = nav ? NAV_TAB[nav.target] : undefined;
@@ -30,7 +48,7 @@ function MainWindow() {
       <main className="content" key={tab}>
         {tab === 'home' ? <Home onTab={setTab} /> : null}
         {tab === 'connection' ? <Connection /> : null}
-        {tab === 'add' ? <Add onTab={setTab} /> : null}
+        {tab === 'add' ? <Add onTab={setTab} incoming={incoming} /> : null}
         {tab === 'settings' ? <Settings /> : null}
       </main>
       <Toasts />

@@ -1,4 +1,4 @@
-# Проверка установщика kl!ck внутри Песочницы Windows. Запускается сама при входе (LogonCommand).
+﻿# Проверка установщика kl!ck внутри Песочницы Windows. Запускается сама при входе (LogonCommand).
 # Прежняя kl!ck (0.2) → установка klick-setup.exe → все проверки службы на установленной копии (run.ps1)
 # → переустановка с занятой папкой (откат) и без → удаление копией из папки программы (данные остаются)
 # → установка в свою папку без ярлыков → удаление с данными → окно установщика.
@@ -116,6 +116,8 @@ try {
     Check 'у ярлыка код приложения для уведомлений' ((LnkAumid $startLnk) -eq 'app.klick.desktop') ("AUMID " + (LnkAumid $startLnk))
     Check 'ярлык на рабочем столе' ((LnkTarget $publicLnk) -eq "$inst\klick.exe")
     Check 'автозапуск свёрнутым' ((RegVal $run 'kl!ck') -eq "`"$inst\klick.exe`" --hidden" -and (RegHas $approved) -and $null -ne (RegVal $approved 'kl!ck')) (RegVal $run 'kl!ck')
+    $urlCmd = (Get-ItemProperty 'HKCU:\Software\Classes\klick\shell\open\command' -ErrorAction SilentlyContinue).'(default)'
+    Check 'схема klick:// зарегистрирована' ($urlCmd -eq "`"$inst\klick.exe`" `"%1`"") "$urlCmd"
     Check 'прежняя kl!ck: папки нет' (-not (Test-Path -LiteralPath $oldDir))
     Check 'прежняя kl!ck: «ядро» остановлено' ($fakeCore.HasExited)
     Check 'прежняя kl!ck: записи в реестре нет' (-not (RegHas $oldUninst) -and -not (RegHas 'HKLM:\SOFTWARE\vbu00\kl!ck'))
@@ -166,6 +168,7 @@ try {
     Check 'записи в «Установленных приложениях» нет' (-not (RegHas $uninst))
     Check 'ярлыков нет' (-not (Test-Path -LiteralPath $startLnk) -and -not (Test-Path -LiteralPath $publicLnk))
     Check 'автозапуска нет' ($null -eq (RegVal $run 'kl!ck') -and $null -eq (RegVal $approved 'kl!ck'))
+    Check 'схемы klick:// нет' (-not (Test-Path 'HKCU:\Software\Classes\klick'))
     Check 'значок трея забыт, чужой на месте' (-not (RegHas "$tray\3333") -and (RegHas "$tray\2222"))
     Check 'уведомления забыты' (-not (RegHas "$notif\app.klick.desktop"))
     $proxy = Get-ItemProperty -LiteralPath $is

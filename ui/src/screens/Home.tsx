@@ -36,6 +36,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
     if (nav.target === 'servers') setExpanded(true);
     else if (nav.target === 'neighbors') setHelpOpen(true);
     else if (nav.target === 'browser_proxy') setBrowserHelp(true);
+    else if (nav.target.startsWith('conn:')) setViewId(nav.target.slice(5));
     else if (nav.target !== 'card') return;
     consumeNav();
   }, [nav, consumeNav]);

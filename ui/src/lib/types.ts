@@ -212,6 +212,9 @@ export interface IpReport {
   checked_at: number;
 }
 
+/** Ссылка klick://add со страницы подписки: окно забирает её у Rust-части. */
+export type PendingLink = { kind: 'add'; url: string; name: string | null } | { kind: 'invalid' };
+
 export interface ErrorInfo {
   code: string;
   params?: Record<string, unknown>;

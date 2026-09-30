@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod deeplink;
 mod notify;
 mod sysproxy;
 mod tray;
@@ -12,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 
 /// Служба для разработки слушает другой канал: `KLICK_DEV=1`.
@@ -176,13 +178,22 @@ mod session_end {
 
 fn main() {
     tauri::Builder::default()
+        // Первым: вторая копия kl!ck (ярлык, ссылка klick://) показывает окно первой и выходит.
+        // С фичей deep-link плагин сам передаёт ссылку из её аргументов в on_open_url первой.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if !argv.iter().any(|a| a == "--hidden") {
+                show_main(app);
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
         // Автозапуск при входе в Windows: окно сразу в трей, VPN — по кнопке или «Восстанавливать подключение».
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .manage(bridge::Bridge::new(pipe_name()))
-        .invoke_handler(tauri::generate_handler![bridge::service_call, bridge::service_up, notify::notify, open_main, open_tray, hide_tray, fit_tray, clipboard_text, app_exit])
+        .manage(deeplink::PendingLink::default())
+        .invoke_handler(tauri::generate_handler![bridge::service_call, bridge::service_up, notify::notify, open_main, open_tray, hide_tray, fit_tray, clipboard_text, app_exit, deeplink::take_pending_link])
         .setup(|app| {
             bridge::start_events(app.handle().clone());
             fit_main(app.handle());
@@ -193,6 +204,22 @@ fn main() {
             if !std::env::args().any(|a| a == "--hidden") {
                 show_main(app.handle());
             }
+
+            // Ссылки klick://add: от второй копии — событием, при холодном старте — из аргументов.
+            let h = app.handle().clone();
+            app.deep_link().on_open_url(move |e| {
+                for u in e.urls() {
+                    deeplink::open(&h, u.as_str());
+                }
+            });
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for u in urls {
+                    deeplink::open(app.handle(), u.as_str());
+                }
+            }
+            // В отладке схема регистрируется без установщика; в рабочей сборке её пишет klick-setup.
+            #[cfg(debug_assertions)]
+            let _ = app.deep_link().register_all();
 
             // Левый щелчок — главное окно; правый — своё окно трея вместо системного меню
             // («Выход» — крестиком в нём).

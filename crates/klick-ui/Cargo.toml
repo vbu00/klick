@@ -15,11 +15,15 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 serde_json.workspace = true
+klick-core.workspace = true
 tokio = { version = "1", features = ["net", "io-util", "time", "sync"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+# Ссылки klick://add со страницы подписки; вторая копия kl!ck передаёт ссылку первой и выходит.
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-winrt-notification = "0.8.1"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_Networking_WinInet", "Win32_UI_HiDpi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Security", "Win32_Security_Authorization"] }
 serde = { workspace = true, features = ["derive"] }

@@ -391,8 +391,19 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       },
       addLink: async (source, name) => {
-        const r = await call('add_connection', { source, name: name || null });
-        if (r === undefined) return false;
+        try {
+          await transport.call('add_connection', { source, name: name || null });
+        } catch (e) {
+          const err = e as ErrorInfo;
+          // Та же ссылка уже есть: не дублировать, а открыть это подключение.
+          if (err?.code === 'conn.exists' && typeof err.params?.id === 'string') {
+            toast('Уже добавлено', typeof err.params.name === 'string' ? err.params.name : undefined, 'dim');
+            dispatch({ t: 'nav', target: `conn:${err.params.id}` });
+            return true;
+          }
+          failed(e);
+          return false;
+        }
         toast('Подключение добавлено', 'Проверьте задержку серверов', 'ok');
         await reload();
         return true;

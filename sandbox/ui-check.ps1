@@ -1,4 +1,4 @@
-# Установщик, окно и трей глазами человека — в Песочнице Windows.
+﻿# Установщик, окно и трей глазами человека — в Песочнице Windows.
 #   powershell -File sandbox\start.ps1 -Release -Script ui-check
 # 1. «Прежняя kl!ck 0.2–0.4»: её зашифрованные подписки в %LOCALAPPDATA%\com.vbu00.klick.
 # 2. klick-setup.exe --silent: ставит WebView2, если его нет, и переносит подписки.
@@ -225,6 +225,33 @@ if ($task.IsCompleted) {
     Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID } | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Service klick
     Start-Sleep 3
+
+    # 6. Ссылка klick://add со страницы подписки: схема зарегистрирована, kl!ck запускается по ней,
+    # а если уже работает — вторая копия передаёт ссылку первой и выходит.
+    $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\klick\shell\open\command' -ErrorAction SilentlyContinue).'(default)'
+    Check 'схема klick:// ведёт в kl!ck' ("$cmd" -like "*$inst\klick.exe*%1*") "$cmd"
+    Get-Process klick -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep 1
+    Start-Process 'klick://add?url=https%3A%2F%2Fsub.example.com%2Fs%2Fsecret-1&name=%D0%A2%D0%B5%D1%81%D1%82'
+    Start-Sleep 7
+    $k = @(Get-Process klick -ErrorAction SilentlyContinue)
+    $shown = $k.Count -eq 1 -and $k[0].MainWindowHandle -ne 0 -and [W]::IsWindowVisible($k[0].MainWindowHandle)
+    Check 'ссылка запускает kl!ck и показывает окно' $shown "процессов: $($k.Count)"
+    Shot 'desk-link-cold'
+    [void][W]::SendMessage($k[0].MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # крестик: в трей
+    Start-Sleep 1
+    Start-Process 'klick://add/https://sub2.example.com/s/secret-2'
+    Start-Sleep 5
+    $k2 = @(Get-Process klick -ErrorAction SilentlyContinue)
+    Check 'kl!ck уже работает: ссылка ушла в него, вторая копия вышла' ($k2.Count -eq 1 -and $k2[0].Id -eq $k[0].Id -and [W]::IsWindowVisible($k[0].MainWindowHandle)) "процессов: $($k2.Count)"
+    Shot 'desk-link-warm'
+    Start-Process "$inst\klick.exe"
+    Start-Sleep 4
+    Check 'второй запуск ярлыка не создаёт вторую копию' (@(Get-Process klick -ErrorAction SilentlyContinue).Count -eq 1) "процессов: $(@(Get-Process klick -ErrorAction SilentlyContinue).Count)"
+    Start-Process 'klick://add?url=http%3A%2F%2Fsub.example.com%2Fs%2Fx'
+    Start-Sleep -Milliseconds 1200   # сообщение «Ссылка не подходит» держится 2,8 с
+    Check 'http-ссылка не принимается (окно на месте, копий нет)' (@(Get-Process klick -ErrorAction SilentlyContinue).Count -eq 1) ''
+    Shot 'desk-link-bad'
 
 }
 catch {

@@ -142,6 +142,8 @@ export function errorText(code: string, params?: Params): string {
       return 'Такого сервера больше нет в подписке';
     case 'list.duplicate':
       return 'Уже в списке';
+    case 'conn.exists':
+      return 'Уже добавлено';
     case 'conn.not_found':
       return 'Подключение не найдено';
     case 'service.stopping':

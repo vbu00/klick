@@ -26,6 +26,8 @@ const RUN_NAME: &str = "kl!ck";
 const APPROVED_ON: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const LNK: &str = "kl!ck.lnk";
 const NOTIFY_SETTINGS: &str = r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings";
+/// Схема `klick://` — ссылки «Добавить в kl!ck» со страниц подписок.
+const URL_KEY: &str = r"Software\Classes\klick";
 /// Здесь Windows помнит значки трея: показывать ли на панели задач.
 const TRAY_SETTINGS: &str = r"Control Panel\NotifyIconSettings";
 const PROXY_PORT: u16 = 7890;
@@ -532,6 +534,8 @@ fn shortcuts(dir: &Path, req: &Request, upgrading: bool) {
         let _ = win::shortcut(&win::public_desktop().join(LNK), &exe, "", AUMID);
     }
 
+    register_url_scheme(&exe);
+
     let ours = autostart_points_into(dir);
     if (!upgrading && req.autostart) || (upgrading && ours) {
         set_autostart(&exe);
@@ -569,6 +573,30 @@ fn remove_autostart(dir: &Path) {
     }
     if let Some(k) = Key::open(HKEY_CURRENT_USER, APPROVED_KEY) {
         k.delete_value(RUN_NAME);
+    }
+}
+
+/// `klick://add?url=…` открывает kl!ck на «Добавить». Там же, где автозапуск (HKCU), и всегда —
+/// при обновлении тоже, чтобы путь вёл в текущую папку.
+fn register_url_scheme(exe: &Path) {
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, URL_KEY) {
+        k.set_string("", "URL:kl!ck");
+        k.set_string("URL Protocol", "");
+    }
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, &format!(r"{URL_KEY}\DefaultIcon")) {
+        k.set_string("", &format!("\"{}\",0", exe.display()));
+    }
+    if let Some(k) = Key::create(HKEY_CURRENT_USER, &format!(r"{URL_KEY}\shell\open\command")) {
+        k.set_string("", &format!("\"{}\" \"%1\"", exe.display()));
+    }
+}
+
+/// Убрать схему, если она ведёт в эту папку (чужую — например, отладочной сборки — не трогать).
+fn unregister_url_scheme(dir: &Path) {
+    let cmd = Key::open(HKEY_CURRENT_USER, &format!(r"{URL_KEY}\shell\open\command")).and_then(|k| k.string(""));
+    let target = cmd.as_deref().map(|c| c.trim_start_matches('"').split('"').next().unwrap_or_default().to_string());
+    if target.is_some_and(|t| win::inside(Path::new(&t), dir)) {
+        win::delete_key(HKEY_CURRENT_USER, URL_KEY);
     }
 }
 
@@ -743,6 +771,7 @@ fn uninstall(req: &Request, dir: &Path, r: &mut Run) -> Result<Vec<String>, Fail
     r.begin(Task::Remove);
     remove_links_into(&dirs);
     remove_autostart(dir);
+    unregister_url_scheme(dir);
     forget_tray_icons(&dirs);
     win::delete_key(HKEY_CURRENT_USER, &format!(r"{NOTIFY_SETTINGS}\{AUMID}"));
     if !remove_program(dir) {

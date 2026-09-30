@@ -1,12 +1,24 @@
 // «Добавить подключение» — как в макете: по ссылке или из файла.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type { Tab } from '../components/Chrome';
 import { protocolName } from '../lib/format';
 import { useStore } from '../lib/store';
 
 const LINK_SCHEMES = ['vless', 'vmess', 'trojan', 'ss', 'ssr', 'socks', 'socks5', 'hysteria', 'hysteria2', 'hy2', 'tuic', 'wireguard', 'wg', 'anytls'];
+
+/** Ссылка со страницы подписки (klick://add). `seq` — чтобы та же ссылка второй раз снова заполнила поля. */
+export type Incoming = { url: string; name: string | null; seq: number };
+
+/** Только адрес сайта: остальное в ссылке подписки — ключ, его не показываем. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
 
 type Detect = { kind: 'empty' | 'sub' | 'link' | 'bad'; title: string; text: string; color: string };
 
@@ -23,11 +35,22 @@ function detect(input: string): Detect {
   return { kind: 'bad', title: 'Формат не распознан', text: 'Ожидается https://… или vless://, vmess://, trojan://, ss://, hysteria2://', color: 'var(--red)' };
 }
 
-export function Add({ onTab }: { onTab: (t: Tab) => void }) {
+export function Add({ onTab, incoming }: { onTab: (t: Tab) => void; incoming?: Incoming | null }) {
   const store = useStore();
   const [tab, setTab] = useState<'link' | 'file'>('link');
   const [link, setLink] = useState('');
   const [name, setName] = useState('');
+  // Пришла ссылка klick://add: поля заполнены, на экране — только домен, фокус на «Добавить».
+  const [from, setFrom] = useState<string | null>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!incoming) return;
+    setTab('link');
+    setLink(incoming.url);
+    setName(incoming.name ?? '');
+    setFrom(hostOf(incoming.url));
+    setTimeout(() => addRef.current?.focus(), 50);
+  }, [incoming?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -42,6 +65,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
     if (ok) {
       setLink('');
       setName('');
+      setFrom(null);
       onTab('home');
     }
   };
@@ -68,14 +92,32 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
 
       {tab === 'link' ? (
         <>
-          <textarea
-            className={`link-input ${d.kind === 'bad' ? 'bad' : d.kind === 'empty' ? '' : 'ok'}`}
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="https://panel.example.com/sub/a1b2… или vless://…"
-            spellCheck={false}
-            aria-label="Ссылка на подписку или конфигурацию"
-          />
+          {from ? (
+            <div className="link-from">
+              <span className="caps">Подписка со страницы</span>
+              <b>{from}</b>
+              <span>Ссылка уже вставлена. Показываем только адрес сайта: остальное в ней — ваш ключ.</span>
+              <button
+                className="link-from-other"
+                onClick={() => {
+                  setFrom(null);
+                  setLink('');
+                  setName('');
+                }}
+              >
+                Вставить другую
+              </button>
+            </div>
+          ) : (
+            <textarea
+              className={`link-input ${d.kind === 'bad' ? 'bad' : d.kind === 'empty' ? '' : 'ok'}`}
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://panel.example.com/sub/a1b2… или vless://…"
+              spellCheck={false}
+              aria-label="Ссылка на подписку или конфигурацию"
+            />
+          )}
           <div className="detect">
             <div className="dot8" style={{ background: d.color }} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -84,7 +126,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
             </div>
           </div>
           {d.kind === 'sub' ? <input className="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (необязательно)" /> : null}
-          <button className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink}>
+          <button ref={addRef} className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink}>
             {busy ? 'Добавляем…' : 'Добавить'}
           </button>
 

@@ -1301,6 +1301,11 @@ impl Engine {
     async fn add_connection(&mut self, source: String, name: Option<String>) -> Result<Value, ErrorInfo> {
         let source = source.trim().to_string();
         let kind = subparse::detect_source(&source).ok_or_else(|| ErrorInfo::new("input.unknown_format"))?;
+        // Та же ссылка уже есть — не дублировать: окно откроет это подключение.
+        let existing = self.secrets.0.iter().find(|(_, s)| s.trim() == source).map(|(id, _)| id.clone());
+        if let Some(c) = existing.and_then(|id| self.settings.connections.iter().find(|c| c.id == id)) {
+            return Err(ErrorInfo::with("conn.exists", json!({ "id": c.id, "name": c.name })));
+        }
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         let conn = match kind {

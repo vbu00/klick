@@ -3,6 +3,7 @@
 import { inKillSwitch, programRule, siteRule } from './live';
 import type { Transport } from './transport';
 import type {
+  PendingLink,
   AboutView,
   Connection,
   ConnectionView,
@@ -173,6 +174,8 @@ class MockService {
   private st!: StateView;
   private settings!: Settings;
   private servers!: Record<string, ServerView[]>;
+  /** Ссылки добавленных подключений — чтобы, как служба, не добавлять одну дважды. */
+  private sources: Record<string, string> = {};
   private timer?: ReturnType<typeof setInterval>;
   private level = 4;
   private flowsSince = Date.now();
@@ -387,6 +390,8 @@ class MockService {
       }
       case 'add_connection': {
         const src = String(args.source ?? '').trim();
+        const dup = this.settings.connections.find((c) => this.sources[c.id] === src);
+        if (dup) fail('conn.exists', { id: dup.id, name: dup.name });
         const scheme = src.split('://')[0]?.toLowerCase();
         await wait(800);
         const id = Math.random().toString(16).slice(2, 10);
@@ -404,6 +409,7 @@ class MockService {
         } else {
           return fail('input.unknown_format');
         }
+        this.sources[id] = src;
         this.settings.connections.push(c);
         if (!this.settings.active_connection) this.settings.active_connection = id;
         this.emitState();
@@ -577,7 +583,16 @@ let autostart = true;
 export function createMockTransport(): Transport {
   const params = new URLSearchParams(location.search);
   const svc = new MockService((params.get('s') as Scenario) || 'off');
-  (window as any).__klickMock = { setScenario: (s: Scenario) => svc.reset(s) };
+  // Ссылка klick://add в превью: `?addlink=<https-ссылка>&addname=<название>` или __klickMock.addLink(url, name).
+  let pending: PendingLink | null = params.get('addlink') ? { kind: 'add', url: params.get('addlink')!, name: params.get('addname') } : null;
+  const linkListeners = new Set<() => void>();
+  (window as any).__klickMock = {
+    setScenario: (s: Scenario) => svc.reset(s),
+    addLink: (url: string, name?: string) => {
+      pending = url ? { kind: 'add', url, name: name ?? null } : { kind: 'invalid' };
+      linkListeners.forEach((cb) => cb());
+    },
+  };
   const view = params.get('view') === 'tray' ? 'tray' : 'main';
   return {
     kind: 'mock',
@@ -603,6 +618,15 @@ export function createMockTransport(): Transport {
     notify: async (title, text, target) => console.info('[превью] уведомление Windows:', title, text, target),
     onNavigate: () => () => undefined,
     onExitRequest: () => () => undefined,
+    takePendingLink: async () => {
+      const p = pending;
+      pending = null;
+      return p;
+    },
+    onAddLink: (cb) => {
+      linkListeners.add(cb);
+      return () => void linkListeners.delete(cb);
+    },
     autostart: {
       get: async () => autostart,
       set: async (on) => {
