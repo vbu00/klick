@@ -1,0 +1,172 @@
+# Сборка и проверка kl!ck для macOS на настоящем Mac (Apple Silicon): kl!ck.app и .pkg,
+# тесты, конфиги ядра (mihomo -t) и сквозная проверка с установкой службы (scripts/macos/smoke-test.sh).
+# Запуск вручную (Actions → macOS → Run workflow) со ссылкой подписки проверяет ещё и настоящие серверы
+# (scripts/macos/real-test.sh). Ссылка не сохраняется в репозитории и скрыта в журнале.
+# Каждая сборка ставится ещё и поверх прошлого выпуска для macOS из Releases (если он есть).
+# С флажком «на всех Mac» собранный пакет проверяется ещё на macOS 14, 26, 27 (preview) и на Intel.
+# С флажком «выпустить» после всех проверок пакет уходит в Releases (тег v<версия из Cargo.toml>;
+# если выпуск с этим тегом уже есть — например, с установщиком для Windows, — пакет добавляется в него).
+name: macOS
+
+# Правки только документации и проверок Windows сборку на Mac не запускают.
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml']
+  workflow_dispatch:
+    inputs:
+      sub:
+        description: Ссылка подписки для проверки с настоящими серверами (необязательно)
+        required: false
+        default: ''
+      matrix:
+        description: На всех Mac — ещё macOS 14, 26, 27 (preview) и Intel; везде сквозная, подписка и обновление поверх прошлой версии
+        type: boolean
+        default: false
+      release:
+        description: Выпустить — после всех проверок выложить пакет в Releases с тегом v<версия>
+        type: boolean
+        default: false
+
+# Выложить выпуск (только ручной запуск с флажком «выпустить»).
+permissions:
+  contents: write
+
+# Новый пуш ждёт, пока доработает текущая сборка, а не отменяет её (ждёт только самый свежий).
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      # Ссылку подписки берём из события, а не из env: значения env шаг печатает в журнал.
+      - name: Скрыть ссылку подписки в журнале
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc -V
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Сборка kl!ck.app и .pkg (universal)
+        env:
+          # «Проверить обновления» в окне смотрит выпуски этого репозитория.
+          KLICK_RELEASES_REPO: ${{ github.repository }}
+        run: scripts/macos/build.sh
+
+      - name: Тесты
+        run: cargo test --workspace
+
+      - name: Конфиги ядра (mihomo -t)
+        run: scripts/check-configs.sh
+
+      - name: Сквозная проверка на этом Mac
+        run: sudo scripts/macos/smoke-test.sh "dist/kl!ck.app"
+
+      - name: Проверка с настоящими серверами
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.sub != '' }}
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          sudo /usr/bin/env "KLICK_TEST_SUB=$sub" scripts/macos/real-test.sh "dist/kl!ck.app"
+
+      - name: Обновление поверх прошлой версии
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sudo /usr/bin/env "GITHUB_REPOSITORY=$GITHUB_REPOSITORY" "GH_TOKEN=$GH_TOKEN" scripts/macos/upgrade-test.sh "$(ls dist/klick-[0-9]*.pkg | head -1)"
+
+      - name: Архив приложения
+        if: always()
+        run: |
+          if [ -d "dist/kl!ck.app" ]; then ditto -c -k --keepParent "dist/kl!ck.app" "dist/klick-macos-app.zip"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-macos
+          path: |
+            dist/*.pkg
+            dist/klick-macos-app.zip
+          if-no-files-found: ignore
+
+  # Тот же пакет — на других версиях macOS и на Intel. Сборка одна, проверки параллельно.
+  matrix:
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.matrix }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14, macos-15-intel, macos-26, macos-26-intel, xcode-27]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - name: Скрыть ссылку подписки в журнале
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: klick-macos
+          path: dist
+
+      - name: Система
+        run: |
+          sw_vers
+          uname -m
+          ditto -x -k dist/klick-macos-app.zip dist/
+          ls dist
+
+      - name: Сквозная проверка
+        run: sudo scripts/macos/smoke-test.sh "dist/kl!ck.app"
+
+      - name: Проверка с настоящими серверами
+        if: ${{ !cancelled() && inputs.sub != '' }}
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          sudo /usr/bin/env "KLICK_TEST_SUB=$sub" scripts/macos/real-test.sh "dist/kl!ck.app"
+
+      - name: Обновление поверх прошлой версии
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sudo /usr/bin/env "GITHUB_REPOSITORY=$GITHUB_REPOSITORY" "GH_TOKEN=$GH_TOKEN" scripts/macos/upgrade-test.sh "$(ls dist/klick-[0-9]*.pkg | head -1)"
+
+  # Выпуск — только после всех проверок (и на всех Mac, если их просили).
+  release:
+    needs: [build, matrix]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.release && needs.build.result == 'success' && (needs.matrix.result == 'success' || needs.matrix.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: klick-macos
+          path: dist
+
+      - name: Выпуск в Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/macos/publish-release.sh

@@ -19,13 +19,16 @@ tauri-build = { version = "2", features = [] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
 serde.workspace = true
 serde_json.workspace = true
+
+# Установщик — только для Windows: на macOS kl!ck ставится пакетом .pkg (scripts/macos).
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.58"
 features = [
     "Win32_Foundation",

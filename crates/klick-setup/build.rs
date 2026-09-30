@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 
 fn main() {
+    // Установщик — только для Windows; на других системах собирается заглушка без архива.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let app = manifest.join("../..").canonicalize().expect("папка app");
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());

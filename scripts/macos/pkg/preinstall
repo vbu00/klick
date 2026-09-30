@@ -1,0 +1,4 @@
+#!/bin/bash
+# Перед установкой или обновлением: закрыть окно kl!ck. Службу останавливает и обновляет postinstall.
+/usr/bin/pkill -x klick 2>/dev/null || true
+exit 0

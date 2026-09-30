@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "externalBin": ["binaries/klick-service", "binaries/klick-cli", "binaries/mihomo"],
+    "resources": {
+      "../../resources/catalog.json": "resources/catalog.json",
+      "../../resources/sets/": "resources/sets/",
+      "../../resources/core/Country.mmdb": "resources/core/Country.mmdb",
+      "../../resources/licenses/": "resources/licenses/",
+      "../../scripts/macos/uninstall.sh": "uninstall.sh"
+    }
+  }
+}

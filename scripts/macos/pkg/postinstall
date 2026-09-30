@@ -1,0 +1,16 @@
+#!/bin/bash
+# После установки: служба копируется в /Library/PrivilegedHelperTools/klick и регистрируется в launchd.
+# Если VPN был включён до обновления, служба включит его снова.
+set -e
+APP="/Applications/kl!ck.app"
+# Метку карантина с программы снимает служба при установке (не /usr/bin/xattr: тот написан на Python
+# и на Mac без инструментов разработчика просит их поставить).
+"$APP/Contents/MacOS/klick-service" install
+
+# Открыть окно у того, кто сейчас за Mac (установка идёт от root).
+user="$(/usr/bin/stat -f%Su /dev/console)"
+if [[ -n "$user" && "$user" != "root" && "$user" != "loginwindow" ]]; then
+    uid="$(/usr/bin/id -u "$user")"
+    /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" /usr/bin/open "$APP" || true
+fi
+exit 0
