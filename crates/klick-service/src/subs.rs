@@ -28,7 +28,7 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, ErrorInf
         None => builder.no_proxy(),
     };
     let client = builder.build().map_err(|_| ErrorInfo::new("sub.fetch_failed"))?;
-    let res = client.get(url).send().await.map_err(|e| {
+    let res = client.get(sub::fetch_url(url)).send().await.map_err(|e| {
         tracing::warn!("подписка не скачалась: {}", without_url(&e));
         ErrorInfo::with("sub.fetch_failed", json!({ "reason": if e.is_timeout() { "timeout" } else if e.is_connect() { "connect" } else { "other" } }))
     })?;
@@ -44,6 +44,8 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, ErrorInf
         .or_else(|| header("content-disposition").and_then(|h| sub::filename_from_disposition(&h)));
     let body = res.text().await.map_err(|_| ErrorInfo::new("sub.fetch_failed"))?;
     let content = check(&body)?;
+    // sing-box, Xray и прочее — в серверы mihomo: ядро читает файл серверов только в своём формате.
+    let body = sub::provider_body(&body, content);
     Ok(Fetched { body, info, title, interval_hours, content })
 }
 

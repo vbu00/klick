@@ -1,5 +1,6 @@
 //! Подписки: что вставил пользователь, что ответила панель, сколько там серверов.
 
+use crate::convert;
 use crate::model::SubInfo;
 use base64::Engine as _;
 
@@ -22,7 +23,8 @@ pub fn detect_source(input: &str) -> Option<SourceKind> {
         return None;
     }
     let scheme = scheme.to_ascii_lowercase();
-    if scheme == "http" || scheme == "https" {
+    // ssconf:// — динамический ключ Outline: по https лежит сервер Shadowsocks в JSON.
+    if scheme == "http" || scheme == "https" || scheme == "ssconf" {
         Some(SourceKind::Subscription)
     } else if LINK_SCHEMES.contains(&scheme.as_str()) {
         Some(SourceKind::Link)
@@ -115,11 +117,21 @@ fn strip_ext(name: &str) -> String {
     }
 }
 
+/// Адрес, по которому качать подписку: ключ Outline `ssconf://` лежит по `https://`.
+pub fn fetch_url(source: &str) -> String {
+    match source.trim().split_once("://") {
+        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("ssconf") => format!("https://{rest}"),
+        _ => source.trim().to_string(),
+    }
+}
+
 /// Что лежит в ответе панели.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Content {
-    /// Конфиг mihomo/Clash со списком `proxies`.
+    /// Конфиг mihomo/Clash со списком `proxies` — YAML или JSON.
     ClashYaml,
+    /// Чужой формат (sing-box, Xray, WireGuard, Shadowsocks): переводим в серверы mihomo; число — сколько.
+    Converted(convert::Format, usize),
     /// Ссылки построчно; число — сколько их.
     Links(usize),
     /// Ссылки в base64.
@@ -137,6 +149,16 @@ pub fn inspect_content(body: &str) -> Content {
     }
     if t.lines().any(|l| l.trim_start().starts_with("proxies:")) {
         return Content::ClashYaml;
+    }
+    // JSON-конфиг mihomo/Clash: ядро читает его как YAML (JSON — подмножество YAML).
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
+        if v.get("proxies").and_then(|p| p.as_array()).is_some_and(|a| !a.is_empty()) {
+            return Content::ClashYaml;
+        }
+    }
+    if let Some(format) = convert::detect(t) {
+        let n = convert::proxies(t, format).len();
+        return if n > 0 { Content::Converted(format, n) } else { Content::Unknown };
     }
     let links = count_links(t);
     if links > 0 {
@@ -156,6 +178,14 @@ pub fn inspect_content(body: &str) -> Content {
         }
     }
     Content::Unknown
+}
+
+/// Что положить в файл серверов ядра: чужой формат — переведённым, остальное — как есть.
+pub fn provider_body(body: &str, content: Content) -> String {
+    match content {
+        Content::Converted(format, _) => convert::provider_text(&convert::proxies(body, format)),
+        _ => body.to_string(),
+    }
 }
 
 fn count_links(text: &str) -> usize {
@@ -237,5 +267,20 @@ mod tests {
         assert_eq!(inspect_content(&b64), Content::Base64Links(2));
         assert_eq!(inspect_content("<!DOCTYPE html><html>"), Content::Html);
         assert_eq!(inspect_content("hello"), Content::Unknown);
+        let json = r#"{"proxies": [{"name": "a", "type": "ss", "server": "e", "port": 3, "cipher": "aes-128-gcm", "password": "p"}]}"#;
+        assert_eq!(inspect_content(json), Content::ClashYaml);
+        assert_eq!(provider_body(json, Content::ClashYaml), json);
+        let sb = r#"{"outbounds": [{"type": "trojan", "tag": "t", "server": "e", "server_port": 443, "password": "p"}, {"type": "direct", "tag": "d"}]}"#;
+        let kind = inspect_content(sb);
+        assert_eq!(kind, Content::Converted(convert::Format::SingBox, 1));
+        assert!(provider_body(sb, kind).contains("\"proxies\""));
+        assert_eq!(inspect_content(r#"{"outbounds": [{"type": "direct"}]}"#), Content::Unknown);
+    }
+
+    #[test]
+    fn outline_key() {
+        assert_eq!(detect_source("ssconf://example.com/key.json"), Some(SourceKind::Subscription));
+        assert_eq!(fetch_url("ssconf://example.com/key.json"), "https://example.com/key.json");
+        assert_eq!(fetch_url("https://example.com/sub"), "https://example.com/sub");
     }
 }

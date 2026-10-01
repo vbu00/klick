@@ -17,6 +17,9 @@ function detect(input: string): Detect {
   if ((scheme === 'https' || scheme === 'http') && !/\s/.test(s)) {
     return { kind: 'sub', title: 'Ссылка на подписку', text: 'Загрузим список серверов, лимит трафика и срок действия. Будет обновляться автоматически.', color: 'var(--accent)' };
   }
+  if (scheme === 'ssconf' && !/\s/.test(s)) {
+    return { kind: 'sub', title: 'Ключ доступа Outline', text: 'Загрузим сервер Shadowsocks по ключу и будем обновлять его автоматически.', color: 'var(--accent)' };
+  }
   if (LINK_SCHEMES.includes(scheme) && !/\s/.test(s)) {
     return { kind: 'link', title: `Одиночная конфигурация · ${protocolName(scheme === 'hy2' ? 'hysteria2' : scheme)}`, text: 'Прямое соединение с одним сервером. Без лимитов и срока — только адрес и ключ.', color: 'var(--accent)' };
   }
@@ -148,7 +151,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
               </div>
               <div>
                 <b>Ссылка на подписку</b>
-                <span>https://… от Remnawave, Marzban и подобных. Даёт список серверов, лимит трафика и срок действия. Обновляется автоматически.</span>
+                <span>https://… от Remnawave, Marzban и подобных — в форматах Clash, sing-box, Xray или списком ссылок; ключ Outline ssconf://. Даёт список серверов, лимит трафика и срок действия. Обновляется автоматически.</span>
               </div>
             </div>
             <div className="help-row">
@@ -185,9 +188,9 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
             <b>{busy ? 'Импортируем…' : 'Перетащите файл сюда'}</b>
             <span>или нажмите, чтобы выбрать</span>
           </div>
-          <input ref={fileRef} type="file" accept=".yaml,.yml,.json,.txt" hidden onChange={(e) => void addFile(e.target.files?.[0])} />
+          <input ref={fileRef} type="file" accept=".yaml,.yml,.json,.conf,.txt" hidden onChange={(e) => void addFile(e.target.files?.[0])} />
           <div className="note-card">
-            Поддерживаются конфиги Mihomo / Clash: <b>.yaml</b>, <b>.yml</b>, <b>.json</b>. Из файла берутся серверы; файл копируется в приложение — оригинал можно удалить.
+            Поддерживаются конфиги Mihomo / Clash (<b>.yaml</b>, <b>.json</b>), sing-box и Xray (<b>.json</b>), WireGuard и AmneziaWG (<b>.conf</b>), Shadowsocks и Outline (<b>.json</b>), списки ссылок (<b>.txt</b>). Из файла берутся серверы; файл копируется в приложение — оригинал можно удалить.
           </div>
         </>
       )}

@@ -1943,12 +1943,14 @@ impl Engine {
     }
 
     async fn import_file(&mut self, file_name: String, content: String) -> Result<Value, ErrorInfo> {
-        match subs::check(&content)? {
-            Content::ClashYaml | Content::Links(_) | Content::Base64Links(_) => {}
+        let kind = subs::check(&content)?;
+        match kind {
+            Content::ClashYaml | Content::Links(_) | Content::Base64Links(_) | Content::Converted(..) => {}
             _ => return Err(ErrorInfo::new("sub.unknown_format")),
         }
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
-        self.write_provider(&id, &content)?;
+        tracing::info!("файл импортирован: {kind:?}");
+        self.write_provider(&id, &klick_core::sub::provider_body(&content, kind))?;
         let stem = Path::new(&file_name).file_stem().map(|s| s.to_string_lossy().into_owned()).filter(|s| !s.is_empty());
         let conn = Connection {
             id,
