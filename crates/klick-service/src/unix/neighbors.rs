@@ -64,15 +64,15 @@ pub fn scan(own_core: &Path) -> Vec<Neighbor> {
         let Some(path) = sys::process_path(pid) else { continue };
         let name = Path::new(&path).file_name().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
         if let Some((_, kind, title)) = KNOWN.iter().find(|(exe, _, _)| *exe == name) {
-            push(&mut out, Neighbor { kind: (*kind).into(), name: (*title).into(), conflicts_with_tun: *kind == "dpi_bypass" || *kind == "vpn" });
+            push(&mut out, Neighbor { kind: (*kind).into(), name: (*title).into(), conflicts_with_tun: *kind == "dpi_bypass" || *kind == "vpn", conflicts_with_proxy: false });
         } else if name == "mihomo" || name.starts_with("clash") || name.starts_with("verge-mihomo") {
             if Path::new(&path) != own_core {
-                push(&mut out, Neighbor { kind: "proxy_core".into(), name: name.clone(), conflicts_with_tun: false });
+                push(&mut out, Neighbor { kind: "proxy_core".into(), name: name.clone(), conflicts_with_tun: false, conflicts_with_proxy: false });
             }
         }
     }
     for adapter in vpn_adapters() {
-        push(&mut out, Neighbor { kind: "vpn_adapter".into(), name: adapter, conflicts_with_tun: true });
+        push(&mut out, Neighbor { kind: "vpn_adapter".into(), name: adapter, conflicts_with_tun: true, conflicts_with_proxy: false });
     }
     out
 }

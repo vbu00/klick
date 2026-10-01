@@ -1,7 +1,6 @@
 //! Служба kl!ck. Рабочий запуск — через службы Windows или launchd на macOS (`run`),
 //! для разработки — `console`.
 
-mod browsers;
 mod core;
 mod engine;
 mod ipcheck;
@@ -12,6 +11,9 @@ mod storage;
 mod subs;
 
 // Windows: WFP, реестр, службы Windows.
+// Профили браузеров по путям Windows; на macOS расширения пока не проверяются.
+#[cfg(windows)]
+mod browsers;
 #[cfg(windows)]
 mod killswitch;
 #[cfg(windows)]
