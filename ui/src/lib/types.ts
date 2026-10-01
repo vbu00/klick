@@ -95,6 +95,8 @@ export interface KillSwitch {
 /** Программа Kill Switch с тем, что нашлось на диске: exes = 0 — программа не найдена. */
 export interface KsProgramView extends KsProgram {
   exes: number;
+  /** Режим системного прокси: программа шла мимо прокси kl!ck и осталась без сети — ей нужен TUN. */
+  no_proxy?: boolean;
 }
 
 export type ThemeMode = 'system' | 'light' | 'dark' | 'custom';

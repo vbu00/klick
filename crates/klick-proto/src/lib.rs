@@ -108,6 +108,10 @@ pub struct KsProgramView {
     pub enabled: bool,
     /// Сколько exe в папке; 0 — папки нет или программа удалена.
     pub exes: u32,
+    /// Режим системного прокси: программа пыталась выйти в сеть мимо прокси kl!ck, и Kill Switch её
+    /// не пустил — она не использует системный прокси, ей нужен режим VPN (TUN).
+    #[serde(default)]
+    pub no_proxy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

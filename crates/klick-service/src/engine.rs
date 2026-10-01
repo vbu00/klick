@@ -64,6 +64,9 @@ pub enum Msg {
     /// раньше входа в Windows, и ветки реестра пользователя тогда ещё нет.
     #[cfg(windows)]
     RetryLeftoverProxy,
+    /// Windows: раз в 5 с — какие программы из Kill Switch фильтры не пустили мимо прокси.
+    #[cfg(windows)]
+    KsDrops,
 }
 
 #[derive(Clone)]
@@ -178,6 +181,12 @@ pub struct Engine {
     resume_on_logon: bool,
     /// Какие exe сейчас закрыты Kill Switch: по нему видно, что программа обновилась или пропала.
     ks_applied: Vec<PathBuf>,
+    /// Режим системного прокси: папки программ из Kill Switch, которые за этот сеанс пытались выйти
+    /// мимо прокси kl!ck (и остались без сети), и с какого момента смотреть события брандмауэра.
+    #[cfg(windows)]
+    no_proxy: HashSet<String>,
+    #[cfg(windows)]
+    drops_since: std::time::SystemTime,
     core_version: Option<String>,
     _netwatch: Option<NetWatch>,
     events: broadcast::Sender<Event>,
@@ -306,6 +315,19 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
             }
         });
     }
+    #[cfg(windows)]
+    {
+        let drops_tx = tx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                if drops_tx.send(Msg::KsDrops).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
     let engine_tx = tx.clone();
     tokio::spawn(async move {
         while net_rx.recv().await.is_some() {
@@ -353,6 +375,10 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         restore_pending,
         resume_on_logon,
         ks_applied: Vec::new(),
+        #[cfg(windows)]
+        no_proxy: HashSet::new(),
+        #[cfg(windows)]
+        drops_since: std::time::SystemTime::now(),
         core_version: None,
         _netwatch: netwatch,
         events: events.clone(),
@@ -480,6 +506,8 @@ impl Engine {
                         Msg::NetworkChanged => self.on_network_change().await,
                         #[cfg(windows)]
                         Msg::RetryLeftoverProxy => self.clear_leftover_proxy(),
+                        #[cfg(windows)]
+                        Msg::KsDrops => self.ks_drops().await,
                         Msg::CoreExited { generation, code } => self.on_core_exit(generation, code).await,
                         Msg::Probed { generation, retry, ok } => {
                             if self.probing == Some(generation) {
@@ -615,10 +643,14 @@ impl Engine {
             }
             Command::KillSwitchStatus => {
                 let programs = self.settings.kill_switch.programs.clone();
+                #[cfg(windows)]
+                let no_proxy = self.no_proxy.clone();
+                #[cfg(unix)]
+                let no_proxy: HashSet<String> = HashSet::new();
                 let list = tokio::task::spawn_blocking(move || {
                     programs
                         .into_iter()
-                        .map(|p| KsProgramView { exes: killswitch::scan_folder(Path::new(&p.folder)).len() as u32, folder: p.folder, enabled: p.enabled })
+                        .map(|p| KsProgramView { exes: killswitch::scan_folder(Path::new(&p.folder)).len() as u32, no_proxy: no_proxy.contains(&p.folder), folder: p.folder, enabled: p.enabled })
                         .collect::<Vec<_>>()
                 })
                 .await
@@ -1011,6 +1043,8 @@ impl Engine {
         self.since = Some(unix_now());
         self.restarts = 0;
         self.set_state(if ok { VpnState::Connected } else { VpnState::Reconnecting }, None);
+        #[cfg(windows)]
+        self.reset_ks_drops();
         self.save_runtime(true);
         let found = neighbors::scan(&self.paths.core_exe);
         if capture == Capture::Tun {
@@ -1029,6 +1063,8 @@ impl Engine {
     }
 
     async fn disconnect(&mut self) {
+        #[cfg(windows)]
+        self.reset_ks_drops();
         let t0 = Instant::now();
         self.clear_proxy().await;
         let t1 = Instant::now();
@@ -1489,6 +1525,41 @@ impl Engine {
         self.sync_ks_core().await;
         #[cfg(windows)]
         self.apply_wfp(&exes);
+    }
+
+    /// Новый сеанс: что было заблокировано раньше, к нему не относится.
+    #[cfg(windows)]
+    fn reset_ks_drops(&mut self) {
+        self.no_proxy.clear();
+        self.drops_since = std::time::SystemTime::now();
+    }
+
+    /// Режим системного прокси: программа из Kill Switch, которая не смотрит на системный прокси,
+    /// идёт мимо порта kl!ck — фильтр её не пускает, и она молча остаётся без сети. Находим таких по
+    /// событиям брандмауэра и говорим прямо: ей нужен режим VPN (TUN). Раз за сеанс на программу.
+    #[cfg(windows)]
+    async fn ks_drops(&mut self) {
+        let since = std::mem::replace(&mut self.drops_since, std::time::SystemTime::now());
+        let proxy = self.running.as_ref().is_some_and(|r| r.capture == Capture::Proxy);
+        if !proxy || self.vpn != VpnState::Connected || !self.profile.wfp_allowed || self.ks_applied.is_empty() {
+            return;
+        }
+        let Ok(Ok(blocked)) = tokio::task::spawn_blocking(move || Wfp::open().and_then(|w| w.blocked_since(since))).await else { return };
+        if blocked.is_empty() {
+            return;
+        }
+        let mut folders = Vec::new();
+        for (folder, exes) in self.ks_scan() {
+            if exes.iter().any(|e| blocked.contains(e)) && self.no_proxy.insert(folder.clone()) {
+                folders.push(folder);
+            }
+        }
+        if folders.is_empty() {
+            return;
+        }
+        let names: Vec<String> = folders.iter().map(|f| programs::folder_name(Path::new(f)).unwrap_or_else(|| Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())).collect();
+        tracing::warn!("Kill Switch: программ без сети в режиме прокси (не используют системный прокси): {}", folders.len());
+        self.notice("killswitch.no_proxy", json!({ "folders": folders, "names": names }));
     }
 
     #[cfg(windows)]

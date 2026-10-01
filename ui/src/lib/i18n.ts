@@ -178,6 +178,10 @@ export function noticeText(code: string, params?: Params): NoticeText | null {
       return { title: 'Kill Switch не применился', text: 'Нужна служба kl!ck с правами системы', tone: 'bad' };
     case 'killswitch.partial':
       return { title: 'Kill Switch защитил не все программы', tone: 'warn' };
+    case 'killswitch.no_proxy': {
+      const names = Array.isArray(params?.names) ? (params?.names as string[]).join(', ') : '';
+      return { title: `Без сети: ${names}`, text: 'Не использует системный прокси, а Kill Switch не пускает мимо VPN. Нужен режим VPN (TUN)', tone: 'warn' };
+    }
     case 'killswitch.missing':
       return { title: 'Программа из Kill Switch не найдена', text: 'Удалили или переустановили в другую папку? Проверьте список', tone: 'warn' };
     case 'neighbors.conflict': {

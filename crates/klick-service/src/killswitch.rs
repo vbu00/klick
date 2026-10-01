@@ -6,11 +6,13 @@
 
 use crate::win::wide;
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
+use std::time::{SystemTime, UNIX_EPOCH};
 use windows::core::{GUID, PCWSTR, PWSTR};
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{FILETIME, HANDLE};
 use windows::Win32::NetworkManagement::WindowsFilteringPlatform::*;
 use windows::Win32::System::Rpc::RPC_C_AUTHN_WINNT;
 
@@ -171,7 +173,16 @@ impl Wfp {
     }
 
     unsafe fn delete_filters(&self) -> Result<usize> {
-        let mut ids = Vec::new();
+        let ids: Vec<u64> = self.our_filters()?.into_iter().map(|f| f.0).collect();
+        for id in &ids {
+            check(FwpmFilterDeleteById0(self.engine, *id), "FwpmFilterDeleteById0")?;
+        }
+        Ok(ids.len())
+    }
+
+    /// Фильтры kl!ck: номер, название («kl!ck Kill Switch · block») и описание (путь exe).
+    unsafe fn our_filters(&self) -> Result<Vec<(u64, String, String)>> {
+        let mut out = Vec::new();
         for layer in layers() {
             let mut provider_key = PROVIDER_KEY;
             let template = FWPM_FILTER_ENUM_TEMPLATE0 {
@@ -193,7 +204,10 @@ impl Wfp {
                 }
                 if n > 0 {
                     for f in std::slice::from_raw_parts(entries, n as usize) {
-                        ids.push((**f).filterId);
+                        let f = &**f;
+                        let name = f.displayData.name.to_string().unwrap_or_default();
+                        let desc = f.displayData.description.to_string().unwrap_or_default();
+                        out.push((f.filterId, name, desc));
                     }
                 }
                 if !entries.is_null() {
@@ -206,10 +220,57 @@ impl Wfp {
             }
             let _ = FwpmFilterDestroyEnumHandle0(self.engine, handle);
         }
-        for id in &ids {
-            check(FwpmFilterDeleteById0(self.engine, *id), "FwpmFilterDeleteById0")?;
+        Ok(out)
+    }
+
+    /// Программы, чьи соединения фильтры «block» Kill Switch заблокировали с `since` до сейчас.
+    /// В режиме системного прокси это программы, которые не ходят через прокси kl!ck: им нужен TUN.
+    pub fn blocked_since(&self, since: SystemTime) -> Result<Vec<PathBuf>> {
+        unsafe {
+            // События о сброшенных соединениях Windows копит, только если сбор включён.
+            let on = FWP_VALUE0 { r#type: FWP_UINT32, Anonymous: FWP_VALUE0_0 { uint32: 1 } };
+            let _ = FwpmEngineSetOption0(self.engine, FWPM_ENGINE_COLLECT_NET_EVENTS, &on);
+            let blocks: HashMap<u64, PathBuf> = self.our_filters()?.into_iter().filter(|f| f.1.ends_with("· block")).map(|f| (f.0, PathBuf::from(f.2))).collect();
+            if blocks.is_empty() {
+                return Ok(Vec::new());
+            }
+            let template = FWPM_NET_EVENT_ENUM_TEMPLATE0 { startTime: filetime(since), endTime: filetime(SystemTime::now()), ..Default::default() };
+            let mut handle = HANDLE::default();
+            check(FwpmNetEventCreateEnumHandle0(self.engine, Some(&template), &mut handle), "FwpmNetEventCreateEnumHandle0")?;
+            let mut out: Vec<PathBuf> = Vec::new();
+            loop {
+                let mut entries: *mut *mut FWPM_NET_EVENT0 = null_mut();
+                let mut n = 0u32;
+                let rc = FwpmNetEventEnum0(self.engine, handle, 512, &mut entries, &mut n);
+                if rc != 0 {
+                    let _ = FwpmNetEventDestroyEnumHandle0(self.engine, handle);
+                    check(rc, "FwpmNetEventEnum0")?;
+                }
+                if n > 0 {
+                    for e in std::slice::from_raw_parts(entries, n as usize) {
+                        let e = &**e;
+                        if e.r#type != FWPM_NET_EVENT_TYPE_CLASSIFY_DROP {
+                            continue;
+                        }
+                        let drop = e.Anonymous.classifyDrop;
+                        if let Some(exe) = (!drop.is_null()).then(|| blocks.get(&(*drop).filterId)).flatten() {
+                            if !out.contains(exe) {
+                                out.push(exe.clone());
+                            }
+                        }
+                    }
+                }
+                if !entries.is_null() {
+                    let mut p = entries as *mut c_void;
+                    FwpmFreeMemory0(&mut p);
+                }
+                if n < 512 {
+                    break;
+                }
+            }
+            let _ = FwpmNetEventDestroyEnumHandle0(self.engine, handle);
+            Ok(out)
         }
-        Ok(ids.len())
     }
 
     unsafe fn add_program(&self, exe: &Path, tun_luid: Option<u64>) -> Result<()> {
@@ -285,6 +346,13 @@ impl Drop for Wfp {
             let _ = FwpmEngineClose0(self.engine);
         }
     }
+}
+
+/// Время Windows: сотни наносекунд с 1601 года.
+fn filetime(t: SystemTime) -> FILETIME {
+    let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let v = (d.as_secs() + 11_644_473_600) * 10_000_000 + u64::from(d.subsec_nanos() / 100);
+    FILETIME { dwLowDateTime: v as u32, dwHighDateTime: (v >> 32) as u32 }
 }
 
 fn layers() -> [GUID; 4] {

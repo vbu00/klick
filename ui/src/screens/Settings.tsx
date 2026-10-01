@@ -274,15 +274,18 @@ function KillSwitchScreen({ onBack }: { onBack: () => void }) {
   const [picker, setPicker] = useState(false);
   const folders = ks.programs.map((p) => p.folder).join('|');
 
+  const noProxyKey = store.noProxy.join('|');
   useEffect(() => {
     transport
       .call<KsProgramView[]>('kill_switch_status')
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, [transport, folders]);
+  }, [transport, folders, noProxyKey]);
 
   const enabled = ks.programs.filter((p) => p.enabled).length;
   const missing = (folder: string) => status?.find((s) => s.folder === folder)?.exes === 0;
+  // Режим системного прокси: программа шла мимо прокси kl!ck и осталась без сети.
+  const noProxy = (folder: string) => !!status?.find((s) => s.folder === folder)?.no_proxy || store.noProxy.includes(folder);
 
   return (
     <>
@@ -318,6 +321,10 @@ function KillSwitchScreen({ onBack }: { onBack: () => void }) {
                 missing(p.folder) ? (
                   <span className="warn-text" title={p.folder}>
                     не найдена на диске
+                  </span>
+                ) : noProxy(p.folder) && settings.mode === 'sys_proxy' ? (
+                  <span className="warn-text" title="Программа не использует системный прокси, а Kill Switch не пускает её мимо VPN">
+                    без сети: не использует прокси — нужен VPN (TUN)
                   </span>
                 ) : (
                   <span className="mono-sub" title={p.folder}>

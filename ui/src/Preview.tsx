@@ -12,6 +12,7 @@ const SCENARIOS: [Scenario, string][] = [
   ['error', 'Ошибка'],
   ['neighbors', 'Мешает zapret'],
   ['browser', 'Мешает расширение браузера'],
+  ['noproxy', 'Kill Switch: программа без прокси'],
 ];
 
 export function Preview({ children }: { children: ReactNode }) {

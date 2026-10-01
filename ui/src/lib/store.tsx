@@ -49,6 +49,8 @@ interface S {
   neighbors: string[];
   /** Расширения браузеров, перехватившие прокси: мешают режиму «Системный прокси». */
   browserProxy: string[];
+  /** Режим системного прокси: папки программ из Kill Switch, которые не используют прокси и остались без сети. */
+  noProxy: string[];
   /** Каталог сервисов для списков. */
   catalog: Service[];
   /** Понятные названия программ по папкам правил и Kill Switch — от службы. */
@@ -71,6 +73,7 @@ type A =
   | { t: 'dismiss'; id: number }
   | { t: 'neighbors'; names: string[] }
   | { t: 'browserProxy'; names: string[] }
+  | { t: 'noProxy'; folders: string[] }
   | { t: 'catalog'; list: Service[] }
   | { t: 'killswitch'; ks: KillSwitch }
   | { t: 'names'; names: Record<string, string> }
@@ -94,6 +97,7 @@ const initial: S = {
   toasts: [],
   neighbors: [],
   browserProxy: [],
+  noProxy: [],
   catalog: [],
   programNames: {},
   nav: null,
@@ -107,7 +111,7 @@ function reducer(s: S, a: A): S {
     case 'service':
       return { ...s, serviceUp: a.up };
     case 'state':
-      return { ...s, state: a.state, loaded: true, traffic: running(a.state) ? s.traffic : emptyTraffic(), neighbors: running(a.state) ? s.neighbors : [], browserProxy: running(a.state) ? s.browserProxy : [] };
+      return { ...s, state: a.state, loaded: true, traffic: running(a.state) ? s.traffic : emptyTraffic(), neighbors: running(a.state) ? s.neighbors : [], browserProxy: running(a.state) ? s.browserProxy : [], noProxy: running(a.state) && a.state.mode === 'sys_proxy' ? s.noProxy : [] };
     case 'settings':
       return { ...s, settings: a.settings };
     case 'servers':
@@ -139,6 +143,8 @@ function reducer(s: S, a: A): S {
       return { ...s, neighbors: a.names };
     case 'browserProxy':
       return { ...s, browserProxy: a.names };
+    case 'noProxy':
+      return { ...s, noProxy: [...new Set([...s.noProxy, ...a.folders])] };
     case 'catalog':
       return { ...s, catalog: a.list };
     case 'nav':
@@ -317,17 +323,21 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
       } else if (e.ev === 'notice') {
         if (e.code === 'neighbors.conflict' && Array.isArray(e.params?.names)) dispatch({ t: 'neighbors', names: e.params.names as string[] });
         if (e.code === 'neighbors.browser_proxy' && Array.isArray(e.params?.names)) dispatch({ t: 'browserProxy', names: e.params.names as string[] });
+        if (e.code === 'killswitch.no_proxy' && Array.isArray(e.params?.folders)) dispatch({ t: 'noProxy', folders: e.params.folders as string[] });
         const n = noticeText(e.code, e.params);
         if (!n) return;
+        // Программе из Kill Switch нужен TUN — переключить можно прямо из сообщения.
+        const action =
+          e.code === 'killswitch.no_proxy' ? { label: 'VPN (TUN)', run: () => void transport.call('set_mode', { mode: 'tun' }).catch(failed) } : undefined;
         // Уведомления Windows показывает только главное окно — и только когда его не видно.
         if (transport.window !== 'main') {
-          toast(n.title, n.text, n.tone);
+          toast(n.title, n.text, n.tone, action);
           return;
         }
         const code = e.code;
         void transport.isActive().then((active) => {
           if (active) {
-            toast(n.title, n.text, n.tone);
+            toast(n.title, n.text, n.tone, action);
             return;
           }
           const allowed = !DROP_NOTICES.includes(code) || ref.current.settings?.notify !== false;
@@ -463,7 +473,13 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         return true;
       },
       setMode: async (mode) => {
-        if (await call('set_mode', { mode }) !== undefined) await reloadSettings();
+        if (await call('set_mode', { mode }) === undefined) return;
+        await reloadSettings();
+        // Заранее: программы из Kill Switch, которые не смотрят на системный прокси, останутся без сети.
+        const ks = ref.current.settings?.kill_switch;
+        if (mode === 'sys_proxy' && ks?.enabled && ks.programs.some((p) => p.enabled)) {
+          toast('Kill Switch в режиме прокси', 'Программы из списка выйдут в сеть только через прокси kl!ck. Те, что его не используют (игры, торренты), останутся без сети — им нужен VPN (TUN)', 'warn');
+        }
       },
       setRouting: async (routing) => {
         if (await call('set_routing', { routing }) !== undefined) await reloadSettings();

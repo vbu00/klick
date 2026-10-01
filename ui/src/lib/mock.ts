@@ -25,7 +25,7 @@ import type {
   UpdateView,
 } from './types';
 
-export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors' | 'browser';
+export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors' | 'browser' | 'noproxy';
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -193,7 +193,7 @@ class MockService {
     const empty = sc === 'empty';
     this.sources = empty ? {} : { alex: 'https://panel.example.com/sub/alex', grpc: 'vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc#grpc' };
     this.settings = {
-      mode: sc === 'browser' ? 'sys_proxy' : 'tun',
+      mode: sc === 'browser' || sc === 'noproxy' ? 'sys_proxy' : 'tun',
       routing: 'selected',
       lists: seedLists(),
       connections: empty ? [] : connections,
@@ -230,12 +230,12 @@ class MockService {
       [-120, 'error', 'ядро: соединение через VPN не удалось (адрес скрыт)'],
     ].map(([d, level, text]) => ({ at: Date.now() + (d as number) * 1000, level: level as LogLine['level'], text: text as string }));
     const vpn: StateView['vpn'] = (
-      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected', browser: 'connected' } as const
+      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected', browser: 'connected', noproxy: 'connected' } as const
     )[sc];
     const running = vpn === 'connected' || vpn === 'reconnecting' || vpn === 'server_down';
     this.st = {
       vpn,
-      mode: sc === 'browser' ? 'sys_proxy' : 'tun',
+      mode: sc === 'browser' || sc === 'noproxy' ? 'sys_proxy' : 'tun',
       routing: 'selected',
       kill_switch: true,
       connection: this.view(),
@@ -247,6 +247,7 @@ class MockService {
     if (running) this.startTraffic();
     if (sc === 'neighbors') setTimeout(() => this.emit({ ev: 'notice', code: 'neighbors.conflict', params: { names: ['zapret'] } }), 700);
     if (sc === 'browser') setTimeout(() => this.emit({ ev: 'notice', code: 'neighbors.browser_proxy', params: { names: ['Touch VPN в Chrome'] } }), 700);
+    if (sc === 'noproxy') setTimeout(() => this.emit({ ev: 'notice', code: 'killswitch.no_proxy', params: { folders: ['C:\\Program Files\\qBittorrent'], names: ['qBittorrent'] } }), 700);
     this.service.forEach((cb) => cb(true));
   }
 
@@ -487,7 +488,11 @@ class MockService {
         return Object.fromEntries((args.folders as string[]).filter((f) => known[f]).map((f) => [f, known[f]]));
       }
       case 'kill_switch_status':
-        return this.settings.kill_switch.programs.map((p): KsProgramView => ({ ...p, exes: p.folder.startsWith('D:\\Games\\OldGame') ? 0 : 3 }));
+        return this.settings.kill_switch.programs.map((p): KsProgramView => ({
+          ...p,
+          exes: p.folder.startsWith('D:\\Games\\OldGame') ? 0 : 3,
+          no_proxy: this.st.mode === 'sys_proxy' && this.st.vpn === 'connected' && p.folder.endsWith('qBittorrent'),
+        }));
       case 'resume':
         return this.st;
       case 'about': {

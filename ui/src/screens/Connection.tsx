@@ -155,6 +155,9 @@ function Main({
       <div className="cx-desc">
         {mode === 'tun' ? 'Все программы, включая игры и UDP.' : 'Браузеры и программы, которые используют системный прокси.'}
         {isRunning ? ' Смена режима переподключит VPN на пару секунд.' : ''}
+        {mode === 'sys_proxy' && settings?.kill_switch.enabled && settings.kill_switch.programs.some((p) => p.enabled)
+          ? ' Программы из Kill Switch, которые не используют прокси, останутся без сети — для них нужен VPN (TUN).'
+          : ''}
       </div>
 
       <div className="cx-head">

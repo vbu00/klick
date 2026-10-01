@@ -1,4 +1,4 @@
-# Проверка kl!ck внутри Песочницы Windows. Запускается сама при входе (LogonCommand).
+﻿# Проверка kl!ck внутри Песочницы Windows. Запускается сама при входе (LogonCommand).
 # Роль VPN-сервера играет второй mihomo внутри Песочницы (socks5), поэтому ключи настоящих серверов не нужны.
 # -Preinstalled: kl!ck уже поставил установщик (setup-test.ps1), здесь только проверки.
 # -KeepInstalled: не удалять службу в конце и не выключать Песочницу — дальше проверяет установщик.
@@ -253,6 +253,10 @@ try {
     Check 'системный прокси: программа из Kill Switch работает через порт 7890' ($viaPort -eq '204') "код $viaPort"
     $noPort = Http 'C:\kstest\curl.exe'
     Check 'системный прокси: мимо порта программа из Kill Switch без сети' ($noPort -eq '000') "код $noPort"
+    # Служба замечает такую программу по событиям брандмауэра: ей нужен режим VPN (TUN).
+    $np = @()
+    for ($i = 0; $i -lt 15 -and -not $np.Count; $i++) { Start-Sleep 1; $np = @(KlickJson ks status | Where-Object { $_.no_proxy }) }
+    Check 'системный прокси: служба заметила программу, которая не использует прокси' ($np.Count -eq 1 -and $np[0].folder -eq 'C:\kstest') (($np | ForEach-Object { $_.folder }) -join ', ')
     $reg = ProxyReg
     Check 'без окна системный прокси пользователю поставила служба' ($reg.ProxyEnable -eq 1 -and $reg.ProxyServer -eq '127.0.0.1:7890') ("ProxyEnable={0}, ProxyServer={1}" -f $reg.ProxyEnable, $reg.ProxyServer)
     KlickCli disconnect | Out-Null
