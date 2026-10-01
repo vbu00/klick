@@ -1,22 +1,20 @@
 // Окно трея: вид — как у меню трея kl!ck 0.3 (ключ в шапке, кнопка со свечением на точках, чипы
-// подключений, плотные строки), функции — из «Трея v2»: доля VPN, «VPN для всего / для выбранного»,
-// «Открыто сейчас», трафик подписки, шестерёнка с короткими настройками, вопрос при выходе.
+// подключений, плотные строки): кнопка, скорость, подключения, серверы, трафик подписки, Kill Switch,
+// шестерёнка с короткими настройками, вопрос при выходе. Маршрутизация и программы — в главном окне.
 // Окно подгоняет высоту под содержимое и прячется, когда щёлкнули мимо.
 
-import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import mark from '../assets/mark.png';
 import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
-import { Tile } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
-import { errorText, routingTitle } from '../lib/i18n';
-import { groupLive, positionVerb, programTarget } from '../lib/live';
+import { errorText } from '../lib/i18n';
 import { plural } from '../lib/rules';
 import { isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
-import type { Transport } from '../lib/transport';
-import type { AboutView, Connection, ConnView, ExitAction, ServerView, VpnState } from '../lib/types';
+
+import type { AboutView, Connection, ExitAction, ServerView, VpnState } from '../lib/types';
 import { useNow } from './Home';
 
 const STATUS: Record<VpnState, [string, string]> = {
@@ -74,42 +72,13 @@ const plainName = (name: string) => name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u
 
 const KIND: Record<Connection['kind'], string> = { subscription: 'Подписка', link: 'Прямое', file: 'Файл' };
 
-/** Соединения раз в 3 секунды, пока VPN работает и окно трея на экране. */
-function useTrayConns(running: boolean, transport: Transport): ConnView[] {
-  const [conns, setConns] = useState<ConnView[]>([]);
-  useEffect(() => {
-    if (!running) {
-      setConns([]);
-      return;
-    }
-    let alive = true;
-    const tick = async () => {
-      if (document.visibilityState !== 'visible') return;
-      const c = await transport.call<ConnView[]>('connections').catch(() => null);
-      if (alive && c) setConns(c);
-    };
-    void tick();
-    const t = setInterval(tick, 3000);
-    const onShow = () => void tick();
-    document.addEventListener('visibilitychange', onShow);
-    return () => {
-      alive = false;
-      clearInterval(t);
-      document.removeEventListener('visibilitychange', onShow);
-    };
-  }, [running, transport]);
-  return conns;
-}
-
 export function Tray() {
   const store = useStore();
-  const { state, settings, servers, pinging, tested, traffic, isRunning, transport, serviceUp, catalog, programNames } = store;
+  const { state, settings, servers, pinging, tested, traffic, isRunning, transport, serviceUp } = store;
   const [view, setView] = useState<'main' | 'settings'>('main');
   const [exitAsk, setExitAsk] = useState(false);
   const [about, setAbout] = useState<AboutView | null>(null);
-  const [note, setNote] = useState('');
   const now = useNow(isRunning);
-  const conns = useTrayConns(isRunning, transport);
   // Содержимое естественной высоты: по нему окно трея подгоняет свою высоту.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
 
@@ -140,10 +109,6 @@ export function Tray() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [box, transport]);
-
-  const routing = settings?.routing ?? 'selected';
-  const list = useMemo(() => settings?.lists[routing] ?? [], [settings, routing]);
-  const apps = useMemo(() => groupLive(conns, list, settings?.kill_switch, catalog, programNames), [conns, list, settings?.kill_switch, catalog, programNames]);
 
   const exitWith = async (action: Exclude<ExitAction, 'ask'>, remember: boolean) => {
     if (remember) await settle(store.setPrefs({ on_exit: action }), 2000);
@@ -205,8 +170,6 @@ export function Tray() {
   const sub = empty ? 'Подписка или прямая ссылка' : srv.length > 1 && current ? `${conn.name} · ${plainName(current.name)}` : `${conn.name}${current ? ` · ${protocolName(current.kind)}` : ''}`;
   const ks = settings.kill_switch;
   const ksOn = ks.programs.filter((p) => p.enabled).length;
-  const total = apps.reduce((a, x) => a + x.conns, 0);
-  const vpnPct = total ? Math.round((apps.reduce((a, x) => a + x.vpnConns, 0) / total) * 100) : null;
 
   const power = async () => {
     if (empty) return;
@@ -271,67 +234,6 @@ export function Tray() {
       ) : (
         <>
           {isRunning ? <Traffic down={traffic.down} up={traffic.up} downHist={traffic.downHist} upHist={traffic.upHist} /> : null}
-          {isRunning && vpnPct != null ? (
-            <div className="tr-share">
-              <span className="tr-share-bar">
-                <i style={{ width: `${vpnPct}%` }} />
-                <em />
-              </span>
-              <span className="tr-share-key">
-                <i className="vpn" />
-                VPN {vpnPct}%
-              </span>
-              <span className="tr-share-key">
-                <i />
-                напрямую
-              </span>
-            </div>
-          ) : null}
-          <div className="tr-seg">
-            {(
-              [
-                ['all_vpn', routingTitle.all_vpn],
-                ['selected', routingTitle.selected],
-              ] as const
-            ).map(([k, t]) => (
-              <button key={k} className={routing === k ? 'on' : ''} onClick={() => routing !== k && void store.setRouting(k)}>
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {isRunning && apps.length ? (
-            <div className="tr-block">
-              <div className="tr-caps">
-                <span className="grow">Открыто сейчас</span>
-                <small>тумблер = через VPN</small>
-              </div>
-              <div className="tr-card">
-                {apps.slice(0, 3).map((a) => (
-                  <div key={a.key} className="tr-app">
-                    <Tile label={a.name} size={22} />
-                    <span className="grow">
-                      <span className="t">{a.name}</span>
-                      <span className={a.vpn ? 's vpn' : 's'}>{a.why === 'killswitch' ? 'Kill Switch' : a.vpn ? 'через VPN' : 'напрямую'}</span>
-                    </span>
-                    <MiniToggle
-                      on={a.vpn}
-                      disabled={a.why === 'killswitch' || !a.path}
-                      label={`${a.name} через VPN`}
-                      onChange={async (v) => {
-                        if (!a.path) return;
-                        if (await store.routeTarget(programTarget(a.path), v, a.name, true)) {
-                          setNote(`${a.name} → ${v ? 'через VPN' : 'напрямую'}. Правило добавлено в «${positionVerb(routing)} · мой список».`);
-                        }
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-              {note ? <div className="tr-note">{note}</div> : null}
-            </div>
-          ) : null}
-
           {settings.connections.length > 1 ? (
             <div className="tr-block">
               <div className="tr-caps">Подключение</div>
