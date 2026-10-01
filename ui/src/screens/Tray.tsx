@@ -504,11 +504,12 @@ function TraySettings({ onBack }: { onBack: () => void }) {
   const store = useStore();
   const { settings, transport } = store;
   const [autostart, setAutostart] = useState<boolean | null>(null);
+  // Открытие окна трея — тоже фокус: перечитываем, его могли переключить в главном окне.
   useEffect(() => {
-    void transport.autostart
-      .get()
-      .then(setAutostart)
-      .catch(() => setAutostart(false));
+    const read = () => void transport.autostart.get().then(setAutostart).catch(() => setAutostart(false));
+    read();
+    window.addEventListener('focus', read);
+    return () => window.removeEventListener('focus', read);
   }, [transport]);
   if (!settings) return null;
   const mode = settings.mode;

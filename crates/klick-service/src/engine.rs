@@ -2024,6 +2024,9 @@ impl Engine {
             })
             .collect();
         self.servers.insert(conn.id.clone(), views.clone());
+        if measure {
+            self.emit(Event::Servers { connection: conn.id.clone() });
+        }
         serde_json::to_value(views).map_err(internal)
     }
 

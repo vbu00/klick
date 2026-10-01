@@ -82,6 +82,14 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
   const [lang, setLang] = useState(false);
   const [exitSheet, setExitSheet] = useState(false);
 
+  // «Запуск с Windows» хранит Windows, а не служба: перечитываем, когда окно снова в фокусе,
+  // — его могли переключить в окне трея.
+  useEffect(() => {
+    const read = () => void transport.autostart.get().then(setAutostart).catch(() => undefined);
+    window.addEventListener('focus', read);
+    return () => window.removeEventListener('focus', read);
+  }, [transport]);
+
   useEffect(() => {
     transport.autostart
       .get()

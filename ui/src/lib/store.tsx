@@ -305,6 +305,10 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
             void loadServers(settings.active_connection);
           });
         }
+      } else if (e.ev === 'servers') {
+        // Замерили в другом окне (или в этом): свежие задержки и «нет ответа» — после замера.
+        dispatch({ t: 'tested', id: e.connection });
+        void loadServers(e.connection);
       } else if (e.ev === 'settings') {
         // Главное окно и окно трея — два отдельных окна: что поменяли в одном, должно быть видно в другом.
         void transport.call<Settings>('settings').then((settings) => dispatch({ t: 'settings', settings })).catch(() => undefined);

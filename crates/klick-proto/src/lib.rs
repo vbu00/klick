@@ -316,6 +316,8 @@ pub enum Event {
     /// Настройки изменились — в любом окне или из консоли: окна перечитывают их, иначе главное
     /// окно и окно трея показывают разное.
     Settings,
+    /// Задержку серверов подключения измерили (в любом окне): окна перечитывают список серверов.
+    Servers { connection: String },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -232,4 +232,6 @@ export type KEvent =
   | { ev: 'proxy_apply'; host: string; port: number; bypass: string[] }
   | { ev: 'proxy_clear' }
   /** Настройки изменились (в этом окне, в другом или из консоли) — перечитать. */
-  | { ev: 'settings' };
+  | { ev: 'settings' }
+  /** Задержку серверов подключения измерили — в этом окне или в другом. */
+  | { ev: 'servers'; connection: string };
