@@ -31,7 +31,8 @@ export function createTauriTransport(): Transport {
     },
     win: {
       minimize: () => void win.minimize(),
-      hide: () => void win.hide(),
+      // Через Rust: заодно перестаёт рисоваться страница скрытого окна.
+      hide: () => void invoke('hide_self'),
     },
     pickExe: async () => {
       // macOS: программа — пакет .app, по умолчанию из папки «Программы».

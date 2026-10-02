@@ -18,6 +18,12 @@ applyCachedTheme();
 
 createTransport().then((transport) => {
   if (transport.kind === 'tauri') document.body.classList.add('in-tauri');
+  // Окно не в фокусе (сверху игра или другая программа) — бесконечные анимации на паузе:
+  // иначе они 60 раз в секунду дёргают видеокарту, которая нужна не нам.
+  const idle = () => document.body.classList.toggle('idle', !document.hasFocus());
+  window.addEventListener('focus', idle);
+  window.addEventListener('blur', idle);
+  idle();
   document.body.classList.add(`os-${PLATFORM}`);
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

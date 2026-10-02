@@ -773,3 +773,8 @@
 .switch-legend span { display: flex; align-items: center; gap: 6px; }
 .switch-legend i.solid { width: 14px; height: 2px; border-radius: 1px; background: var(--accent); }
 .switch-legend i.dashed { width: 14px; height: 0; border-top: 1.5px dashed var(--ring); }
+
+/* Окно не в фокусе — анимации стоят (main.tsx). */
+body.idle *,
+body.idle *::before,
+body.idle *::after { animation-play-state: paused !important; }

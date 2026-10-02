@@ -19,7 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 
@@ -49,12 +49,33 @@ pub(crate) fn in_app_bundle() -> bool {
     std::env::current_exe().ok().is_some_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
 }
 
+/// Рисует ли страница окна. Tauri прячет и сворачивает только само окно, а WebView2 о том не знает
+/// и продолжает крутить анимации: скрытое окно грызло почти ядро процессора и видеокарту, игры подлагивали.
+fn set_rendering(w: &WebviewWindow, on: bool) {
+    #[cfg(windows)]
+    let _ = w.with_webview(move |wv| unsafe {
+        let _ = wv.controller().SetIsVisible(on);
+    });
+    #[cfg(not(windows))]
+    let _ = (w, on);
+}
+
+fn hide_window(w: &WebviewWindow) {
+    let _ = w.hide();
+    set_rendering(w, false);
+}
+
+fn show_window(w: &WebviewWindow) {
+    set_rendering(w, true);
+    let _ = w.show();
+}
+
 pub(crate) fn show_main(app: &AppHandle) {
     if let Some(t) = app.get_webview_window("tray") {
-        let _ = t.hide();
+        hide_window(&t);
     }
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
+        show_window(&w);
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
@@ -85,14 +106,14 @@ static TRAY_HIDDEN_AT: AtomicU64 = AtomicU64::new(0);
 fn show_tray(app: &AppHandle) {
     let Some(w) = app.get_webview_window("tray") else { return };
     let _ = w.move_window_constrained(Position::TrayCenter);
-    let _ = w.show();
+    show_window(&w);
     let _ = w.set_focus();
 }
 
 fn toggle_tray(app: &AppHandle) {
     let Some(w) = app.get_webview_window("tray") else { return };
     if w.is_visible().unwrap_or(false) {
-        let _ = w.hide();
+        hide_window(&w);
         return;
     }
     if now_ms().saturating_sub(TRAY_HIDDEN_AT.load(Ordering::Relaxed)) < 300 {
@@ -244,8 +265,14 @@ fn open_tray(app: AppHandle) {
 #[tauri::command]
 fn hide_tray(app: AppHandle) {
     if let Some(t) = app.get_webview_window("tray") {
-        let _ = t.hide();
+        hide_window(&t);
     }
+}
+
+/// Кнопка «Свернуть в трей» в заголовке окна.
+#[tauri::command]
+fn hide_self(window: WebviewWindow) {
+    hide_window(&window);
 }
 
 /// «Выход». `clear_proxy` — VPN выключили: наш системный прокси тоже снять.
@@ -361,6 +388,7 @@ fn main() {
             open_main,
             open_tray,
             hide_tray,
+            hide_self,
             fit_tray,
             clipboard_text,
             app_exit,
@@ -435,27 +463,33 @@ fn main() {
             .build(app)?;
             Ok(())
         })
-        .on_window_event(|window, event| match (window.label(), event) {
-            // Крестик сворачивает в трей: VPN и служба продолжают работать.
-            (_, WindowEvent::CloseRequested { api, .. }) => {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-            // Окно трея — как всплывающее меню: щёлкнули мимо, и оно спряталось.
-            ("tray", WindowEvent::Focused(false)) => {
-                TRAY_HIDDEN_AT.store(now_ms(), Ordering::Relaxed);
-                let _ = window.hide();
-            }
-            // Окна фиксированного размера: двойной щелчок по заголовку, Win+↑ и «прилипание» к краю
-            // экрана разворачивают их и без кнопки — сразу возвращаем как было.
-            (_, WindowEvent::Resized(_)) => {
-                if window.is_maximized().unwrap_or(false) {
-                    let _ = window.unmaximize();
+        .on_window_event(|window, event| {
+            let Some(w) = window.app_handle().get_webview_window(window.label()) else { return };
+            match (window.label(), event) {
+                // Крестик сворачивает в трей: VPN и служба продолжают работать.
+                (_, WindowEvent::CloseRequested { api, .. }) => {
+                    api.prevent_close();
+                    hide_window(&w);
                 }
+                // Окно трея — как всплывающее меню: щёлкнули мимо, и оно спряталось.
+                ("tray", WindowEvent::Focused(false)) => {
+                    TRAY_HIDDEN_AT.store(now_ms(), Ordering::Relaxed);
+                    hide_window(&w);
+                }
+                // Окна фиксированного размера: двойной щелчок по заголовку, Win+↑ и «прилипание» к краю
+                // экрана разворачивают их и без кнопки — сразу возвращаем как было.
+                // Свёрнутое окно не рисует; развернули из панели задач — рисует снова.
+                (_, WindowEvent::Resized(_)) => {
+                    if window.is_maximized().unwrap_or(false) {
+                        let _ = window.unmaximize();
+                    }
+                    let shown = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+                    set_rendering(&w, shown);
+                }
+                // Окно перетащили на экран с другим масштабом: высоту — снова под рабочую область.
+                ("main", WindowEvent::ScaleFactorChanged { .. }) => fit_main(window.app_handle()),
+                _ => {}
             }
-            // Окно перетащили на экран с другим масштабом: высоту — снова под рабочую область.
-            ("main", WindowEvent::ScaleFactorChanged { .. }) => fit_main(window.app_handle()),
-            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("окно kl!ck не запустилось")
