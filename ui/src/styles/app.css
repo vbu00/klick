@@ -154,7 +154,8 @@
 }
 
 /* ── Главная ──────────────────────────────────────────── */
-.home-status { text-align: center; margin-top: 28px; }
+/* Над точками волны (.wave заходит вверх на 120px); ореол цвета окна раздвигает точки вокруг цифр. */
+.home-status { position: relative; z-index: 2; text-align: center; margin-top: 28px; text-shadow: 0 0 2px var(--win), 0 0 4px var(--win), 0 0 7px var(--win); }
 .status-label { font-size: 15px; color: var(--dim); }
 .status-label.warn { color: var(--orange); }
 .status-label.bad { color: var(--red); }
@@ -773,8 +774,3 @@
 .switch-legend span { display: flex; align-items: center; gap: 6px; }
 .switch-legend i.solid { width: 14px; height: 2px; border-radius: 1px; background: var(--accent); }
 .switch-legend i.dashed { width: 14px; height: 0; border-top: 1.5px dashed var(--ring); }
-
-/* Окно не в фокусе — анимации стоят (main.tsx). */
-body.idle *,
-body.idle *::before,
-body.idle *::after { animation-play-state: paused !important; }

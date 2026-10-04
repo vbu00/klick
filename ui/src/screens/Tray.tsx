@@ -13,6 +13,7 @@ import { errorText } from '../lib/i18n';
 import { plural } from '../lib/rules';
 import { isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
+import { detect } from '../lib/source';
 
 import type { AboutView, Connection, ExitAction, ServerView, VpnState } from '../lib/types';
 import { useNow } from './Home';
@@ -457,11 +458,10 @@ function PasteCard() {
   const paste = async () => {
     setBusy(true);
     const text = (await store.transport.clipboardText().catch(() => '')).trim();
-    if (!/^(https?|vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|anytls|wireguard):\/\//i.test(text)) {
-      store.toast('В буфере нет ссылки', 'Скопируйте ссылку на подписку или конфигурацию', 'warn');
-    } else {
-      await store.addLink(text);
-    }
+    const d = detect(text);
+    if (d.kind === 'sub' || d.kind === 'link') await store.addLink(text);
+    else if (d.kind === 'text') await store.importText(d.name ?? 'Серверы', text);
+    else store.toast('В буфере нет ссылки', 'Скопируйте ссылку на подписку или конфигурацию', 'warn');
     setBusy(false);
   };
   return (

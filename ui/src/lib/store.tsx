@@ -172,6 +172,8 @@ export interface Store extends S {
   remove(id: string): Promise<void>;
   addLink(source: string, name?: string): Promise<boolean>;
   importFile(file: File): Promise<boolean>;
+  /** Несколько ссылок или конфигурация, вставленные текстом: служба разбирает их как файл. */
+  importText(name: string, content: string): Promise<boolean>;
   setMode(mode: Mode): Promise<void>;
   setRouting(routing: Routing): Promise<void>;
   setRussia(key: 'ru_domains' | 'ru_ips', on: boolean): Promise<void>;
@@ -469,6 +471,14 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         const r = await call('import_file', { file_name: file.name, content });
         if (r === undefined) return false;
         toast('Файл импортирован', file.name, 'ok');
+        await reload();
+        return true;
+      },
+      importText: async (name, content) => {
+        // Расширение — чтобы точка в названии не съела его хвост: служба берёт имя файла без расширения.
+        const r = await call('import_file', { file_name: `${name}.txt`, content });
+        if (r === undefined) return false;
+        toast('Подключение добавлено', name, 'ok');
         await reload();
         return true;
       },

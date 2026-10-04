@@ -3,28 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type { Tab } from '../components/Chrome';
-import { protocolName } from '../lib/format';
+import { detect } from '../lib/source';
 import { useStore } from '../lib/store';
-
-const LINK_SCHEMES = ['vless', 'vmess', 'trojan', 'ss', 'ssr', 'socks', 'socks5', 'hysteria', 'hysteria2', 'hy2', 'tuic', 'wireguard', 'wg', 'anytls'];
-
-type Detect = { kind: 'empty' | 'sub' | 'link' | 'bad'; title: string; text: string; color: string };
-
-function detect(input: string): Detect {
-  const s = input.trim();
-  if (!s) return { kind: 'empty', title: 'Ожидаем ссылку', text: 'Скопируйте её у провайдера VPN и вставьте выше — тип определится сам.', color: 'var(--dim)' };
-  const scheme = s.includes('://') ? s.split('://')[0].toLowerCase() : '';
-  if ((scheme === 'https' || scheme === 'http') && !/\s/.test(s)) {
-    return { kind: 'sub', title: 'Ссылка на подписку', text: 'Загрузим список серверов, лимит трафика и срок действия. Будет обновляться автоматически.', color: 'var(--accent)' };
-  }
-  if (scheme === 'ssconf' && !/\s/.test(s)) {
-    return { kind: 'sub', title: 'Ключ доступа Outline', text: 'Загрузим сервер Shadowsocks по ключу и будем обновлять его автоматически.', color: 'var(--accent)' };
-  }
-  if (LINK_SCHEMES.includes(scheme) && !/\s/.test(s)) {
-    return { kind: 'link', title: `Одиночная конфигурация · ${protocolName(scheme === 'hy2' ? 'hysteria2' : scheme)}`, text: 'Прямое соединение с одним сервером. Без лимитов и срока — только адрес и ключ.', color: 'var(--accent)' };
-  }
-  return { kind: 'bad', title: 'Формат не распознан', text: 'Ожидается https://… или vless://, vmess://, trojan://, ss://, hysteria2://', color: 'var(--red)' };
-}
 
 export function Add({ onTab }: { onTab: (t: Tab) => void }) {
   const store = useStore();
@@ -39,7 +19,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const d = detect(link);
-  const canAdd = (d.kind === 'sub' || d.kind === 'link') && !busy;
+  const canAdd = (d.kind === 'sub' || d.kind === 'link' || d.kind === 'text') && !busy;
 
   // Ссылка klick://add: подписка уже вставлена, добавляет её человек своей кнопкой.
   useEffect(() => {
@@ -64,7 +44,10 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
   const addLink = async () => {
     if (!canAdd) return;
     setBusy(true);
-    const ok = await store.addLink(link.trim(), d.kind === 'sub' ? name.trim() : undefined);
+    const ok =
+      d.kind === 'text'
+        ? await store.importText(name.trim() || d.name || 'Серверы', link.trim())
+        : await store.addLink(link.trim(), d.kind === 'sub' ? name.trim() : undefined);
     setBusy(false);
     if (ok) {
       reset();
@@ -136,7 +119,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
               <span>{d.text}</span>
             </div>
           </div>
-          {d.kind === 'sub' ? <input className="name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Название (необязательно)" /> : null}
+          {d.kind === 'sub' || d.kind === 'text' ? <input className="name-input" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder={d.kind === 'text' ? `Название (иначе «${d.name}»)` : 'Название (необязательно)'} /> : null}
           <button className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink}>
             {busy ? 'Добавляем…' : 'Добавить'}
           </button>
