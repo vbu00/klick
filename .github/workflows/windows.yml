@@ -11,6 +11,8 @@
 # При ручном запуске можно собрать kl!ck из vbu00/klick как есть (main или тег выпуска, например
 # v0.4.0) — проверки при этом из этой ветки, кроме ссылок klick://add (в выпусках до 0.5 их нет).
 # Ссылка подписки не сохраняется в репозитории и скрыта в журнале.
+# release_run — ничего не собирать, а выпустить установщик из зелёного запуска Windows (его номер):
+# предвыпуск windows-<версия> с klick-<версия>-setup.exe — ровно тот файл, что прошёл проверки.
 name: Windows
 
 on:
@@ -37,6 +39,10 @@ on:
         description: Ссылка подписки для проверки с настоящими серверами (необязательно)
         required: false
         default: ''
+      release_run:
+        description: Выпустить — номер зелёного запуска Windows; его установщик станет предвыпуском windows-<версия>
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -47,6 +53,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ inputs.release_run == '' }}
     runs-on: windows-2022
     timeout-minutes: 90
     steps:
@@ -118,6 +125,7 @@ jobs:
 
   # Прежняя kl!ck 0.3.0 из исходников vbu00/klick: её установщик NSIS ставится без окна (/S).
   old:
+    if: ${{ inputs.release_run == '' }}
     runs-on: windows-2022
     timeout-minutes: 60
     steps:
@@ -151,7 +159,7 @@ jobs:
 
   check:
     needs: [build, old]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.release_run == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -210,3 +218,69 @@ jobs:
           name: results-${{ matrix.runner }}-${{ matrix.scenario }}
           path: C:\klick\results
           if-no-files-found: ignore
+
+  # Выпуск проверенного установщика — предвыпуском: «последним» выпуском остаётся сборка для Mac
+  # (на releases/latest смотрят команда установки из README и проверка обновлений на Mac).
+  release:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Запуск Windows зелёный
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ inputs.release_run }}
+        run: |
+          IFS=$'\t' read -r name conclusion sha < <(gh api "repos/${{ github.repository }}/actions/runs/$RUN" --jq '[.name, .conclusion, .head_sha] | @tsv')
+          echo "запуск $RUN: $name, $conclusion, $sha"
+          if [ "$name" != "Windows" ] || [ "$conclusion" != "success" ]; then
+            echo "::error::выпускаю только из зелёного запуска Windows"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: klick-windows
+          path: build
+          run-id: ${{ inputs.release_run }}
+          github-token: ${{ github.token }}
+
+      - name: Предвыпуск windows-<версия>
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.run.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run }}
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          exe="klick-$v-setup.exe"
+          cp build/klick-setup.exe "$exe"
+          sum=$(sha256sum "$exe" | cut -d' ' -f1)
+          cat > notes.md <<NOTES
+          Установщик kl!ck $v для Windows 10/11 x64 — проверочная сборка, основа — kl!ck 0.4.0 из vbu00/klick.
+
+          **Что исправлено против 0.4.0**
+          - Страж связи не рвёт работающий VPN: если через сервер идут данные, неудачная проверка ничего не трогает — без «Переподключаюсь», перезапуска ядра и «Сервер не отвечает».
+          - Проверка связи ждёт ответа 10 с вместо 5.
+          - Задержка в списке серверов меряется по каждому серверу отдельно, по 6 сразу, — в плохой сети больше не «нет ответа» у всех.
+
+          **Установка:** запустить \`$exe\` поверх прежней kl!ck — подключения и настройки остаются. В «О приложении» будет $v.
+
+          SHA-256: \`$sum\`
+          Сборка ${SHA:0:7}, проверки на Windows Server 2022 и 2025: $RUN_URL
+          NOTES
+          tag="windows-$v"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$exe" --clobber
+            gh release edit "$tag" --notes-file notes.md
+          else
+            gh release create "$tag" "$exe" --prerelease --latest=false --target "$SHA" --title "kl!ck $v для Windows (проверка)" --notes-file notes.md
+          fi
+          echo "$exe: $sum"
