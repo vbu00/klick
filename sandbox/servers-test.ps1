@@ -170,9 +170,18 @@ function BareWarnings {
 # Голое ядро под нагрузкой: запрос каждые 2 с и проверка, как у стража kl!ck, раз в 30 с; по строкам
 # WireGuard видно, когда туннель замолкает («не слышно сервер») и сколько было рукопожатий.
 function BareLoad([string]$label, [string]$server, [int]$seconds, [bool]$viaTun = $false) {
+    # С TUN ядро дочитывает серверы дольше: первые попытки выбрать сервер получают 400.
     $body = [Text.Encoding]::UTF8.GetBytes((@{ name = $server } | ConvertTo-Json -Compress))
-    try { Invoke-WebRequest -UseBasicParsing -Method Put -Headers $bareHead -ContentType 'application/json' -Body $body "$bareUrl/proxies/klick-vpn" -TimeoutSec 5 | Out-Null }
-    catch { Log ("    {0}: сервер не выбран: {1}" -f $label, (Scrub $_.Exception.Message)); return }
+    $why = ''
+    for ($i = 0; $i -lt 10; $i++) {
+        try { Invoke-WebRequest -UseBasicParsing -Method Put -Headers $bareHead -ContentType 'application/json' -Body $body "$bareUrl/proxies/klick-vpn" -TimeoutSec 5 | Out-Null; $why = ''; break }
+        catch {
+            $why = $_.Exception.Message
+            try { $why += ' ' + (New-Object IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
+            Start-Sleep 1
+        }
+    }
+    if ($why) { Log ("    {0}: сервер не выбран: {1}" -f $label, (Scrub $why)); return }
     $via = if ($viaTun) { @() } else { @('-x', 'http://127.0.0.1:19180') }
     $ok = 0; $bad = 0; $pOk = 0; $pBad = 0; $slow = 0
     $probe = "$bareUrl/proxies/klick-vpn/delay?url=$([uri]::EscapeDataString('https://www.gstatic.com/generate_204'))&timeout=5000"

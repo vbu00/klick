@@ -142,17 +142,32 @@ impl CoreApi {
         Ok(v["delay"].as_u64().filter(|d| *d > 0).map(|d| d as u32))
     }
 
-    /// Задержка всех серверов группы разом.
-    pub async fn group_delay(&self, group: &str, url: &str, timeout_ms: u32) -> Result<HashMap<String, u32>> {
-        let path = format!("/group/{}/delay?url={}&timeout={timeout_ms}", enc(group), enc(url));
-        let (status, body) = self.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 3_000)).await?;
-        if !status.is_success() {
-            return Ok(HashMap::new());
+    /// Задержка каждого сервера отдельно, не больше `parallel` проверок сразу. Вся группа разом —
+    /// это десяток новых рукопожатий (QUIC, WireGuard) в одну секунду: в плохой сети не успевает
+    /// никто, и в списке «нет ответа» даже у сервера, через который всё работает.
+    pub async fn provider_delays(&self, provider: &str, names: &[String], url: &str, timeout_ms: u32, parallel: usize) -> HashMap<String, u32> {
+        let gate = Arc::new(tokio::sync::Semaphore::new(parallel.max(1)));
+        let mut checks = tokio::task::JoinSet::new();
+        for name in names {
+            let (api, gate, name) = (self.clone(), gate.clone(), name.clone());
+            let path = format!("/providers/proxies/{}/{}/healthcheck?url={}&timeout={timeout_ms}", enc(provider), enc(&name), enc(url));
+            checks.spawn(async move {
+                let _turn = gate.acquire_owned().await.ok()?;
+                let (status, body) = api.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 2_000)).await.ok()?;
+                if !status.is_success() {
+                    return None;
+                }
+                let v: Value = serde_json::from_slice(&body).ok()?;
+                Some((name, v["delay"].as_u64().filter(|d| *d > 0)? as u32))
+            });
         }
-        let v: Value = serde_json::from_slice(&body)?;
-        Ok(v.as_object()
-            .map(|m| m.iter().filter_map(|(k, d)| Some((k.clone(), d.as_u64().filter(|d| *d > 0)? as u32))).collect())
-            .unwrap_or_default())
+        let mut out = HashMap::new();
+        while let Some(done) = checks.join_next().await {
+            if let Ok(Some((name, delay))) = done {
+                out.insert(name, delay);
+            }
+        }
+        out
     }
 
     /// Перечитать конфиг без перезапуска: тумблер, списки, Kill Switch.

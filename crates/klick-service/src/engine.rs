@@ -39,7 +39,12 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::Instant;
 
 pub const TUN_DEVICE: &str = "klick";
-const PROBE_TIMEOUT_MS: u32 = 5_000;
+/// Проверка связи стражем — два запроса через сервер (unified-delay). В плохой сети они не всегда
+/// укладываются в 5 с, а неудача ведёт к переподключению.
+const PROBE_TIMEOUT_MS: u32 = 10_000;
+/// Задержка серверов для списка: каждый отдельно, не больше стольких сразу.
+const LATENCY_TIMEOUT_MS: u32 = 8_000;
+const LATENCY_PARALLEL: usize = 6;
 
 pub enum Msg {
     Cmd(Command, oneshot::Sender<Result<Value, ErrorInfo>>),
@@ -149,6 +154,10 @@ pub struct Engine {
     restarts: u8,
     /// Проверка сервера идёт в фоне (поколение ядра): страж ждёт её итога, а не запускает новую.
     probing: Option<u64>,
+    /// Сколько скачало каждое соединение через VPN к прошлой проверке стража.
+    vpn_rx: HashMap<String, u64>,
+    /// Проверка не проходит, а данные через сервер идут: в журнал — один раз, не каждые 30 с.
+    probe_soft: bool,
     proxy_applied: bool,
     /// Прокси поставила служба, потому что окна не было: что стояло у пользователя до этого.
     #[cfg(windows)]
@@ -359,6 +368,8 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         epoch: Instant::now(),
         restarts: 0,
         probing: None,
+        vpn_rx: HashMap::new(),
+        probe_soft: false,
         proxy_applied: false,
         #[cfg(windows)]
         user_proxy_saved: None,
@@ -452,6 +463,12 @@ async fn check_update() -> Result<UpdateView, ErrorInfo> {
 fn version_newer(latest: &str, current: &str) -> bool {
     let parse = |v: &str| v.split(['.', '-', '+']).take(3).map(|x| x.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
     parse(latest) > parse(current)
+}
+
+/// Задержка всех серверов подключения: каждый отдельно, не больше `LATENCY_PARALLEL` сразу.
+async fn measure_all(api: &CoreApi, list: &[(String, String)]) -> HashMap<String, u32> {
+    let names: Vec<String> = list.iter().map(|(name, _)| name.clone()).collect();
+    api.provider_delays(PROVIDER, &names, PROBE_URL, LATENCY_TIMEOUT_MS, LATENCY_PARALLEL).await
 }
 
 fn internal(e: impl std::fmt::Display) -> ErrorInfo {
@@ -1388,6 +1405,12 @@ impl Engine {
         match action {
             Action::Probe => self.spawn_probe(false),
             Action::Retry { attempt, .. } => {
+                // Перечитать конфиг и перезапустить ядро — значит оборвать все соединения. Пока данные
+                // через сервер идут, он жив: этого не делаем.
+                if attempt > 1 && self.traffic_through_vpn().await {
+                    self.probed(true, true).await;
+                    return;
+                }
                 self.set_state(VpnState::Reconnecting, None);
                 match attempt {
                     1 => self.spawn_probe(true),
@@ -1425,6 +1448,15 @@ impl Engine {
 
     /// Итог проверки: обычной (`retry = false`) или попытки переподключения.
     async fn probed(&mut self, retry: bool, mut ok: bool) {
+        // Проверка не успела, а соединения через сервер с прошлого раза скачали ещё — сервер жив.
+        // Так у людей, у кого VPN работал, страж не рвал связь и не писал «Сервер не отвечает».
+        let flowing = self.traffic_through_vpn().await;
+        let soft = !ok && flowing;
+        if soft && !self.probe_soft {
+            tracing::info!("проверка сервера не прошла, но данные через него идут — связь не трогаю");
+        }
+        self.probe_soft = soft;
+        ok |= flowing;
         if !retry {
             if !ok && self.settings.on_server_down != ServerDownPolicy::Reconnect && self.guard.as_ref().map(Guard::health) == Some(Health::Healthy) {
                 ok = self.switch_to_alternative().await;
@@ -1436,6 +1468,16 @@ impl Engine {
         let now = self.now_ms();
         let notice = self.guard.as_mut().and_then(|g| g.report(ok, now));
         self.after_guard(notice);
+    }
+
+    /// Пришло ли что-нибудь через сервер с прошлого раза: хоть одно соединение через VPN скачало ещё.
+    async fn traffic_through_vpn(&mut self) -> bool {
+        let Some(api) = self.api() else { return false };
+        let Ok(v) = api.get_json("/connections").await else { return false };
+        let now = ipcheck::vpn_downloads(&v);
+        let grew = now.iter().any(|(id, d)| *d > self.vpn_rx.get(id).copied().unwrap_or(0));
+        self.vpn_rx = now;
+        grew
     }
 
     fn after_guard(&mut self, notice: Option<Notice>) {
@@ -1460,7 +1502,7 @@ impl Engine {
     async fn switch_to_alternative(&mut self) -> bool {
         let Some(api) = self.api() else { return false };
         let Ok(list) = api.provider_proxies(PROVIDER).await else { return false };
-        let delays = api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default();
+        let delays = measure_all(&api, &list).await;
         let current = self.settings.active().and_then(|c| c.selected_server.clone());
         let pick = match self.settings.on_server_down {
             ServerDownPolicy::Fastest => delays.iter().filter(|(n, _)| Some(*n) != current.as_ref()).min_by_key(|(_, d)| **d).map(|(n, _)| n.clone()),
@@ -2104,7 +2146,7 @@ impl Engine {
         let (list, delays, now) = match self.api() {
             Some(api) => {
                 let list = api.provider_proxies(PROVIDER).await.map_err(internal)?;
-                let delays = if measure { api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default() } else { HashMap::new() };
+                let delays = if measure { measure_all(&api, &list).await } else { HashMap::new() };
                 let now = api.selected(VPN_GROUP).await.ok().flatten();
                 (list, delays, now)
             }
@@ -2158,7 +2200,10 @@ impl Engine {
             tokio::time::sleep(Duration::from_millis(100)).await;
             list = api.provider_proxies(PROVIDER).await;
         }
-        let delays = if measure { api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default() } else { HashMap::new() };
+        let delays = match &list {
+            Ok(l) if measure => measure_all(&api, l).await,
+            _ => HashMap::new(),
+        };
         process.stop().await;
         let list = list.map_err(|e| {
             tracing::warn!("проверочное ядро не отдало серверы: {e:#}");
