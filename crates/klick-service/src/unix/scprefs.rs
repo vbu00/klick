@@ -26,7 +26,10 @@ extern "C" {
     fn SCPreferencesCommitChanges(prefs: ScRef) -> Boolean;
     fn SCPreferencesApplyChanges(prefs: ScRef) -> Boolean;
     fn SCNetworkSetCopyCurrent(prefs: ScRef) -> ScRef;
+    fn SCNetworkSetGetSetID(set: ScRef) -> CFStringRef;
     fn SCNetworkSetCopyServices(set: ScRef) -> CFArrayRef;
+    fn SCNetworkServiceCopyAll(prefs: ScRef) -> CFArrayRef;
+    fn SCNetworkServiceGetServiceID(service: ScRef) -> CFStringRef;
     fn SCNetworkServiceGetName(service: ScRef) -> CFStringRef;
     fn SCNetworkServiceGetEnabled(service: ScRef) -> Boolean;
     fn SCNetworkServiceCopyProtocol(service: ScRef, kind: CFStringRef) -> ScRef;
@@ -45,8 +48,10 @@ const STALE: c_int = 3005;
 const PROXIES: &str = "Proxies";
 const DNS: &str = "DNS";
 
-/// Прочитать сетевые службы текущего размещения и записать то, что вернёт `plan` (индекс службы
+/// Прочитать ВСЕ сетевые службы (всех размещений) и записать то, что вернёт `plan` (индекс службы
 /// в прочитанном списке и новые настройки). Всё — под блокировкой настроек, одной записью.
+/// Службы текущего размещения помечены `in_current`: ставить настройки нужно им, а возвращать — всем,
+/// иначе после смены размещения во время VPN в прежнем осталось бы наше.
 /// `Ok(true)` — настройки поменялись, `Ok(false)` — менять было нечего.
 pub(super) fn edit(plan: impl FnOnce(&[Service]) -> Vec<(usize, Change)>) -> Result<bool, String> {
     let name = CFString::from_static_string("kl!ck");
@@ -54,8 +59,8 @@ pub(super) fn edit(plan: impl FnOnce(&[Service]) -> Vec<(usize, Change)>) -> Res
         .ok_or_else(|| error("настройки сети не открылись"))?;
     let prefs = prefs.as_CFTypeRef();
     let _lock = Lock::take(prefs)?;
-    let set = owned(unsafe { SCNetworkSetCopyCurrent(prefs) }).ok_or_else(|| error("нет текущего размещения сети"))?;
-    let list = unsafe { SCNetworkSetCopyServices(set.as_CFTypeRef()) };
+    let current = current_service_ids(prefs)?;
+    let list = unsafe { SCNetworkServiceCopyAll(prefs) };
     if list.is_null() {
         return Err(error("сетевые службы не прочитались"));
     }
@@ -64,19 +69,26 @@ pub(super) fn edit(plan: impl FnOnce(&[Service]) -> Vec<(usize, Change)>) -> Res
     let mut services = Vec::new();
     for service in list.iter() {
         let raw = service.as_CFTypeRef();
-        let name = unsafe { SCNetworkServiceGetName(raw) };
-        if name.is_null() {
+        let (id, name) = unsafe { (SCNetworkServiceGetServiceID(raw), SCNetworkServiceGetName(raw)) };
+        if id.is_null() || name.is_null() {
             continue;
         }
+        let id = unsafe { CFString::wrap_under_get_rule(id) }.to_string();
         let proxies = protocol(raw, PROXIES, false)?;
         let dns = protocol(raw, DNS, false)?;
         services.push(Service {
+            in_current: current.contains(&id),
+            id,
             name: unsafe { CFString::wrap_under_get_rule(name) }.to_string(),
             enabled: unsafe { SCNetworkServiceGetEnabled(raw) } != 0,
             proxy: proxies.as_ref().map(|p| read_proxy(&config(p))).unwrap_or_default(),
             dns: dns.as_ref().map(|p| list_of(&config(p), "ServerAddresses")).unwrap_or_default(),
         });
         handles.push((*service).clone());
+    }
+    // Пустой список — сбой чтения, а не «ничего нет»: по нему отметку для возврата удалять нельзя.
+    if services.is_empty() {
+        return Err("сетевые службы не найдены".into());
     }
 
     let changes = plan(&services);
@@ -108,6 +120,53 @@ pub(super) fn edit(plan: impl FnOnce(&[Service]) -> Vec<(usize, Change)>) -> Res
         return Err(error("настройки сети записались, но не применились"));
     }
     Ok(true)
+}
+
+/// ID служб текущего размещения.
+fn current_service_ids(prefs: ScRef) -> Result<Vec<String>, String> {
+    let set = owned(unsafe { SCNetworkSetCopyCurrent(prefs) }).ok_or_else(|| error("нет текущего размещения сети"))?;
+    let list = unsafe { SCNetworkSetCopyServices(set.as_CFTypeRef()) };
+    if list.is_null() {
+        return Err(error("сетевые службы не прочитались"));
+    }
+    let list: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(list) };
+    Ok(list
+        .iter()
+        .filter_map(|s| {
+            let id = unsafe { SCNetworkServiceGetServiceID(s.as_CFTypeRef()) };
+            (!id.is_null()).then(|| unsafe { CFString::wrap_under_get_rule(id) }.to_string())
+        })
+        .collect())
+}
+
+/// Отпечаток набора сетевых служб: ID текущего размещения и его службы (с пометкой «включена»).
+/// Меняется при смене размещения, добавлении и включении служб; без записи и без блокировки.
+pub(super) fn network_set() -> Option<String> {
+    let name = CFString::from_static_string("kl!ck");
+    let prefs = owned(unsafe { SCPreferencesCreate(std::ptr::null(), name.as_concrete_TypeRef(), std::ptr::null()) })?;
+    let set = owned(unsafe { SCNetworkSetCopyCurrent(prefs.as_CFTypeRef()) })?;
+    let id = unsafe { SCNetworkSetGetSetID(set.as_CFTypeRef()) };
+    if id.is_null() {
+        return None;
+    }
+    let list = unsafe { SCNetworkSetCopyServices(set.as_CFTypeRef()) };
+    if list.is_null() {
+        return None;
+    }
+    let list: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(list) };
+    let mut services: Vec<String> = list
+        .iter()
+        .filter_map(|s| {
+            let raw = s.as_CFTypeRef();
+            let id = unsafe { SCNetworkServiceGetServiceID(raw) };
+            (!id.is_null()).then(|| {
+                let on = unsafe { SCNetworkServiceGetEnabled(raw) } != 0;
+                format!("{}{}", unsafe { CFString::wrap_under_get_rule(id) }, if on { "+" } else { "-" })
+            })
+        })
+        .collect();
+    services.sort();
+    Some(format!("{}:{}", unsafe { CFString::wrap_under_get_rule(id) }, services.join(",")))
 }
 
 /// Блокировка настроек сети: снимается при выходе из `edit`, в том числе по ошибке.

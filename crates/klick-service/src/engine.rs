@@ -175,6 +175,8 @@ pub struct Engine {
     probe_soft: bool,
     /// Сети нет — страж ждёт; в журнал — один раз.
     no_network: bool,
+    /// Прокси нужен (режим «Системный прокси» работает): желаемое, а не подтверждённое состояние. Подтверждает
+    /// отметка на диске: пока она есть, возврат не состоялся и `retry_netconf_leftovers` его повторяет.
     proxy_applied: bool,
     /// Прокси поставила служба, потому что окна не было: что стояло у пользователя до этого.
     #[cfg(windows)]
@@ -192,7 +194,8 @@ pub struct Engine {
     /// macOS: стоят ли правила Kill Switch в pf; `None` — ещё не сверяли (при запуске службы).
     #[cfg(unix)]
     pf_on: Option<bool>,
-    /// macOS: DNS сетевых служб подменён на адрес внутри адаптера (режим VPN).
+    /// macOS: DNS сетевых служб должен быть на адресе внутри адаптера (режим VPN). Как и `proxy_applied` — желаемое
+    /// состояние: не подтверждённый возврат держит отметка на диске, а не этот флаг.
     #[cfg(unix)]
     dns_overridden: bool,
     /// macOS: DNS-серверы системы, какими они были до подмены: через них ядро ищет адреса серверов VPN.
@@ -570,12 +573,16 @@ impl Engine {
         #[cfg(unix)]
         if self.netconf_allowed() {
             let data = self.paths.data.clone();
-            let (proxy, dns) = tokio::task::spawn_blocking(move || netconf::restore_leftovers(&data)).await.unwrap_or((false, false));
-            if proxy {
-                tracing::info!("снят оставшийся системный прокси kl!ck");
-            }
-            if dns {
-                tracing::info!("возвращён DNS, который стоял до VPN");
+            if let Ok(r) = tokio::task::spawn_blocking(move || netconf::restore_leftovers(&data)).await {
+                if r.proxy.done() {
+                    tracing::info!("снят оставшийся системный прокси kl!ck");
+                }
+                if r.dns.done() {
+                    tracing::info!("возвращён DNS, который стоял до VPN");
+                }
+                if r.failed() {
+                    tracing::warn!("прокси или DNS после сбоя вернуть не удалось: отметки остались, повторю");
+                }
             }
         }
         // Служба перезапустилась, а у пользователя остался прокси, который ставила она, — снять.
@@ -1792,24 +1799,27 @@ impl Engine {
 
     /// Поставить (`Some`) или снять (`None`) системный прокси всем сетевым службам Mac.
     #[cfg(unix)]
-    async fn netconf_proxy(&self, spec: Option<SystemProxy>) {
+    async fn netconf_proxy(&self, spec: Option<SystemProxy>) -> netconf::Outcome {
         if !self.netconf_allowed() {
-            return;
+            return netconf::Outcome::Nothing;
         }
         let marker = self.paths.data.join(netconf::PROXY_MARKER);
         let on = spec.is_some();
-        let ok = tokio::task::spawn_blocking(move || match spec {
+        let out = tokio::task::spawn_blocking(move || match spec {
             Some(s) => netconf::proxy_apply(&s, &marker),
             None => netconf::proxy_clear(&marker),
         })
         .await
-        .unwrap_or(false);
-        match (on, ok) {
-            (true, true) => tracing::info!("системный прокси поставлен"),
-            (true, false) => tracing::warn!("системный прокси не поставился: нет включённых сетевых служб или настройки не записались"),
-            (false, true) => tracing::info!("системный прокси снят"),
-            (false, false) => {}
+        .unwrap_or(netconf::Outcome::Failed);
+        match (on, out) {
+            (true, netconf::Outcome::Done) => tracing::info!("системный прокси поставлен"),
+            (true, netconf::Outcome::Failed) => tracing::warn!("системный прокси не поставился: нет включённых сетевых служб или настройки не записались, повторю"),
+            (false, netconf::Outcome::Done) => tracing::info!("системный прокси снят"),
+            // Отметка осталась: прокси смотрит на остановленный порт, пока возврат не получится.
+            (false, netconf::Outcome::Failed) => tracing::warn!("системный прокси не снялся, повторю"),
+            _ => {}
         }
+        out
     }
 
     /// Режим VPN (TUN): DNS сетевых служб — на адрес внутри адаптера, иначе DNS из локальной сети
@@ -1821,14 +1831,16 @@ impl Engine {
         }
         self.dns_overridden = on;
         let marker = self.paths.data.join(netconf::DNS_MARKER);
-        let ok = tokio::task::spawn_blocking(move || if on { netconf::dns_apply(&marker) } else { netconf::dns_restore(&marker) })
+        let out = tokio::task::spawn_blocking(move || if on { netconf::dns_apply(&marker) } else { netconf::dns_restore(&marker) })
             .await
-            .unwrap_or(false);
-        match (on, ok) {
-            (true, true) => tracing::info!("DNS на время VPN: {}", netconf::DNS_ADDR),
-            (true, false) => tracing::warn!("DNS не подменился: нет включённых сетевых служб или настройки не записались"),
-            (false, true) => tracing::info!("DNS возвращён"),
-            (false, false) => {}
+            .unwrap_or(netconf::Outcome::Failed);
+        match (on, out) {
+            (true, netconf::Outcome::Done) => tracing::info!("DNS на время VPN: {}", netconf::DNS_ADDR),
+            (true, netconf::Outcome::Failed) => tracing::warn!("DNS не подменился: нет включённых сетевых служб или настройки не записались, повторю"),
+            (false, netconf::Outcome::Done) => tracing::info!("DNS возвращён"),
+            // Не считаем восстановленным: отметка осталась, DNS 198.18.0.2 стоит, пока возврат не получится.
+            (false, netconf::Outcome::Failed) => tracing::warn!("DNS не вернулся, повторю"),
+            _ => {}
         }
     }
 
@@ -1845,7 +1857,17 @@ impl Engine {
             let marker = self.paths.data.join(netconf::DNS_MARKER);
             let _ = tokio::task::spawn_blocking(move || netconf::dns_apply(&marker)).await;
         }
-        // Прошлый раз вернуть настройки не удалось (настройки сети были заняты) — пробуем снова при смене сети.
+        self.retry_netconf_leftovers().await;
+    }
+
+    /// Прошлый раз вернуть настройки не удалось (настройки сети были заняты, пропала служба) — отметка осталась.
+    /// Повторяем при смене сети и раз в 10 с (сторож Kill Switch): пока не получилось,
+    /// у сетевых служб стоит DNS 198.18.0.2 или прокси на остановленный порт — интернета нет.
+    #[cfg(unix)]
+    async fn retry_netconf_leftovers(&mut self) {
+        if !self.netconf_allowed() {
+            return;
+        }
         let proxy_left = self.paths.data.join(netconf::PROXY_MARKER);
         if !self.proxy_applied && netconf::has_leftover(&proxy_left) {
             let _ = tokio::task::spawn_blocking(move || netconf::proxy_clear(&proxy_left)).await;
@@ -1901,6 +1923,7 @@ impl Engine {
     /// Раз в 10 с: правила pf на месте (их могла сбросить другая программа), страж работает.
     #[cfg(unix)]
     async fn ks_watchdog(&mut self) {
+        self.retry_netconf_leftovers().await;
         if !self.profile.wfp_allowed {
             return;
         }

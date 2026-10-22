@@ -153,12 +153,18 @@ pub fn uninstall(wipe: bool) -> Result<()> {
     let data = Path::new(crate::paths::DATA_DIR);
     let _ = netconf::restore_leftovers(data);
     let _ = pf::clear(data);
+    // Не вернулось (настройки сети заняты) — отметки остаются: по ним вернёт запасной путь uninstall.sh (networksetup).
+    let pending = netconf::pending_markers(data);
     let _ = std::fs::remove_file(klick_proto::SOCKET);
     if Path::new(INSTALL_DIR).exists() {
         std::fs::remove_dir_all(INSTALL_DIR)?;
     }
     if wipe && data.exists() {
-        std::fs::remove_dir_all(data)?;
+        wipe_data(data, &pending)?;
+    }
+    if !pending.is_empty() {
+        eprintln!("ВНИМАНИЕ: системный прокси или DNS kl!ck вернуть не удалось, отметки ({}) оставлены в {}.", pending.join(", "), data.display());
+        eprintln!("Верните вручную: Системные настройки → Сеть → DNS (убрать 198.18.0.2) и Прокси (выключить 127.0.0.1).");
     }
     println!("служба {LABEL} удалена{}", if wipe { " вместе с данными" } else { "" });
     Ok(())
@@ -172,10 +178,36 @@ pub fn cleanup_network() -> Result<()> {
         bail!("нужны права администратора");
     }
     let data = Path::new(crate::paths::DATA_DIR);
-    let (proxy, dns) = netconf::restore_leftovers(data);
+    let restored = netconf::restore_leftovers(data);
     let pf = pf::clear(data);
-    let said = |b: bool| if b { "да" } else { "нечего" };
-    println!("прокси возвращён: {} · DNS возвращён: {} · правила Kill Switch сняты: {}", said(proxy), said(dns), said(pf));
+    let said = |o: netconf::Outcome| match o {
+        netconf::Outcome::Done => "да",
+        netconf::Outcome::Nothing => "нечего",
+        netconf::Outcome::Failed => "НЕ УДАЛОСЬ",
+    };
+    println!("прокси возвращён: {} · DNS возвращён: {} · правила Kill Switch сняты: {}", said(restored.proxy), said(restored.dns), if pf { "да" } else { "нечего" });
+    if restored.failed() {
+        bail!("прокси или DNS вернуть не удалось (настройки сети заняты?): отметки остались, повторите позже");
+    }
+    Ok(())
+}
+
+/// Стереть данные, кроме отметок, по которым ещё нужно вернуть прокси и DNS.
+fn wipe_data(data: &Path, keep: &[&str]) -> Result<()> {
+    if keep.is_empty() {
+        return Ok(std::fs::remove_dir_all(data)?);
+    }
+    for e in std::fs::read_dir(data)?.flatten() {
+        if keep.iter().any(|k| e.file_name() == *k) {
+            continue;
+        }
+        let path = e.path();
+        if e.file_type()?.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+    }
     Ok(())
 }
 
@@ -285,6 +317,20 @@ mod tests {
         assert!(src.resources.join("catalog.json").is_file());
         assert!(src.resources.ends_with("Contents/Resources/resources") || src.resources.ends_with("../Resources/resources"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn wipe_keeps_markers_that_still_have_something_to_restore() {
+        let dir = std::env::temp_dir().join(format!("klick-wipe-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("logs")).unwrap();
+        for f in ["dns.json", "sysproxy.json", "settings.json", "logs/service.log"] {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        wipe_data(&dir, &["dns.json"]).unwrap();
+        assert!(dir.join("dns.json").exists());
+        assert!(!dir.join("sysproxy.json").exists() && !dir.join("settings.json").exists() && !dir.join("logs").exists());
+        wipe_data(&dir, &[]).unwrap();
+        assert!(!dir.exists());
     }
 
     #[test]
