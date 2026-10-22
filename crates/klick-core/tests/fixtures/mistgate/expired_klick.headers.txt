@@ -1,0 +1,13 @@
+HTTP 200
+Announce: base64:U3Vic2NyaXB0aW9uIGVuZGVkIG9uIDIwIE9jdG9iZXIuIE1lc3NhZ2UgdXMgdG8gcmVuZXc=
+Cache-Control: no-store
+Content-Disposition: attachment; filename*=UTF-8''Mistgate
+Content-Encoding: gzip
+Content-Length: 443
+Content-Type: text/yaml; charset=utf-8
+Profile-Title: base64:TWlzdGdhdGU=
+Profile-Update-Interval: 1
+Profile-Web-Page-Url: https://sub.example.com/k3xq8/3IqXQTXvBRrrO4xLW93n1pwQbVb8SxL81gF5QviNa7I
+Subscription-Userinfo: upload=0; download=0; total=0; expire=1792531582
+Vary: Accept-Encoding
+X-Content-Type-Options: nosniff

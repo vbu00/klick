@@ -326,6 +326,12 @@ function ProfileCard(props: {
   const info = conn.info;
   const used = info ? info.upload + info.download : 0;
   const pct = info && info.total > 0 ? Math.min(100, (used / info.total) * 100) : 0;
+  // Объявление и ссылки панели; ссылки служба уже проверила (только https).
+  const announce = info?.announce;
+  const links = [
+    { label: 'Поддержка', url: info?.support_url },
+    { label: 'Страница подписки', url: info?.page_url },
+  ].filter((l): l is { label: string; url: string } => !!l.url);
   // Задержку в строке показываем, только когда её измерили: null до проверки не значит «нет ответа».
   const ping = pinging ? '…' : current && current.delay != null ? pingText(current.delay) : '';
 
@@ -412,6 +418,20 @@ function ProfileCard(props: {
                 {refreshing ? 'Обновляем…' : 'Обновить'}
               </button>
             </div>
+            {announce ? (
+              <div className="expiry" style={{ marginTop: 8 }}>
+                <span style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{announce}</span>
+              </div>
+            ) : null}
+            {links.length ? (
+              <div className="expiry" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+                {links.map((l) => (
+                  <button key={l.label} className="btn-elem" onClick={() => void store.transport.openUrl(l.url)}>
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -13,6 +13,12 @@ export interface SubInfo {
   total: number;
   /** Окончание, секунды Unix. */
   expire: number | null;
+  /** Объявление панели (в том числе причина отказа). */
+  announce?: string | null;
+  /** Поддержка, только https. */
+  support_url?: string | null;
+  /** Страница подписки, только https. */
+  page_url?: string | null;
 }
 
 export interface ConnectionView {

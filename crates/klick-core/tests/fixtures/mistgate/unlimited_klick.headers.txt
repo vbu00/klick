@@ -1,0 +1,12 @@
+HTTP 200
+Cache-Control: no-store
+Content-Disposition: attachment; filename*=UTF-8''Mistgate
+Content-Encoding: gzip
+Content-Length: 1838
+Content-Type: text/yaml; charset=utf-8
+Profile-Title: base64:TWlzdGdhdGU=
+Profile-Update-Interval: 12
+Profile-Web-Page-Url: https://sub.example.com/k3xq8/lY4gDmPZ9mJPi7NceH4xvbJ1EjUIg3EJ07w2S1c2bEM
+Subscription-Userinfo: upload=0; download=0; total=0; expire=0
+Vary: Accept-Encoding
+X-Content-Type-Options: nosniff

@@ -850,7 +850,14 @@ impl Engine {
             let done = if live { self.download(&id).await.map(|()| self.emit_state()) } else { self.refresh(&id).await.map(drop) };
             match done {
                 Ok(_) => tracing::info!("подписка обновлена по расписанию"),
-                Err(e) => tracing::warn!("подписка по расписанию не обновилась: {}", e.code),
+                Err(e) => {
+                    tracing::warn!("подписка по расписанию не обновилась: {}", e.code);
+                    // Панель отказала (лимит устройств, срок вышел…): сказать один раз, пока отказ не пройдёт.
+                    if e.code == "sub.refused" && self.warned.insert((id.clone(), "refused")) {
+                        let name = self.settings.connections.iter().find(|c| c.id == id).map(|c| c.name.clone()).unwrap_or_default();
+                        self.notice("sub.refused", json!({ "name": name, "reason": e.params.get("reason").cloned().unwrap_or(Value::Null) }));
+                    }
+                }
             }
         }
         let mut notices = Vec::new();
@@ -2149,7 +2156,22 @@ impl Engine {
         match conn.kind {
             ConnectionKind::Subscription => {
                 let url = self.secrets.0.get(id).cloned().ok_or_else(|| ErrorInfo::new("conn.secret_missing"))?;
-                let f = subs::fetch(&url, self.vpn_port()).await?;
+                let f = match subs::fetch(&url, self.vpn_port()).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        // Отказ панели: серверы не трогаем, а срок, трафик, объявление и интервал запоминаем;
+                        // updated_at — чтобы не стучаться каждые 10 минут.
+                        if let Some(r) = e.refusal {
+                            if let Some(c) = self.settings.connections.iter_mut().find(|c| c.id == id) {
+                                c.info = r.info.or(c.info.take());
+                                c.updated_at = Some(unix_now());
+                                c.update_interval_hours = r.interval_hours.or(c.update_interval_hours);
+                            }
+                            self.save()?;
+                        }
+                        return Err(e.error);
+                    }
+                };
                 self.write_provider(id, &f.body)?;
                 if let Some(c) = self.settings.connections.iter_mut().find(|c| c.id == id) {
                     c.info = f.info.or(c.info.take());
@@ -2157,6 +2179,7 @@ impl Engine {
                     c.update_interval_hours = f.interval_hours.or(c.update_interval_hours);
                 }
                 self.servers.remove(id);
+                self.warned.remove(&(id.to_string(), "refused"));
                 self.save()
             }
             ConnectionKind::Link => {

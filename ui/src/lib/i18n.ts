@@ -104,6 +104,9 @@ export function errorText(code: string, params?: Params): string {
     case 'sub.fetch_failed':
       return params?.reason === 'timeout' ? 'Панель подписки не ответила вовремя' : 'Не удалось скачать подписку';
     case 'sub.http_status':
+      // 404 — ссылку удалили или заменили; 429 — слишком частые запросы.
+      if (params?.status === 404) return 'Ссылка больше не действует — возьмите новую на странице подписки';
+      if (params?.status === 429) return 'Панель просит подождать — попробуйте позже';
       return `Панель подписки ответила ошибкой ${str(params?.status)}`;
     case 'sub.not_subscription':
       return 'По ссылке открывается страница сайта, а не подписка';
@@ -111,6 +114,9 @@ export function errorText(code: string, params?: Params): string {
       return 'Формат не распознан';
     case 'sub.no_servers':
       return 'В подписке нет серверов';
+    case 'sub.refused':
+      // Панель отказала и вместо серверов прислала заглушку; причина — её текст («Лимит устройств», «Срок вышел»…).
+      return params?.reason ? `Панель не выдала серверы: ${str(params.reason)}` : 'Панель не выдала серверы';
     case 'input.unknown_format':
       return 'Ожидается https://… или vless://, vmess://, trojan://, ss://, hysteria2://';
     case 'input.bad_domain':
@@ -198,6 +204,11 @@ export function noticeText(code: string, params?: Params): NoticeText | null {
       return { title: 'Подписка скоро закончится', text: str(params?.name), tone: 'warn' };
     case 'sub.traffic_out':
       return { title: 'Трафик подписки закончился', text: str(params?.name), tone: 'bad' };
+    case 'sub.refused': {
+      const name = str(params?.name);
+      const reason = str(params?.reason);
+      return { title: 'Панель не выдала серверы', text: name && reason ? `${name}: ${reason}` : name || reason || undefined, tone: 'warn' };
+    }
     default:
       return null;
   }
