@@ -1022,6 +1022,9 @@ impl Engine {
         if let Some(v) = p.notify {
             self.settings.notify = v;
         }
+        if let Some(v) = p.servers_by_country {
+            self.settings.servers_by_country = v;
+        }
         if let Some(v) = p.on_exit {
             self.settings.on_exit = v;
         }
@@ -1228,35 +1231,32 @@ impl Engine {
                 return Err(ErrorInfo::new("core.start_failed"));
             }
         }
-        let ok = self.probe().await;
-        let now = self.now_ms();
-        let mut guard = Guard::new(now);
-        if !ok {
-            guard.report(false, now);
-        }
-        self.guard = Some(guard);
+        // «Подключено» — как только ядро поднято. Первая проверка сервера идёт в фоне, как плановая: на
+        // медленном или мёртвом сервере она длится до 12 с, и кнопка всё это время висела на «Подключаюсь».
+        // Не прошла — страж перепроверит сам; «Переподключаюсь» — только когда он возьмётся чинить.
+        self.guard = Some(Guard::new(self.now_ms()));
         self.since = Some(unix_now());
         self.restarts = 0;
-        // Первая проверка не прошла — страж перепроверит сам; «Переподключаюсь» — только когда он возьмётся чинить.
         self.set_state(VpnState::Connected, None);
+        self.spawn_probe(false);
         #[cfg(windows)]
         self.reset_ks_drops();
         self.save_runtime(true);
-        // Обход процессов и профилей браузеров — мимо потоков движка: это диск, а не миллисекунды.
-        let exe = self.paths.core_exe.clone();
-        let found = tokio::task::spawn_blocking(move || neighbors::scan(&exe)).await.unwrap_or_default();
-        if capture == Capture::Tun {
-            let conflicts: Vec<String> = found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect();
-            if !conflicts.is_empty() {
-                self.notice("neighbors.conflict", json!({ "names": conflicts }));
+        // Соседи (другие VPN, расширения браузеров) — тоже в фоне: это обход процессов и профилей на диске.
+        let (exe, events) = (self.paths.core_exe.clone(), self.events.clone());
+        tokio::spawn(async move {
+            let found = tokio::task::spawn_blocking(move || neighbors::scan(&exe)).await.unwrap_or_default();
+            let (code, names): (&str, Vec<String>) = if capture == Capture::Tun {
+                ("neighbors.conflict", found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect())
+            } else {
+                // Браузер с VPN-расширением берёт прокси у расширения и идёт мимо kl!ck.
+                ("neighbors.browser_proxy", found.iter().filter(|n| n.conflicts_with_proxy).map(|n| n.name.clone()).collect())
+            };
+            if !names.is_empty() {
+                tracing::info!("уведомление {code}");
+                let _ = events.send(Event::Notice { code: code.into(), params: json!({ "names": names }) });
             }
-        } else {
-            // Браузер с VPN-расширением берёт прокси у расширения и идёт мимо kl!ck.
-            let browsers: Vec<String> = found.iter().filter(|n| n.conflicts_with_proxy).map(|n| n.name.clone()).collect();
-            if !browsers.is_empty() {
-                self.notice("neighbors.browser_proxy", json!({ "names": browsers }));
-            }
-        }
+        });
         Ok(())
     }
 
@@ -1541,13 +1541,6 @@ impl Engine {
                 c.selected_server = Some(now);
             }
             let _ = self.save();
-        }
-    }
-
-    async fn probe(&self) -> bool {
-        match self.api() {
-            Some(api) => server_alive(&api).await,
-            None => false,
         }
     }
 
