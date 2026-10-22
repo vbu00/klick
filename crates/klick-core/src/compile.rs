@@ -228,8 +228,10 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
         "proxy-providers": {
             PROVIDER: { "type": "file", "path": provider_path, "health-check": { "enable": false }, "override": { "override-expr": SERVER_FIXES } }
         },
+        // Серверов нет (провайдер не загрузился) — пустая группа у ядра значит «напрямую»: утечка мимо VPN.
+        // `empty-fallback: REJECT` — тогда соединения отклоняются, а страж скажет, что сервер не отвечает.
         "proxy-groups": [
-            { "name": VPN_GROUP, "type": "select", "use": [PROVIDER] }
+            { "name": VPN_GROUP, "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }
         ],
     });
     match v {

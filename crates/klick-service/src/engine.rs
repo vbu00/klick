@@ -1218,6 +1218,16 @@ impl Engine {
             return Err(e);
         }
         self.after_start().await;
+        // Windows: ядро изредка зависает в первые секунды после запуска TUN (mihomo #3300: процесс жив, API
+        // молчит). Страж заметил бы это через минуту; проверяем сразу и один раз перезапускаем.
+        #[cfg(windows)]
+        if capture == Capture::Tun && !self.core_answers().await {
+            tracing::warn!("ядро не отвечает после запуска TUN — перезапускаю");
+            if !self.restart_core().await {
+                self.set_state(VpnState::Error, Some("core.start_failed".into()));
+                return Err(ErrorInfo::new("core.start_failed"));
+            }
+        }
         let ok = self.probe().await;
         let now = self.now_ms();
         let mut guard = Guard::new(now);
@@ -1546,6 +1556,16 @@ impl Engine {
         let Some((layout, capture)) = self.running.as_ref().map(|r| (r.layout.clone(), r.capture)) else { return };
         let Some(conn_id) = self.settings.active_connection.clone() else { return };
         let Some(api) = self.api() else { return };
+        // WireGuard и AmneziaWG: после перечитывания старое устройство ядра живёт рядом с новым с тем же
+        // ключом (mihomo #3255, не исправлено), сервер прыгает между ними, и каждая вторая проверка не проходит —
+        // до перезапуска. Поэтому с таким сервером — сразу перезапуск.
+        if self.active_is_wireguard(&api).await {
+            tracing::info!("сервер WireGuard: вместо перечитывания конфига перезапускаю ядро");
+            if !self.restart_core().await {
+                self.set_state(VpnState::Error, Some("core.start_failed".into()));
+            }
+            return;
+        }
         let (path, text) = match self.write_config(&layout, capture, &conn_id) {
             Ok(p) => p,
             Err(_) => return,
@@ -1564,6 +1584,21 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// Ядро отвечает на API за 5 с.
+    #[cfg(windows)]
+    async fn core_answers(&self) -> bool {
+        match self.api() {
+            Some(api) => api.call_within(hyper::Method::GET, "/version", None, Duration::from_secs(5)).await.is_ok(),
+            None => false,
+        }
+    }
+
+    /// Выбранный сервер — WireGuard (в том числе AmneziaWG).
+    async fn active_is_wireguard(&self, api: &CoreApi) -> bool {
+        let Some(name) = self.settings.active().and_then(|c| c.selected_server.clone()) else { return false };
+        api.provider_proxies(PROVIDER).await.is_ok_and(|list| list.iter().any(|(n, kind)| *n == name && kind == "wireguard"))
     }
 
     // ── Страж ──────────────────────────────────────────────────────────────
