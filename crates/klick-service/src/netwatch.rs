@@ -17,6 +17,9 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKET_ADDRESS};
 
+/// `IF_TYPE_PPP` из ipifcons.h.
+const IF_TYPE_PPP: u32 = 23;
+
 unsafe extern "system" fn on_change(ctx: *const c_void, _row: *const MIB_IPINTERFACE_ROW, _kind: MIB_NOTIFICATION_TYPE) {
     if ctx.is_null() {
         return;
@@ -71,7 +74,12 @@ impl Drop for NetWatch {
     }
 }
 
-/// Поднятые адаптеры со шлюзом (кроме своего TUN): LUID, IPv4-адреса и шлюзы.
+/// Есть ли выход в сеть: без него (сон, выключенный Wi-Fi) страж не проверяет сервер и не переподключается.
+pub fn has_network() -> bool {
+    !fingerprint().is_empty()
+}
+
+/// Поднятые адаптеры со шлюзом или PPP (кроме своего TUN): LUID, IPv4-адреса и шлюзы.
 fn fingerprint() -> Vec<(u64, Vec<IpAddr>)> {
     let mut out = Vec::new();
     unsafe {
@@ -93,7 +101,8 @@ fn fingerprint() -> Vec<(u64, Vec<IpAddr>)> {
         while !p.is_null() {
             let a = &*p;
             p = a.Next;
-            if a.OperStatus != IfOperStatusUp || a.FirstGatewayAddress.is_null() {
+            // У PPPoE шлюза в списке может не быть: такое подключение — тоже выход в интернет.
+            if a.OperStatus != IfOperStatusUp || (a.FirstGatewayAddress.is_null() && a.IfType != IF_TYPE_PPP) {
                 continue;
             }
             if a.FriendlyName.to_string().is_ok_and(|n| n.eq_ignore_ascii_case(crate::engine::TUN_DEVICE)) {

@@ -1,20 +1,23 @@
-//! Страж связи: когда проверять сервер, когда переподключаться и когда сдаться.
+//! Страж связи: когда проверять сервер, когда перечитывать конфиг и когда сдаться.
 //!
 //! Время — миллисекунды от любой точки отсчёта, поэтому логика проверяется без часов и сна.
-//! По умолчанию: проверка раз в 30 с; после неудачи попытки через 2, 5 и 8 с;
-//! на 15-й секунде уведомление «Сервер не отвечает»; дальше тихая проверка раз в минуту.
+//! Проверка раз в 30 с. Одна неудача — ещё не тревога: проверка через сервер иногда не проходит и у
+//! живого сервера (на AmneziaWG — до трети проверок), а перечитанный конфиг рвёт все соединения через
+//! VPN. Поэтому после неудачи страж молча проверяет каждые 5 с, считая от конца прошлой проверки;
+//! связи нет 20 с подряд — перечитать конфиг (один раз); 45 с — «Сервер не отвечает» и тихая проверка
+//! раз в минуту. Ядро страж не перезапускает: TUN пересоздался бы и оборвал и прямые соединения.
 
 pub const PROBE_EVERY_MS: u64 = 30_000;
-pub const RETRY_AT_MS: [u64; 3] = [2_000, 5_000, 8_000];
-pub const GIVE_UP_AT_MS: u64 = 15_000;
+pub const RETRY_EVERY_MS: u64 = 5_000;
+pub const RELOAD_AFTER_MS: u64 = 20_000;
+pub const GIVE_UP_AFTER_MS: u64 = 45_000;
 pub const QUIET_EVERY_MS: u64 = 60_000;
-pub const ATTEMPTS: u8 = RETRY_AT_MS.len() as u8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {
     Healthy,
-    /// `done` — сколько попыток уже сделано и провалено.
-    Retrying { done: u8 },
+    /// Проверки не проходят; `reloaded` — конфиг уже перечитан, и пользователь видит «Переподключаюсь».
+    Retrying { reloaded: bool },
     Down,
 }
 
@@ -22,9 +25,11 @@ pub enum Health {
 pub enum Action {
     /// Обычная проверка связи через сервер.
     Probe,
-    /// Попытка переподключения `attempt` из `of`.
-    Retry { attempt: u8, of: u8 },
-    /// Попытки кончились: сообщить «Сервер не отвечает».
+    /// Повторная проверка после неудачи.
+    Retry,
+    /// Связи нет давно: перечитать конфиг (новые соединения к серверу) или сменить сервер.
+    Reload,
+    /// Связи так и нет: сообщить «Сервер не отвечает».
     GiveUp,
 }
 
@@ -50,33 +55,24 @@ impl Guard {
         self.health
     }
 
-    /// Какую по счёту попытку показывать в интерфейсе: «Переподключаюсь… 2 из 3».
-    pub fn attempt_shown(&self) -> Option<(u8, u8)> {
-        match self.health {
-            Health::Retrying { done } => Some(((done + 1).min(ATTEMPTS), ATTEMPTS)),
-            _ => None,
-        }
-    }
-
     /// Когда и что делать дальше.
     pub fn next(&self) -> (u64, Action) {
+        let failing = self.last_check.saturating_sub(self.failed_at);
         match self.health {
             Health::Healthy => (self.last_check + PROBE_EVERY_MS, Action::Probe),
-            Health::Retrying { done } => match RETRY_AT_MS.get(done as usize) {
-                Some(at) => (self.failed_at + at, Action::Retry { attempt: done + 1, of: ATTEMPTS }),
-                None => (self.failed_at + GIVE_UP_AT_MS, Action::GiveUp),
-            },
+            Health::Retrying { reloaded: false } if failing >= RELOAD_AFTER_MS => (self.last_check, Action::Reload),
+            Health::Retrying { reloaded: true } if failing >= GIVE_UP_AFTER_MS => (self.last_check, Action::GiveUp),
+            Health::Retrying { .. } => (self.last_check + RETRY_EVERY_MS, Action::Retry),
             Health::Down => (self.last_check + QUIET_EVERY_MS, Action::Probe),
         }
     }
 
-    /// Итог проверки или попытки.
+    /// Итог проверки.
     pub fn report(&mut self, ok: bool, now: u64) -> Option<Notice> {
         self.last_check = now;
         match (self.health, ok) {
-            (Health::Healthy, true) => None,
             (Health::Healthy, false) => {
-                self.health = Health::Retrying { done: 0 };
+                self.health = Health::Retrying { reloaded: false };
                 self.failed_at = now;
                 None
             }
@@ -84,15 +80,18 @@ impl Guard {
                 self.health = Health::Healthy;
                 None
             }
-            (Health::Retrying { done }, false) => {
-                self.health = Health::Retrying { done: (done + 1).min(ATTEMPTS) };
-                None
-            }
             (Health::Down, true) => {
                 self.health = Health::Healthy;
                 Some(Notice::Restored)
             }
-            (Health::Down, false) => None,
+            _ => None,
+        }
+    }
+
+    /// Конфиг перечитан: с этого момента пользователь видит «Переподключаюсь».
+    pub fn reloading(&mut self) {
+        if let Health::Retrying { reloaded } = &mut self.health {
+            *reloaded = true;
         }
     }
 
@@ -101,6 +100,12 @@ impl Guard {
         self.health = Health::Down;
         self.last_check = now;
         Notice::Down
+    }
+
+    /// Сети нет (сон, выключенный Wi-Fi): сервер ни при чём. Ничего не считаем, ждём.
+    pub fn wait(&mut self, now: u64) {
+        self.last_check = now;
+        self.failed_at = now;
     }
 }
 
@@ -115,39 +120,65 @@ mod tests {
     }
 
     #[test]
-    fn failure_walks_through_2_5_8_then_gives_up_at_15() {
+    fn quick_recovery_is_silent() {
         let mut g = Guard::new(0);
         assert_eq!(g.report(false, 30_000), None);
-        assert_eq!(g.next(), (32_000, Action::Retry { attempt: 1, of: 3 }));
-        assert_eq!(g.attempt_shown(), Some((1, 3)));
-        g.report(false, 32_500);
-        assert_eq!(g.next(), (35_000, Action::Retry { attempt: 2, of: 3 }));
-        g.report(false, 35_500);
-        assert_eq!(g.next(), (38_000, Action::Retry { attempt: 3, of: 3 }));
-        g.report(false, 38_500);
-        assert_eq!(g.next(), (45_000, Action::GiveUp));
-        assert_eq!(g.attempt_shown(), Some((3, 3)));
-        assert_eq!(g.give_up(45_000), Notice::Down);
-        assert_eq!(g.health(), Health::Down);
-        assert_eq!(g.next(), (105_000, Action::Probe));
+        assert_eq!(g.health(), Health::Retrying { reloaded: false });
+        assert_eq!(g.next(), (35_000, Action::Retry));
+        assert_eq!(g.report(true, 35_100), None);
+        assert_eq!(g.health(), Health::Healthy);
+        assert_eq!(g.next(), (65_100, Action::Probe));
     }
 
     #[test]
-    fn quick_recovery_is_silent() {
+    fn retries_count_from_the_end_of_a_slow_check() {
         let mut g = Guard::new(0);
-        g.report(false, 30_000);
-        assert_eq!(g.report(true, 32_100), None);
-        assert_eq!(g.health(), Health::Healthy);
-        assert_eq!(g.next(), (62_100, Action::Probe));
+        g.report(false, 40_000);
+        // Повторная проверка шла 10 с: следующая — через 5 с после её конца, а не сразу.
+        g.report(false, 55_000);
+        assert_eq!(g.next(), (60_000, Action::Retry));
+    }
+
+    #[test]
+    fn reload_after_20_seconds_then_give_up_after_45() {
+        let mut g = Guard::new(0);
+        g.report(false, 0);
+        for t in [5_000, 10_000, 15_000] {
+            assert_eq!(g.next(), (t, Action::Retry));
+            g.report(false, t);
+        }
+        g.report(false, 20_000);
+        assert_eq!(g.next(), (20_000, Action::Reload));
+        g.reloading();
+        assert_eq!(g.health(), Health::Retrying { reloaded: true });
+        g.report(false, 21_000);
+        assert_eq!(g.next(), (26_000, Action::Retry), "перечитываем один раз");
+        g.report(false, 44_000);
+        assert_eq!(g.next(), (49_000, Action::Retry));
+        g.report(false, 45_000);
+        assert_eq!(g.next(), (45_000, Action::GiveUp));
+        assert_eq!(g.give_up(45_000), Notice::Down);
+        assert_eq!(g.next(), (105_000, Action::Probe));
     }
 
     #[test]
     fn recovery_after_give_up_is_announced() {
         let mut g = Guard::new(0);
         g.report(false, 0);
-        g.give_up(15_000);
-        assert_eq!(g.report(false, 75_000), None);
-        assert_eq!(g.report(true, 135_000), Some(Notice::Restored));
+        g.give_up(45_000);
+        assert_eq!(g.report(false, 105_000), None);
+        assert_eq!(g.report(true, 165_000), Some(Notice::Restored));
         assert_eq!(g.health(), Health::Healthy);
+    }
+
+    #[test]
+    fn no_network_restarts_the_count() {
+        let mut g = Guard::new(0);
+        g.report(false, 0);
+        g.report(false, 15_000);
+        g.wait(19_000);
+        assert_eq!(g.next(), (24_000, Action::Retry));
+        g.report(false, 30_000);
+        assert_eq!(g.next(), (35_000, Action::Retry), "20 с считаются заново после возврата сети");
     }
 }

@@ -12,7 +12,7 @@ use crate::neighbors;
 use crate::netconf;
 #[cfg(unix)]
 use crate::pf;
-use crate::netwatch::NetWatch;
+use crate::netwatch::{self, NetWatch};
 use crate::paths::{Paths, Profile};
 use crate::programs;
 use crate::storage::{self, Secrets};
@@ -42,6 +42,8 @@ pub const TUN_DEVICE: &str = "klick";
 /// Проверка связи стражем — два запроса через сервер (unified-delay). В плохой сети они не всегда
 /// укладываются в 5 с, а неудача ведёт к переподключению.
 const PROBE_TIMEOUT_MS: u32 = 10_000;
+/// Второй адрес проверки: страж проверяет оба сразу и доволен первым ответом.
+const PROBE_URL_ALT: &str = "https://cp.cloudflare.com/generate_204";
 /// Задержка серверов для списка: каждый отдельно, не больше стольких сразу.
 const LATENCY_TIMEOUT_MS: u32 = 8_000;
 const LATENCY_PARALLEL: usize = 6;
@@ -164,6 +166,8 @@ pub struct Engine {
     vpn_rx: HashMap<String, u64>,
     /// Проверка не проходит, а данные через сервер идут: в журнал — один раз, не каждые 30 с.
     probe_soft: bool,
+    /// Сети нет — страж ждёт; в журнал — один раз.
+    no_network: bool,
     proxy_applied: bool,
     /// Прокси поставила служба, потому что окна не было: что стояло у пользователя до этого.
     #[cfg(windows)]
@@ -376,6 +380,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         probing: None,
         vpn_rx: HashMap::new(),
         probe_soft: false,
+        no_network: false,
         proxy_applied: false,
         #[cfg(windows)]
         user_proxy_saved: None,
@@ -469,6 +474,21 @@ async fn check_update() -> Result<UpdateView, ErrorInfo> {
 fn version_newer(latest: &str, current: &str) -> bool {
     let parse = |v: &str| v.split(['.', '-', '+']).take(3).map(|x| x.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
     parse(latest) > parse(current)
+}
+
+/// Связь через сервер: ответил хоть один из двух адресов. Один адрес бывает недоступен сам по себе.
+async fn server_alive(api: &CoreApi) -> bool {
+    let mut checks = tokio::task::JoinSet::new();
+    for url in [PROBE_URL, PROBE_URL_ALT] {
+        let api = api.clone();
+        checks.spawn(async move { matches!(api.proxy_delay(VPN_GROUP, url, PROBE_TIMEOUT_MS).await, Ok(Some(_))) });
+    }
+    while let Some(ok) = checks.join_next().await {
+        if matches!(ok, Ok(true)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Задержка всех серверов подключения: каждый отдельно, не больше `LATENCY_PARALLEL` сразу.
@@ -761,7 +781,12 @@ impl Engine {
             .map(|c| c.id.clone())
             .collect();
         for id in due {
-            match self.refresh(&id).await {
+            // Под включённым VPN — только скачать: перечитанные ядром серверы обрывают соединения через VPN
+            // (WireGuard и Hysteria2 закрываются вместе со старым сервером). Новый список ядро возьмёт при
+            // следующем подключении или когда страж перечитает конфиг; кнопка «Обновить» применяет сразу.
+            let live = self.running.is_some() && self.settings.active_connection.as_deref() == Some(id.as_str());
+            let done = if live { self.download(&id).await.map(|()| self.emit_state()) } else { self.refresh(&id).await.map(drop) };
+            match done {
                 Ok(_) => tracing::info!("подписка обновлена по расписанию"),
                 Err(e) => tracing::warn!("подписка по расписанию не обновилась: {}", e.code),
             }
@@ -792,23 +817,20 @@ impl Engine {
     }
 
     /// После сна, смены Wi-Fi или кабеля: сразу проверить связь, а не ждать плановой проверки.
+    /// Проверка — в фоне, как плановая: окно не ждёт, а итог проходит те же правила стража.
     async fn on_network_change(&mut self) {
         // macOS: появилась новая сетевая служба (USB-модем, другой адаптер) — ей тоже прокси и DNS.
         #[cfg(unix)]
         self.refresh_netconf().await;
-        let Some(started) = self.running.as_ref().map(|r| r.started) else { return };
-        if started.elapsed() < Duration::from_secs(10) {
+        let Some(r) = self.running.as_ref() else { return };
+        if r.started.elapsed() < Duration::from_secs(10) || self.probing == Some(r.generation) || !netwatch::has_network() {
             return;
         }
-        let Some(health) = self.guard.as_ref().map(Guard::health) else { return };
-        if matches!(health, Health::Retrying { .. }) {
+        if !matches!(self.guard.as_ref().map(Guard::health), Some(Health::Healthy | Health::Down)) {
             return;
         }
         tracing::info!("сеть изменилась, проверяю связь");
-        let ok = self.probe().await;
-        let now = self.now_ms();
-        let notice = self.guard.as_mut().and_then(|g| g.report(ok, now));
-        self.after_guard(notice);
+        self.spawn_probe(false);
     }
 
     fn save_runtime(&self, connected: bool) {
@@ -972,7 +994,7 @@ impl Engine {
             connection: active.map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() }),
             server: active.and_then(|c| c.selected_server.clone()),
             since: self.since,
-            attempt: if self.vpn == VpnState::Reconnecting { self.guard.as_ref().and_then(Guard::attempt_shown) } else { None },
+            attempt: None,
             error: self.error.clone(),
             system_proxy: self.proxy_applied.then(|| self.proxy_spec()),
         }
@@ -1085,7 +1107,8 @@ impl Engine {
         self.guard = Some(guard);
         self.since = Some(unix_now());
         self.restarts = 0;
-        self.set_state(if ok { VpnState::Connected } else { VpnState::Reconnecting }, None);
+        // Первая проверка не прошла — страж перепроверит сам; «Переподключаюсь» — только когда он возьмётся чинить.
+        self.set_state(VpnState::Connected, None);
         #[cfg(windows)]
         self.reset_ks_drops();
         self.save_runtime(true);
@@ -1379,7 +1402,7 @@ impl Engine {
 
     async fn probe(&self) -> bool {
         match self.api() {
-            Some(api) => matches!(api.proxy_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await, Ok(Some(_))),
+            Some(api) => server_alive(&api).await,
             None => false,
         }
     }
@@ -1408,30 +1431,39 @@ impl Engine {
 
     async fn on_guard(&mut self) {
         let Some((_, action)) = self.guard.as_ref().map(Guard::next) else { return };
+        // Сети нет (сон, выключенный Wi-Fi): сервер ни при чём — ждать, а не переподключаться.
+        if !netwatch::has_network() {
+            if !self.no_network {
+                tracing::info!("сети нет — проверку сервера откладываю");
+                self.no_network = true;
+            }
+            let now = self.now_ms();
+            if let Some(g) = self.guard.as_mut() {
+                g.wait(now);
+            }
+            return;
+        }
+        self.no_network = false;
         match action {
             Action::Probe => self.spawn_probe(false),
-            Action::Retry { attempt, .. } => {
-                // Перечитать конфиг и перезапустить ядро — значит оборвать все соединения. Пока данные
-                // через сервер идут, он жив: этого не делаем.
-                if attempt > 1 && self.traffic_through_vpn().await {
+            Action::Retry => self.spawn_probe(true),
+            Action::Reload => {
+                // Перечитать конфиг — значит оборвать соединения через VPN. Пока данные идут, сервер жив.
+                if self.traffic_through_vpn().await {
                     self.probed(true, true).await;
                     return;
                 }
-                self.set_state(VpnState::Reconnecting, None);
-                match attempt {
-                    1 => self.spawn_probe(true),
-                    2 => {
-                        self.reload_rules().await;
-                        self.spawn_probe(true);
-                    }
-                    _ => {
-                        if self.restart_core().await {
-                            self.spawn_probe(true);
-                        } else {
-                            self.probed(true, false).await;
-                        }
-                    }
+                tracing::info!("страж: связи через сервер нет 20 с, перечитываю конфиг");
+                if let Some(g) = self.guard.as_mut() {
+                    g.reloading();
                 }
+                self.set_state(VpnState::Reconnecting, None);
+                // «Следующий рабочий» / «самый быстрый» — сначала другой сервер; не вышло — новые соединения
+                // к этому же (не перечитался конфиг — reload_rules сам перезапустит ядро).
+                if self.settings.on_server_down == ServerDownPolicy::Reconnect || !self.switch_to_alternative().await {
+                    self.reload_rules().await;
+                }
+                self.spawn_probe(true);
             }
             Action::GiveUp => {
                 let now = self.now_ms();
@@ -1447,12 +1479,12 @@ impl Engine {
         self.probing = Some(generation);
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let ok = matches!(api.proxy_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await, Ok(Some(_)));
+            let ok = server_alive(&api).await;
             let _ = tx.send(Msg::Probed { generation, retry, ok }).await;
         });
     }
 
-    /// Итог проверки: обычной (`retry = false`) или попытки переподключения.
+    /// Итог проверки: обычной (`retry = false`) или повторной после неудачи.
     async fn probed(&mut self, retry: bool, mut ok: bool) {
         // Проверка не успела, а соединения через сервер с прошлого раза скачали ещё — сервер жив.
         // Так у людей, у кого VPN работал, страж не рвал связь и не писал «Сервер не отвечает».
@@ -1463,13 +1495,8 @@ impl Engine {
         }
         self.probe_soft = soft;
         ok |= flowing;
-        if !retry {
-            if !ok && self.settings.on_server_down != ServerDownPolicy::Reconnect && self.guard.as_ref().map(Guard::health) == Some(Health::Healthy) {
-                ok = self.switch_to_alternative().await;
-            }
-            if ok && self.running.as_ref().is_some_and(|r| r.started.elapsed() > Duration::from_secs(60)) {
-                self.restarts = 0;
-            }
+        if !retry && ok && self.running.as_ref().is_some_and(|r| r.started.elapsed() > Duration::from_secs(60)) {
+            self.restarts = 0;
         }
         let now = self.now_ms();
         let notice = self.guard.as_mut().and_then(|g| g.report(ok, now));
@@ -1488,12 +1515,13 @@ impl Engine {
 
     fn after_guard(&mut self, notice: Option<Notice>) {
         let Some(health) = self.guard.as_ref().map(Guard::health) else { return };
+        // Пока страж только перепроверяет, человек видит «Подключено»: тревога — когда kl!ck уже чинит связь.
         let vpn = match health {
-            Health::Healthy => VpnState::Connected,
-            Health::Retrying { .. } => VpnState::Reconnecting,
+            Health::Healthy | Health::Retrying { reloaded: false } => VpnState::Connected,
+            Health::Retrying { reloaded: true } => VpnState::Reconnecting,
             Health::Down => VpnState::ServerDown,
         };
-        if vpn != self.vpn || vpn == VpnState::Reconnecting {
+        if vpn != self.vpn {
             self.set_state(vpn, None);
         }
         let server = self.settings.active().and_then(|c| c.selected_server.clone());
