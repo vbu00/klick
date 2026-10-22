@@ -139,7 +139,8 @@ powershell -File sandbox\start.ps1
 Те же сценарии (`run.ps1`, `setup-test.ps1` поверх настоящей kl!ck 0.3.0, `ks-browser.ps1`) гоняет CI на
 раннерах GitHub с Windows Server 2022 и 2025 — workflow `.github/workflows/windows.yml`, через
 `sandbox\ci.ps1`; при ручном запуске со ссылкой подписки — ещё и `sandbox\real-test.ps1` с настоящими
-серверами (ссылка в журнале скрыта).
+серверами (ссылка в журнале скрыта). В репозитории порта при ручном запуске можно выбрать
+`source: upstream` — тогда собирается vbu00/klick (`upstream_ref`: main или тег) как есть, а проверки — из этой ветки.
 
 Установщик — там же:
 

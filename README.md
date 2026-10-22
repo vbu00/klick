@@ -141,11 +141,14 @@ proxycheck.io) и номером последней версии (GitHub API).
 ## macOS
 
 kl!ck работает и на macOS 12+ (Apple Silicon и Intel) — то же окно, та же служба и те же функции;
-Kill Switch — брандмауэром pf. Пакет пока не подписан сертификатом Apple, поэтому ставится из
+Kill Switch — брандмауэром pf. Порт живёт в этом репозитории
+([limeflash/klick-macos](https://github.com/limeflash/klick-macos)), выпуски для Mac — в его
+[Releases](https://github.com/limeflash/klick-macos/releases); обновления Windows-версии из
+[vbu00/klick](https://github.com/vbu00/klick) вливаются сюда. Пакет пока не подписан сертификатом Apple, поэтому ставится из
 Терминала (`installer` ставит его без вопроса Gatekeeper):
 
 ```sh
-curl -fL -o /tmp/klick.pkg https://github.com/vbu00/klick/releases/latest/download/klick-macos.pkg
+curl -fL -o /tmp/klick.pkg https://github.com/limeflash/klick-macos/releases/latest/download/klick-macos.pkg
 sudo installer -pkg /tmp/klick.pkg -target /
 open -a 'kl!ck'
 ```
