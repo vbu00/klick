@@ -39,6 +39,9 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::Instant;
 
 pub const TUN_DEVICE: &str = "klick";
+/// Сон дольше этого — NAT роутера и сервера уже забыл соединения: они мертвы, хоть сеть и та же.
+/// Короче — не трогаем: большинство снов короткие, и обрывать на каждом вредно.
+pub const LONG_SLEEP: Duration = Duration::from_secs(120);
 /// Проверка связи стражем — два запроса через сервер (unified-delay). В плохой сети они не всегда
 /// укладываются в 5 с, а неудача ведёт к переподключению.
 const PROBE_TIMEOUT_MS: u32 = 10_000;
@@ -52,11 +55,12 @@ pub enum Msg {
     Cmd(Command, oneshot::Sender<Result<Value, ErrorInfo>>),
     /// Что нужно проверке IP: сама проверка идёт вне очереди, чтобы не задерживать команды.
     IpPlan(oneshot::Sender<Plan>),
-    /// Windows сообщила об изменении сети (после сна, смены Wi-Fi, отключения кабеля).
-    NetworkChanged,
+    /// Сеть изменилась (смена Wi-Fi, кабель, пробуждение). `moved` — выход в интернет сменился или сон был
+    /// долгим: соединения через прежний адрес мертвы.
+    NetworkChanged { moved: bool },
     CoreExited { generation: u64, code: Option<i32> },
-    /// Итог проверки сервера, которую страж связи запустил в фоне.
-    Probed { generation: u64, retry: bool, ok: bool },
+    /// Итог проверки сервера, которую страж связи запустил в фоне; `net` — счётчик смен сети на её начало.
+    Probed { generation: u64, retry: bool, ok: bool, net: u64 },
     /// Задержка серверов подключения измерена в фоне.
     Measured { conn: String, result: Result<Measured, ErrorInfo> },
     /// macOS: ядро-страж Kill Switch завершилось само.
@@ -99,10 +103,10 @@ impl EngineHandle {
         rx.await.map_err(|_| ErrorInfo::new("service.stopping"))?
     }
 
-    /// Компьютер проснулся: проверить связь, как после смены сети.
+    /// Компьютер проснулся: проверить связь, как после смены сети; `long` — спал дольше `LONG_SLEEP`.
     #[cfg(windows)]
-    pub async fn network_changed(&self) {
-        let _ = self.tx.send(Msg::NetworkChanged).await;
+    pub async fn network_changed(&self, long: bool) {
+        let _ = self.tx.send(Msg::NetworkChanged { moved: long }).await;
     }
 
     pub async fn shutdown(&self) {
@@ -175,6 +179,8 @@ pub struct Engine {
     probe_soft: bool,
     /// Сети нет — страж ждёт; в журнал — один раз.
     no_network: bool,
+    /// Сколько раз менялась сеть: проверка, начатая до смены, не в счёт.
+    net_seq: u64,
     /// Прокси нужен (режим «Системный прокси» работает): желаемое, а не подтверждённое состояние. Подтверждает
     /// отметка на диске: пока она есть, возврат не состоялся и `retry_netconf_leftovers` его повторяет.
     proxy_applied: bool,
@@ -368,9 +374,12 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     }
     let engine_tx = tx.clone();
     tokio::spawn(async move {
-        while net_rx.recv().await.is_some() {
-            while let Ok(Some(_)) = tokio::time::timeout(Duration::from_secs(3), net_rx.recv()).await {}
-            if engine_tx.send(Msg::NetworkChanged).await.is_err() {
+        while let Some(first) = net_rx.recv().await {
+            let mut moved = first != 0;
+            while let Ok(Some(v)) = tokio::time::timeout(Duration::from_secs(3), net_rx.recv()).await {
+                moved |= v != 0;
+            }
+            if engine_tx.send(Msg::NetworkChanged { moved }).await.is_err() {
                 break;
             }
         }
@@ -393,6 +402,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         vpn_rx: HashMap::new(),
         probe_soft: false,
         no_network: false,
+        net_seq: 0,
         proxy_applied: false,
         #[cfg(windows)]
         user_proxy_saved: None,
@@ -625,7 +635,7 @@ impl Engine {
                         Msg::IpPlan(reply) => {
                             let _ = reply.send(self.ip_plan());
                         }
-                        Msg::NetworkChanged => self.on_network_change().await,
+                        Msg::NetworkChanged { moved } => self.on_network_change(moved).await,
                         #[cfg(windows)]
                         Msg::RetryLeftoverProxy => self.clear_leftover_proxy(),
                         #[cfg(windows)]
@@ -636,12 +646,17 @@ impl Engine {
                             self.ks_rescan_at.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
                         }
                         Msg::CoreExited { generation, code } => self.on_core_exit(generation, code).await,
-                        Msg::Probed { generation, retry, ok } => {
+                        Msg::Probed { generation, retry, ok, net } => {
                             if self.probing == Some(generation) {
                                 self.probing = None;
                             }
                             if self.guard.is_some() && self.running.as_ref().map(|r| r.generation) == Some(generation) {
-                                self.probed(retry, ok).await;
+                                if net == self.net_seq {
+                                    self.probed(retry, ok).await;
+                                } else {
+                                    // Сеть сменилась, пока шла проверка: её итог ни о чём не говорит — проверить заново.
+                                    self.spawn_probe(retry);
+                                }
                             }
                         }
                         #[cfg(unix)]
@@ -894,12 +909,28 @@ impl Engine {
 
     /// После сна, смены Wi-Fi или кабеля: сразу проверить связь, а не ждать плановой проверки.
     /// Проверка — в фоне, как плановая: окно не ждёт, а итог проходит те же правила стража.
-    async fn on_network_change(&mut self) {
+    async fn on_network_change(&mut self, moved: bool) {
         // macOS: появилась новая сетевая служба (USB-модем, другой адаптер) — ей тоже прокси и DNS.
         #[cfg(unix)]
         self.refresh_netconf().await;
+        // Проверка, которая шла через прежнюю сеть, — не в счёт (её итог запустит новую).
+        self.net_seq += 1;
         let Some(r) = self.running.as_ref() else { return };
-        if r.started.elapsed() < Duration::from_secs(10) || self.probing == Some(r.generation) || !netwatch::has_network() {
+        if r.started.elapsed() < Duration::from_secs(10) || !netwatch::has_network() {
+            return;
+        }
+        // Соединения ушли через прежний адрес: ядро их не закрывает само, и программы висят до тайм-аутов
+        // (у UDP-серверов — WireGuard, Hysteria2 — сброса нет вовсе). Закрыть — откроют новые сразу.
+        if moved {
+            if let Some(api) = self.api() {
+                match api.close_connections().await {
+                    Ok(()) => tracing::info!("сеть сменилась: старые соединения закрыты"),
+                    Err(e) => tracing::warn!("ядро не закрыло старые соединения: {e:#}"),
+                }
+            }
+        }
+        let Some(r) = self.running.as_ref() else { return };
+        if self.probing == Some(r.generation) {
             return;
         }
         if !matches!(self.guard.as_ref().map(Guard::health), Some(Health::Healthy | Health::Down)) {
@@ -1555,10 +1586,10 @@ impl Engine {
     fn spawn_probe(&mut self, retry: bool) {
         let Some((api, generation)) = self.api().zip(self.running.as_ref().map(|r| r.generation)) else { return };
         self.probing = Some(generation);
-        let tx = self.tx.clone();
+        let (tx, net) = (self.tx.clone(), self.net_seq);
         tokio::spawn(async move {
             let ok = server_alive(&api).await;
-            let _ = tx.send(Msg::Probed { generation, retry, ok }).await;
+            let _ = tx.send(Msg::Probed { generation, retry, ok, net }).await;
         });
     }
 

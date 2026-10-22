@@ -39,7 +39,7 @@ unsafe impl Send for NetWatch {}
 unsafe impl Sync for NetWatch {}
 
 impl NetWatch {
-    /// В канал приходит сигнал, когда поменялся выход в интернет (значение не важно).
+    /// В канал приходит 1, когда поменялся выход в интернет.
     pub fn start(tx: mpsc::UnboundedSender<u64>) -> anyhow::Result<Self> {
         let (raw_tx, mut raw_rx) = mpsc::unbounded_channel::<()>();
         let boxed = Box::new(raw_tx);
@@ -56,7 +56,8 @@ impl NetWatch {
                 let now = fingerprint();
                 changed |= now != last;
                 last = now;
-                if changed && tx.send(0).is_err() {
+                // 1 — выход в интернет сменился: соединения через прежний адрес мертвы.
+                if changed && tx.send(1).is_err() {
                     break;
                 }
             }

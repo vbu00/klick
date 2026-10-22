@@ -180,6 +180,15 @@ impl CoreApi {
         Ok(())
     }
 
+    /// Закрыть все соединения ядра: программы сразу откроют новые.
+    pub async fn close_connections(&self) -> Result<()> {
+        let (status, text) = self.call(Method::DELETE, "/connections", None).await?;
+        if !status.is_success() {
+            bail!("ядро не закрыло соединения ({status}): {}", String::from_utf8_lossy(&text));
+        }
+        Ok(())
+    }
+
     /// Перечитать файл серверов после обновления подписки.
     pub async fn refresh_provider(&self, provider: &str) -> Result<()> {
         let (status, text) = self.call(Method::PUT, &format!("/providers/proxies/{}", enc(provider)), None).await?;

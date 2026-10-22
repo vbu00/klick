@@ -5,13 +5,14 @@
 //! живого сервера (на AmneziaWG — до трети проверок), а перечитанный конфиг рвёт все соединения через
 //! VPN. Поэтому после неудачи страж молча проверяет каждые 5 с, считая от конца прошлой проверки;
 //! связи нет 20 с подряд — перечитать конфиг (один раз); 45 с — «Сервер не отвечает» и тихая проверка
-//! раз в минуту. Ядро страж не перезапускает: TUN пересоздался бы и оборвал и прямые соединения.
+//! раз в 15 с (вернулся сервер — «Связь восстановлена» почти сразу). Ядро страж не перезапускает:
+//! TUN пересоздался бы и оборвал и прямые соединения.
 
 pub const PROBE_EVERY_MS: u64 = 30_000;
 pub const RETRY_EVERY_MS: u64 = 5_000;
 pub const RELOAD_AFTER_MS: u64 = 20_000;
 pub const GIVE_UP_AFTER_MS: u64 = 45_000;
-pub const QUIET_EVERY_MS: u64 = 60_000;
+pub const QUIET_EVERY_MS: u64 = 15_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {
@@ -95,7 +96,7 @@ impl Guard {
         }
     }
 
-    /// Время вышло: переходим к тихой проверке раз в минуту.
+    /// Время вышло: переходим к тихой проверке раз в 15 с.
     pub fn give_up(&mut self, now: u64) -> Notice {
         self.health = Health::Down;
         self.last_check = now;
@@ -158,7 +159,7 @@ mod tests {
         g.report(false, 45_000);
         assert_eq!(g.next(), (45_000, Action::GiveUp));
         assert_eq!(g.give_up(45_000), Notice::Down);
-        assert_eq!(g.next(), (105_000, Action::Probe));
+        assert_eq!(g.next(), (60_000, Action::Probe));
     }
 
     #[test]

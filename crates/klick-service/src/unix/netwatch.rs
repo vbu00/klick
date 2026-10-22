@@ -19,7 +19,8 @@ pub struct NetWatch {
 }
 
 impl NetWatch {
-    /// В канал приходит сигнал на каждое изменение (значение не важно).
+    /// В канал приходит сигнал на каждое изменение: 1 — сеть сменилась или сон был долгим (старые соединения
+    /// мертвы: NAT роутера и сервера их забыл), 0 — короткий сон на той же сети.
     pub fn start(tx: mpsc::UnboundedSender<u64>) -> anyhow::Result<Self> {
         let task = tokio::spawn(async move {
             let mut last = Fingerprint::read(None);
@@ -28,14 +29,15 @@ impl NetWatch {
                 tokio::time::sleep(EVERY).await;
                 let now = Fingerprint::read(Some(&last));
                 let after = clocks();
-                let slept = slept(before, after);
+                let gap = sleep_gap(before, after);
                 before = after;
-                if now != last || slept {
-                    if slept {
+                if now != last || gap > SLEPT {
+                    if gap > SLEPT {
                         tracing::info!("компьютер проснулся");
                     }
+                    let moved = now != last || gap >= crate::engine::LONG_SLEEP;
                     last = now;
-                    if tx.send(0).is_err() {
+                    if tx.send(u64::from(moved)).is_err() {
                         break;
                     }
                 }
@@ -117,9 +119,14 @@ fn clocks() -> Clocks {
 
 /// Между двумя замерами компьютер спал: время с учётом сна ушло вперёд сильнее, чем время бодрствования.
 fn slept(before: Clocks, after: Clocks) -> bool {
+    sleep_gap(before, after) > SLEPT
+}
+
+/// Сколько компьютер проспал между замерами.
+fn sleep_gap(before: Clocks, after: Clocks) -> Duration {
     let total = after.0.saturating_sub(before.0);
     let awake = after.1.saturating_sub(before.1);
-    total.saturating_sub(awake) > SLEPT
+    total.saturating_sub(awake)
 }
 
 #[cfg(test)]

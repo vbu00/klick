@@ -54,7 +54,9 @@ fn run_service() -> Result<()> {
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let stop = Arc::new(Mutex::new(Some(stop_tx)));
-    let (wake_tx, mut wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    // Пробуждение: долгий ли был сон (по настоящим часам с момента ухода в сон).
+    let (wake_tx, mut wake_rx) = tokio::sync::mpsc::unbounded_channel::<bool>();
+    let asleep_since = Mutex::new(None::<std::time::SystemTime>);
     let handler = move |event| match event {
         ServiceControl::Stop | ServiceControl::Shutdown => {
             if let Some(tx) = stop.lock().unwrap().take() {
@@ -63,8 +65,15 @@ fn run_service() -> Result<()> {
             ServiceControlHandlerResult::NoError
         }
         // На том же Wi-Fi или кабеле после сна адаптеры могут не поменяться, а сессии к серверу уже истекли.
+        ServiceControl::PowerEvent(PowerEventParam::Suspend) => {
+            *asleep_since.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::SystemTime::now());
+            ServiceControlHandlerResult::NoError
+        }
         ServiceControl::PowerEvent(PowerEventParam::ResumeAutomatic | PowerEventParam::ResumeSuspend) => {
-            let _ = wake_tx.send(());
+            let since = asleep_since.lock().unwrap_or_else(|e| e.into_inner()).take();
+            // Неизвестно, сколько спал (сообщения об уходе в сон не было), — считаем, что долго.
+            let long = since.and_then(|t| t.elapsed().ok()).is_none_or(|d| d >= engine::LONG_SLEEP);
+            let _ = wake_tx.send(long);
             ServiceControlHandlerResult::NoError
         }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -80,12 +89,14 @@ fn run_service() -> Result<()> {
         let server = tokio::spawn(pipe::serve(profile.pipe.clone(), true, engine.clone()));
         let woke = engine.clone();
         tokio::spawn(async move {
-            while wake_rx.recv().await.is_some() {
+            while let Some(mut long) = wake_rx.recv().await {
                 // Сеть после пробуждения поднимается не сразу; оба сообщения о пробуждении — в одно.
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                while wake_rx.try_recv().is_ok() {}
-                tracing::info!("компьютер проснулся");
-                woke.network_changed().await;
+                while let Ok(l) = wake_rx.try_recv() {
+                    long |= l;
+                }
+                tracing::info!("компьютер проснулся{}", if long { " после долгого сна" } else { "" });
+                woke.network_changed(long).await;
             }
         });
         let _ = stop_rx.await;
