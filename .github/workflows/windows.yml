@@ -12,7 +12,8 @@
 # v0.4.0) — проверки при этом из этой ветки, кроме ссылок klick://add (в выпусках до 0.5 их нет).
 # Ссылка подписки не сохраняется в репозитории и скрыта в журнале.
 # release_run — ничего не собирать, а выпустить установщик из зелёного запуска Windows (его номер):
-# предвыпуск windows-<версия> с klick-<версия>-setup.exe — ровно тот файл, что прошёл проверки.
+# klick-<версия>-x64-setup.exe — ровно тот файл, что прошёл проверки, — в выпуск v<версия>, общий с
+# пакетом для Mac (кто выкладывает первым, тот создаёт выпуск; текст — scripts/release-notes.sh).
 name: Windows
 
 on:
@@ -40,7 +41,7 @@ on:
         required: false
         default: ''
       release_run:
-        description: Выпустить — номер зелёного запуска Windows; его установщик станет предвыпуском windows-<версия>
+        description: Выпустить — номер зелёного запуска Windows; его установщик ляжет в выпуск v<версия>
         required: false
         default: ''
 
@@ -98,9 +99,10 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # «Проверить обновления» в окне смотрит выпуски репозитория, где собрано.
       - name: Сборка (build.ps1)
         env:
-          KLICK_RELEASES_REPO: vbu00/klick
+          KLICK_RELEASES_REPO: ${{ github.repository }}
         run: powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 
       - name: Папка для проверок
@@ -219,8 +221,7 @@ jobs:
           path: C:\klick\results
           if-no-files-found: ignore
 
-  # Выпуск проверенного установщика — предвыпуском: «последним» выпуском остаётся сборка для Mac
-  # (на releases/latest смотрят команда установки из README и проверка обновлений на Mac).
+  # Выпуск проверенного установщика — в общий выпуск v<версия> рядом с пакетом для Mac.
   release:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_run != '' }}
     runs-on: ubuntu-latest
@@ -253,34 +254,21 @@ jobs:
           run-id: ${{ inputs.release_run }}
           github-token: ${{ github.token }}
 
-      - name: Предвыпуск windows-<версия>
+      - name: Выпуск v<версия> — установщик для Windows
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.run.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.release_run }}
         run: |
           v=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          exe="klick-$v-setup.exe"
+          exe="klick-$v-x64-setup.exe"
           cp build/klick-setup.exe "$exe"
           sum=$(sha256sum "$exe" | cut -d' ' -f1)
-          cat > notes.md <<NOTES
-          Установщик kl!ck $v для Windows 10/11 x64 — проверочная сборка, основа — kl!ck 0.4.0 из vbu00/klick.
-
-          **Что исправлено против 0.4.0**
-          - Страж связи не рвёт работающий VPN: если через сервер идут данные, неудачная проверка ничего не трогает — без «Переподключаюсь», перезапуска ядра и «Сервер не отвечает».
-          - Проверка связи ждёт ответа 10 с вместо 5.
-          - Задержка в списке серверов меряется по каждому серверу отдельно, по 6 сразу, — в плохой сети больше не «нет ответа» у всех.
-
-          **Установка:** запустить \`$exe\` поверх прежней kl!ck — подключения и настройки остаются. В «О приложении» будет $v.
-
-          SHA-256: \`$sum\`
-          Сборка ${SHA:0:7}, проверки на Windows Server 2022 и 2025: $RUN_URL
-          NOTES
-          tag="windows-$v"
+          tag="v$v"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$exe" --clobber
-            gh release edit "$tag" --notes-file notes.md
           else
-            gh release create "$tag" "$exe" --prerelease --latest=false --target "$SHA" --title "kl!ck $v для Windows (проверка)" --notes-file notes.md
+            scripts/release-notes.sh "$v" "${{ github.repository }}" > notes.md
+            gh release create "$tag" "$exe" --target "$SHA" --title "kl!ck $v" --notes-file notes.md
           fi
-          echo "$exe: $sum"
+          echo "$exe: $sum (сборка ${SHA:0:7}, проверки: $RUN_URL)"

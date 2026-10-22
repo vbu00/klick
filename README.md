@@ -9,7 +9,7 @@
 
 Подписки Remnawave · Marzban · 3x-ui · VLESS/Reality · Hysteria2 · TUIC · Trojan · Shadowsocks · WireGuard
 
-[Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
+[Скачать](https://github.com/limeflash/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
 </div>
 
@@ -121,7 +121,7 @@ VPN держит служба Windows, а не окно: окно работае
 
 ## Установка
 
-1. Скачайте `klick-x.y.z-x64-setup.exe` со страницы [релизов](https://github.com/vbu00/klick/releases/latest).
+1. Скачайте `klick-x.y.z-x64-setup.exe` со страницы [релизов](https://github.com/limeflash/klick/releases/latest).
 2. Запустите — нужны Windows 10/11 x64 и один раз права администратора: они
    нужны, чтобы поставить службу. Если нет WebView2 Runtime, установщик
    поставит его сам.
@@ -141,14 +141,13 @@ proxycheck.io) и номером последней версии (GitHub API).
 ## macOS
 
 kl!ck работает и на macOS 12+ (Apple Silicon и Intel) — то же окно, та же служба и те же функции;
-Kill Switch — брандмауэром pf. Порт живёт в этом репозитории
-([limeflash/klick-macos](https://github.com/limeflash/klick-macos)), выпуски для Mac — в его
-[Releases](https://github.com/limeflash/klick-macos/releases); обновления Windows-версии из
-[vbu00/klick](https://github.com/vbu00/klick) вливаются сюда. Пакет пока не подписан сертификатом Apple, поэтому ставится из
-Терминала (`installer` ставит его без вопроса Gatekeeper):
+Kill Switch — брандмауэром pf. Эта сборка живёт в [limeflash/klick](https://github.com/limeflash/klick):
+в её [Releases](https://github.com/limeflash/klick/releases) — и установщик для Windows, и пакет для Mac;
+обновления из [vbu00/klick](https://github.com/vbu00/klick) вливаются сюда. Пакет пока не подписан
+сертификатом Apple, поэтому ставится из Терминала (`installer` ставит его без вопроса Gatekeeper):
 
 ```sh
-curl -fL -o /tmp/klick.pkg https://github.com/limeflash/klick-macos/releases/latest/download/klick-macos.pkg
+curl -fL -o /tmp/klick.pkg https://github.com/limeflash/klick/releases/latest/download/klick-macos.pkg
 sudo installer -pkg /tmp/klick.pkg -target /
 open -a 'kl!ck'
 ```
