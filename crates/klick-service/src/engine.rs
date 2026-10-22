@@ -57,6 +57,8 @@ pub enum Msg {
     CoreExited { generation: u64, code: Option<i32> },
     /// Итог проверки сервера, которую страж связи запустил в фоне.
     Probed { generation: u64, retry: bool, ok: bool },
+    /// Задержка серверов подключения измерена в фоне.
+    Measured { conn: String, result: Result<Measured, ErrorInfo> },
     /// macOS: ядро-страж Kill Switch завершилось само.
     #[cfg(unix)]
     KsCoreExited { generation: u64 },
@@ -78,6 +80,11 @@ pub enum Msg {
     #[cfg(windows)]
     KsFolderChanged,
 }
+
+/// Ответ на команду окна.
+type Reply = oneshot::Sender<Result<Value, ErrorInfo>>;
+/// Замер серверов: (имя, протокол), задержки, выбранный сейчас сервер.
+type Measured = (Vec<(String, String)>, HashMap<String, u32>, Option<String>);
 
 #[derive(Clone)]
 pub struct EngineHandle {
@@ -192,6 +199,8 @@ pub struct Engine {
     /// Запоминаются при каждом запуске ядра, пока DNS не подменён; перечитывание конфига берёт последние.
     server_dns: Vec<String>,
     servers: HashMap<String, Vec<ServerView>>,
+    /// Ждут итога проверки задержки, которая идёт в фоне; не пусто — проверка идёт.
+    latency_waiters: Vec<Reply>,
     failures: Failures,
     /// Следующая плановая работа: обновление подписок, предупреждения о сроке и трафике.
     next_maintenance: Instant,
@@ -398,6 +407,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         dns_overridden: false,
         server_dns: Vec::new(),
         servers: HashMap::new(),
+        latency_waiters: Vec::new(),
         failures: Arc::new(Mutex::new(VecDeque::with_capacity(FAILURES_KEPT))),
         next_maintenance: Instant::now() + Duration::from_secs(60),
         warned: HashSet::new(),
@@ -476,6 +486,52 @@ fn version_newer(latest: &str, current: &str) -> bool {
     parse(latest) > parse(current)
 }
 
+/// Проверочное ядро: только серверы подключения, без портов и перехвата. Список серверов и, если
+/// `measure`, задержка каждого. Работает в фоне, поэтому берёт всё нужное с собой.
+async fn run_tester(paths: Paths, pipe: String, conn_id: String, measure: bool) -> Result<(Vec<(String, String)>, HashMap<String, u32>), ErrorInfo> {
+    let layout = CoreLayout {
+        os: Os::CURRENT,
+        controller: pipe,
+        secret: random_secret(),
+        mixed_port: 0,
+        check_vpn_port: 0,
+        check_direct_port: 0,
+        tun_device: TUN_DEVICE.into(),
+        log_level: "warning".into(),
+        core_exe: String::new(),
+    };
+    let cfg = compile::compile_tester(&layout, &Paths::provider_rel(&conn_id));
+    let path = paths.core_home.join("tester.yaml");
+    storage::write_atomic(&path, &serde_json::to_vec_pretty(&cfg).map_err(internal)?).map_err(internal)?;
+    let api = CoreApi::new(&layout.controller, &layout.secret);
+    let process = CoreProcess::start(&paths.core_exe, &paths.core_home, &path, api.clone(), false, |_| {}).await.map_err(|e| {
+        tracing::error!("проверочное ядро не запустилось: {e:#}");
+        ErrorInfo::new("core.start_failed")
+    })?;
+    // Ядро отвечает раньше, чем дочитает файл подписки: первые запросы бывают с пустым списком.
+    let mut list = api.provider_proxies(PROVIDER).await;
+    for _ in 0..30 {
+        if matches!(&list, Ok(l) if !l.is_empty()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        list = api.provider_proxies(PROVIDER).await;
+    }
+    let delays = match &list {
+        Ok(l) if measure => measure_all(&api, l).await,
+        _ => HashMap::new(),
+    };
+    process.stop().await;
+    let list = list.map_err(|e| {
+        tracing::warn!("проверочное ядро не отдало серверы: {e:#}");
+        ErrorInfo::new("sub.no_servers")
+    })?;
+    if list.is_empty() {
+        return Err(ErrorInfo::new("sub.no_servers"));
+    }
+    Ok((list, delays))
+}
+
 /// Связь через сервер: ответил хоть один из двух адресов. Один адрес бывает недоступен сам по себе.
 async fn server_alive(api: &CoreApi) -> bool {
     let mut checks = tokio::task::JoinSet::new();
@@ -550,6 +606,11 @@ impl Engine {
                 msg = rx.recv() => {
                     let Some(msg) = msg else { break };
                     match msg {
+                        Msg::Cmd(Command::TestLatency, reply) => self.test_latency(reply).await,
+                        // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
+                        // ядро на том же входе управления не запустится).
+                        Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
+                        Msg::Measured { conn, result } => self.measured(conn, result),
                         Msg::Cmd(cmd, reply) => {
                             let res = self.handle(cmd).await;
                             let _ = reply.send(res);
@@ -643,8 +704,9 @@ impl Engine {
             Command::RefreshConnection { id } => self.refresh(&id).await,
             Command::RemoveConnection { id } => self.remove(&id).await,
             Command::SelectConnection { id } => self.select_connection(&id).await,
-            Command::Servers => self.list_servers(false).await,
-            Command::TestLatency => self.list_servers(true).await,
+            Command::Servers => self.list_servers().await,
+            // Обычно идёт в фоне (run → test_latency); сюда попадает только как список.
+            Command::TestLatency => self.list_servers().await,
             Command::SelectServer { name } => self.select_server(name).await,
             Command::ListAdd { position, rule } => {
                 let rule = self.validate_rule(rule)?;
@@ -2165,11 +2227,11 @@ impl Engine {
 
     // ── Серверы ────────────────────────────────────────────────────────────
 
-    /// Список серверов активного подключения. `measure` — заодно проверить задержку.
+    /// Список серверов активного подключения (задержка — с прошлой проверки).
     /// При выключенном VPN служба на пару секунд запускает проверочное ядро без перехвата.
-    async fn list_servers(&mut self, measure: bool) -> Result<Value, ErrorInfo> {
+    async fn list_servers(&mut self) -> Result<Value, ErrorInfo> {
         let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
-        if !measure && self.running.is_none() {
+        if self.running.is_none() {
             if let Some(cached) = self.servers.get(&conn.id) {
                 return serde_json::to_value(cached).map_err(internal);
             }
@@ -2177,76 +2239,77 @@ impl Engine {
         if !self.paths.provider_file(&conn.id).exists() {
             self.download(&conn.id).await?;
         }
-        let (list, delays, now) = match self.api() {
-            Some(api) => {
-                let list = api.provider_proxies(PROVIDER).await.map_err(internal)?;
-                let delays = if measure { measure_all(&api, &list).await } else { HashMap::new() };
-                let now = api.selected(VPN_GROUP).await.ok().flatten();
-                (list, delays, now)
-            }
-            None => {
-                let (list, delays) = self.tester(&conn.id, measure).await?;
-                (list, delays, None)
-            }
+        let (list, now) = match self.api() {
+            Some(api) => (api.provider_proxies(PROVIDER).await.map_err(internal)?, api.selected(VPN_GROUP).await.ok().flatten()),
+            None => (run_tester(self.paths.clone(), self.profile.tester_pipe.clone(), conn.id.clone(), false).await?.0, None),
         };
+        serde_json::to_value(self.store_servers(&conn, list, None, now)).map_err(internal)
+    }
+
+    /// Проверка задержки — в фоне: десятки серверов проверяются до минуты, а «Отключить» и другие команды
+    /// окна ждать её не должны. Запросы, пришедшие во время проверки (окно и трей), получат её итог.
+    async fn test_latency(&mut self, reply: Reply) {
+        self.latency_waiters.push(reply);
+        if self.latency_waiters.len() > 1 {
+            return;
+        }
+        if let Err(e) = self.start_latency().await {
+            for w in self.latency_waiters.drain(..) {
+                let _ = w.send(Err(e.clone()));
+            }
+        }
+    }
+
+    async fn start_latency(&mut self) -> Result<(), ErrorInfo> {
+        let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
+        if !self.paths.provider_file(&conn.id).exists() {
+            self.download(&conn.id).await?;
+        }
+        let (api, paths, pipe, tx) = (self.api(), self.paths.clone(), self.profile.tester_pipe.clone(), self.tx.clone());
+        tokio::spawn(async move {
+            let result = match api {
+                Some(api) => match api.provider_proxies(PROVIDER).await {
+                    Ok(list) => {
+                        let delays = measure_all(&api, &list).await;
+                        Ok((list, delays, api.selected(VPN_GROUP).await.ok().flatten()))
+                    }
+                    Err(e) => Err(internal(e)),
+                },
+                None => run_tester(paths, pipe, conn.id.clone(), true).await.map(|(list, delays)| (list, delays, None)),
+            };
+            let _ = tx.send(Msg::Measured { conn: conn.id, result }).await;
+        });
+        Ok(())
+    }
+
+    fn measured(&mut self, conn_id: String, result: Result<Measured, ErrorInfo>) {
+        let reply = result.and_then(|(list, delays, now)| {
+            let conn = self.settings.connections.iter().find(|c| c.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+            let views = self.store_servers(&conn, list, Some(&delays), now);
+            self.emit(Event::Servers { connection: conn_id });
+            serde_json::to_value(views).map_err(internal)
+        });
+        for w in self.latency_waiters.drain(..) {
+            let _ = w.send(reply.clone());
+        }
+    }
+
+    /// Запомнить список серверов: `delays` — свежий замер; без него задержка остаётся с прошлого раза.
+    fn store_servers(&mut self, conn: &Connection, list: Vec<(String, String)>, delays: Option<&HashMap<String, u32>>, now: Option<String>) -> Vec<ServerView> {
         let selected = now.or(conn.selected_server.clone());
         let old = self.servers.get(&conn.id).cloned().unwrap_or_default();
         let views: Vec<ServerView> = list
             .into_iter()
             .map(|(name, kind)| {
-                let delay = if measure { delays.get(&name).copied() } else { old.iter().find(|s| s.name == name).and_then(|s| s.delay) };
+                let delay = match delays {
+                    Some(d) => d.get(&name).copied(),
+                    None => old.iter().find(|s| s.name == name).and_then(|s| s.delay),
+                };
                 ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay }
             })
             .collect();
         self.servers.insert(conn.id.clone(), views.clone());
-        if measure {
-            self.emit(Event::Servers { connection: conn.id.clone() });
-        }
-        serde_json::to_value(views).map_err(internal)
-    }
-
-    async fn tester(&self, conn_id: &str, measure: bool) -> Result<(Vec<(String, String)>, HashMap<String, u32>), ErrorInfo> {
-        let layout = CoreLayout {
-            os: Os::CURRENT,
-            controller: self.profile.tester_pipe.clone(),
-            secret: random_secret(),
-            mixed_port: 0,
-            check_vpn_port: 0,
-            check_direct_port: 0,
-            tun_device: TUN_DEVICE.into(),
-            log_level: "warning".into(),
-            core_exe: String::new(),
-        };
-        let cfg = compile::compile_tester(&layout, &Paths::provider_rel(conn_id));
-        let path = self.paths.core_home.join("tester.yaml");
-        storage::write_atomic(&path, &serde_json::to_vec_pretty(&cfg).map_err(internal)?).map_err(internal)?;
-        let api = CoreApi::new(&layout.controller, &layout.secret);
-        let process = CoreProcess::start(&self.paths.core_exe, &self.paths.core_home, &path, api.clone(), false, |_| {}).await.map_err(|e| {
-            tracing::error!("проверочное ядро не запустилось: {e:#}");
-            ErrorInfo::new("core.start_failed")
-        })?;
-        // Ядро отвечает раньше, чем дочитает файл подписки: первые запросы бывают с пустым списком.
-        let mut list = api.provider_proxies(PROVIDER).await;
-        for _ in 0..30 {
-            if matches!(&list, Ok(l) if !l.is_empty()) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            list = api.provider_proxies(PROVIDER).await;
-        }
-        let delays = match &list {
-            Ok(l) if measure => measure_all(&api, l).await,
-            _ => HashMap::new(),
-        };
-        process.stop().await;
-        let list = list.map_err(|e| {
-            tracing::warn!("проверочное ядро не отдало серверы: {e:#}");
-            ErrorInfo::new("sub.no_servers")
-        })?;
-        if list.is_empty() {
-            return Err(ErrorInfo::new("sub.no_servers"));
-        }
-        Ok((list, delays))
+        views
     }
 
     async fn select_server(&mut self, name: String) -> Result<Value, ErrorInfo> {
