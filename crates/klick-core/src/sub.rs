@@ -5,8 +5,9 @@ use crate::model::SubInfo;
 use base64::Engine as _;
 
 /// Схемы одиночных ссылок, которые понимает ядро.
-pub const LINK_SCHEMES: [&str; 14] = [
-    "vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "hy2", "tuic", "wireguard", "wg", "anytls",
+pub const LINK_SCHEMES: [&str; 16] = [
+    "vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "hy2", "hysteria2+realm", "hy2+realm", "tuic",
+    "wireguard", "wg", "anytls",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,7 +20,9 @@ pub enum SourceKind {
 pub fn detect_source(input: &str) -> Option<SourceKind> {
     let s = input.trim();
     let (scheme, rest) = s.split_once("://")?;
-    if rest.is_empty() || s.contains(char::is_whitespace) {
+    // Пробел допустим только в имени после `#` (так подписывают ссылки некоторые программы); перенос строки — нет.
+    let head = s.split_once('#').map_or(s, |(h, _)| h);
+    if rest.is_empty() || s.contains(['\n', '\r']) || head.contains(char::is_whitespace) {
         return None;
     }
     let scheme = scheme.to_ascii_lowercase();
@@ -164,35 +167,88 @@ pub fn inspect_content(body: &str) -> Content {
     if links > 0 {
         return Content::Links(links);
     }
-    let compact: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+    match decode_links(t) {
+        Some(text) => Content::Base64Links(count_links(&text)),
+        None => Content::Unknown,
+    }
+}
+
+/// Список ссылок, спрятанный в base64: расшифрованный текст, если в нём есть хоть одна ссылка.
+fn decode_links(body: &str) -> Option<String> {
+    let compact: String = body.chars().filter(|c| !c.is_whitespace()).collect();
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(compact.as_bytes())
         .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(compact.trim_end_matches('=').as_bytes()))
         .or_else(|_| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(compact.trim_end_matches('=').as_bytes()));
-    if let Ok(bytes) = decoded {
-        if let Ok(text) = String::from_utf8(bytes) {
-            let n = count_links(&text);
-            if n > 0 {
-                return Content::Base64Links(n);
-            }
-        }
-    }
-    Content::Unknown
+    let text = String::from_utf8(decoded.ok()?).ok()?;
+    (count_links(&text) > 0).then_some(text)
 }
 
 /// Что положить в файл серверов ядра: чужой формат — переведённым, остальное — как есть.
+/// Ссылки Hysteria в списках правим: конвертер ядра портит пароль со спецсимволами, теряет IPv6 с
+/// прыжками по портам, `mport` и `ech`, оставляет серверу пустое имя, а один неверный сервер
+/// (obfs без пароля, Hysteria 1 без скорости) роняет весь файл.
 pub fn provider_body(body: &str, content: Content) -> String {
     match content {
         Content::Converted(format, _) => convert::provider_text(&convert::proxies(body, format)),
+        Content::Links(_) => fix_hysteria(body).unwrap_or_else(|| body.to_string()),
+        Content::Base64Links(_) => decode_links(body).and_then(|text| fix_hysteria(&text)).unwrap_or_else(|| body.to_string()),
         _ => body.to_string(),
     }
+}
+
+/// Файл серверов для одиночной ссылки: то, что служба кладёт в файл провайдера.
+pub fn link_file(link: &str) -> String {
+    let link = link.trim();
+    fix_hysteria(link).unwrap_or_else(|| format!("{link}\n"))
+}
+
+/// Схема ссылки Hysteria, которую разбираем сами (`+realm` оставляем ядру).
+fn is_hysteria(line: &str) -> bool {
+    line.split_once("://").is_some_and(|(s, _)| ["hysteria", "hysteria2", "hy2"].iter().any(|h| s.eq_ignore_ascii_case(h)))
+}
+
+/// Новый текст файла, если в списке ссылок есть Hysteria и её надо поправить; иначе `None`.
+/// Одни Hysteria — переводим в серверы mihomo сами. Вперемешку с другими схемами файл должен
+/// остаться списком ссылок: там убираем негодные ссылки Hysteria и даём безымянным имя по адресу.
+fn fix_hysteria(text: &str) -> Option<String> {
+    let links: Vec<&str> = text.lines().map(str::trim).filter(|l| detect_source(l) == Some(SourceKind::Link)).collect();
+    if !links.iter().any(|l| is_hysteria(l)) {
+        return None;
+    }
+    if links.iter().all(|l| is_hysteria(l)) {
+        let proxies = convert::hysteria_proxies(&links);
+        return (!proxies.is_empty()).then(|| convert::provider_text(&proxies));
+    }
+    let mut changed = false;
+    let mut out = String::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if is_hysteria(l) && detect_source(l) == Some(SourceKind::Link) {
+            let Some(p) = convert::hysteria_link(l) else {
+                changed = true;
+                continue;
+            };
+            if l.split_once('#').is_none_or(|(_, name)| name.trim().is_empty()) {
+                out.push_str(l.split_once('#').map_or(l, |(head, _)| head));
+                out.push('#');
+                out.push_str(p["server"].as_str().unwrap_or("Сервер"));
+                out.push('\n');
+                changed = true;
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    changed.then_some(out)
 }
 
 fn count_links(text: &str) -> usize {
     text.lines().filter(|l| detect_source(l) == Some(SourceKind::Link)).count()
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -232,6 +288,77 @@ mod tests {
         assert_eq!(link_name("vless://id@nl.example.com:443?x=1#%F0%9F%87%B3%F0%9F%87%B1%20Amsterdam").unwrap(), "🇳🇱 Amsterdam");
         assert_eq!(link_name("trojan://pass@de.example.com:443").unwrap(), "de.example.com");
         assert_eq!(link_name("hysteria2://pass@[2001:db8::1]:443").unwrap(), "2001:db8::1");
+    }
+
+    #[test]
+    fn hysteria_links_are_detected_and_named() {
+        for s in [
+            "hy2://pw@host:443,20000-30000/?sni=a.b#Hop",
+            "Hy2://user:pa:ss@host:20000-30000",
+            "hysteria2://pw@[2001:db8::1]:443,20000-30000/?obfs=salamander&obfs-password=x#%F0%9F%87%A9%F0%9F%87%AA",
+            "hysteria://host:443?auth=a&upmbps=1&downmbps=1&mport=1000-2000",
+            "hysteria2+realm://token@rendezvous.example.com/room?auth=pw",
+            "hy2://pw@host:443#🇩🇪 Германия, Франкфурт",
+        ] {
+            assert_eq!(detect_source(s), Some(SourceKind::Link), "{s}");
+        }
+        // Пробел до `#` и перенос строки — по-прежнему не одна ссылка.
+        assert_eq!(detect_source("hy2://pw@host:443 #x"), None);
+        assert_eq!(detect_source("hy2://pw@host:443#a\nhy2://pw@host2:443#b"), None);
+        assert_eq!(link_name("hy2://pw@host:443,20000-30000/?sni=a.b").unwrap(), "host");
+        assert_eq!(link_name("hy2://user:pa:ss@host:20000-30000").unwrap(), "host");
+        assert_eq!(link_name("hysteria2://pw@[2001:db8::1]:443,20000-30000#").unwrap(), "2001:db8::1");
+        assert_eq!(link_name("hy2://pw@host:443#%F0%9F%87%A9%F0%9F%87%AA%20DE").unwrap(), "🇩🇪 DE");
+        assert_eq!(link_name("hy2://pw@host:443#🇩🇪 Германия, Франкфурт").unwrap(), "🇩🇪 Германия, Франкфурт");
+        assert_eq!(count_links("hy2://pw@a:443,2000-3000#x\nhysteria2://pw@[::1]:443,2000-3000#y y\n# комментарий\nvless://u@b:1#z"), 3);
+    }
+
+    #[test]
+    fn hysteria_only_list_is_translated() {
+        let links = "hy2://user:p%40ss@h1.example.com:443,20000-30000/?sni=a.b#DE\n\
+                     hysteria2://pw@[2001:db8::1]:443,20000-30000#v6\n\
+                     hysteria2://pw@h3.example.com/?obfs=salamander#broken\n\
+                     hysteria://h4.example.com:443?auth=x&upmbps=10&downmbps=50#v1\n";
+        let kind = inspect_content(links);
+        assert_eq!(kind, Content::Links(4));
+        let body = provider_body(links, kind);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("файл серверов — JSON");
+        let list = v["proxies"].as_array().unwrap();
+        assert_eq!(list.len(), 3, "негодную ссылку выбросили, остальные живы: {body}");
+        assert_eq!(list[0]["password"], "user:p@ss");
+        assert_eq!(list[0]["ports"], "443,20000-30000");
+        assert_eq!(list[1]["server"], "2001:db8::1");
+        assert_eq!(list[2]["type"], "hysteria");
+        // В base64 то же самое.
+        let b64 = base64::engine::general_purpose::STANDARD.encode(links);
+        let kind = inspect_content(&b64);
+        assert_eq!(kind, Content::Base64Links(4));
+        assert_eq!(provider_body(&b64, kind), body);
+    }
+
+    #[test]
+    fn hysteria_in_mixed_list_stays_a_list() {
+        let links = "vless://u@v.example.com:443?security=tls#VL\nhy2://pw@h.example.com:443\nhy2://pw@h2.example.com:443/?obfs=salamander#broken\nhy2://pw@h3.example.com:443#ok\nhysteria2+realm://t@r.example.com/room?auth=x\n";
+        let body = provider_body(links, inspect_content(links));
+        assert_eq!(
+            body,
+            "vless://u@v.example.com:443?security=tls#VL\nhy2://pw@h.example.com:443#h.example.com\nhy2://pw@h3.example.com:443#ok\nhysteria2+realm://t@r.example.com/room?auth=x\n"
+        );
+        // Без Hysteria и без нужды что-либо менять список не трогаем.
+        let plain = "vless://a@b:1#x\ntrojan://c@d:2#y\n";
+        assert_eq!(provider_body(plain, inspect_content(plain)), plain);
+        let fine = "vless://a@b:1#x\nhy2://pw@h:443#ok\n";
+        assert_eq!(provider_body(fine, inspect_content(fine)), fine);
+    }
+
+    #[test]
+    fn single_link_file() {
+        assert_eq!(link_file(" vless://a@b:1#x "), "vless://a@b:1#x\n");
+        let body = link_file("hy2://pw@host:443,20000-30000/?sni=a.b");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!((v["proxies"][0]["name"].as_str(), v["proxies"][0]["ports"].as_str()), (Some("host"), Some("443,20000-30000")));
+        // Негодную ссылку отдаём как есть: ядро сообщит об ошибке само.
+        assert_eq!(link_file("hy2://pw@host:443/?obfs=salamander"), "hy2://pw@host:443/?obfs=salamander\n");
     }
 
     #[test]

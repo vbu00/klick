@@ -1993,7 +1993,7 @@ impl Engine {
                 }
             }
             SourceKind::Link => {
-                self.write_provider(&id, &format!("{source}\n"))?;
+                self.write_provider(&id, &subparse::link_file(&source))?;
                 Connection {
                     id: id.clone(),
                     name: name.or_else(|| subparse::link_name(&source)).unwrap_or_else(|| "Сервер".into()),
@@ -2065,7 +2065,7 @@ impl Engine {
             }
             ConnectionKind::Link => {
                 let link = self.secrets.0.get(id).cloned().ok_or_else(|| ErrorInfo::new("conn.secret_missing"))?;
-                self.write_provider(id, &format!("{link}\n"))
+                self.write_provider(id, &subparse::link_file(&link))
             }
             ConnectionKind::File => {
                 if self.paths.provider_file(id).exists() {

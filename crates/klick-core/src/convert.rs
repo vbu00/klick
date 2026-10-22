@@ -1,7 +1,8 @@
 //! Чужие форматы → серверы mihomo. Ядро kl!ck — mihomo, его proxy-provider читает YAML/JSON со списком
 //! `proxies` и списки ссылок. Остальное переводим здесь: конфиги sing-box и Xray/V2Ray (в том числе
 //! массивом — так отдаёт «xray-json» Remnawave), WireGuard/AmneziaWG `.conf`, Shadowsocks SIP008 и
-//! ключи Outline. Берём только серверы: маршрутизация, DNS и TUN у kl!ck свои.
+//! ключи Outline, а ещё ссылки Hysteria (`hysteria_link`): конвертер самого ядра портит их пароль.
+//! Берём только серверы: маршрутизация, DNS и TUN у kl!ck свои.
 
 use serde_json::{json, Map, Value};
 
@@ -146,7 +147,10 @@ fn singbox_outbound(o: &Value) -> Option<Value> {
         return singbox_wireguard(o);
     }
     let server = s(o, "server")?;
-    let port_ = port(o, "server_port")?;
+    // У Hysteria порт можно не задавать вовсе: хватает `server_ports` (прыжки по портам).
+    let ports = matches!(kind, "hysteria" | "hysteria2").then(|| singbox_ports(o)).flatten();
+    let port_ = port(o, "server_port").or_else(|| ports.as_ref().map(|(first, _)| u64::from(*first)))?;
+    let hop = ports.and_then(|(_, hop)| hop);
     let mut m = Map::new();
     m.insert("name".into(), json!(name));
     m.insert("server".into(), json!(server));
@@ -181,19 +185,30 @@ fn singbox_outbound(o: &Value) -> Option<Value> {
         "hysteria2" => {
             m.insert("type".into(), json!("hysteria2"));
             m.insert("password".into(), json!(s(o, "password")?));
-            put(&mut m, "up", port(o, "up_mbps").map(|v| json!(format!("{v} Mbps"))));
-            put(&mut m, "down", port(o, "down_mbps").map(|v| json!(format!("{v} Mbps"))));
+            put(&mut m, "up", sb_speed(o, "up_mbps", "up"));
+            put(&mut m, "down", sb_speed(o, "down_mbps", "down"));
             if let Some(obfs) = o.get("obfs") {
                 put(&mut m, "obfs", s(obfs, "type").map(|t| json!(t)));
                 put(&mut m, "obfs-password", s(obfs, "password").map(|t| json!(t)));
             }
-            // Прыжки по портам: "20000:30000" → "20000-30000".
-            if let Some(ports) = o.get("server_ports").and_then(Value::as_array) {
-                let list: Vec<String> = ports.iter().filter_map(Value::as_str).map(|p| p.replace(':', "-")).collect();
-                if !list.is_empty() {
-                    m.insert("ports".into(), json!(list.join(",")));
-                }
+            hop_options(&mut m, o, hop);
+        }
+        "hysteria" => {
+            m.insert("type".into(), json!("hysteria"));
+            // Hysteria 1: скорость обязательна — ядро без неё отвергает весь файл серверов.
+            m.insert("up".into(), sb_speed(o, "up_mbps", "up")?);
+            m.insert("down".into(), sb_speed(o, "down_mbps", "down")?);
+            // `auth` — base64 (так его понимает и mihomo), `auth_str` — обычная строка.
+            put(&mut m, "auth", s(o, "auth").map(|v| json!(v)));
+            put(&mut m, "auth-str", s(o, "auth_str").map(|v| json!(v)));
+            // В Hysteria 1 `obfs` — сам пароль обфускации (xplus).
+            put(&mut m, "obfs", s(o, "obfs").map(|v| json!(v)));
+            put(&mut m, "recv-window-conn", o.get("recv_window_conn").filter(|v| v.is_u64()).cloned());
+            put(&mut m, "recv-window", o.get("recv_window").filter(|v| v.is_u64()).cloned());
+            if o.get("disable_mtu_discovery").and_then(Value::as_bool) == Some(true) {
+                m.insert("disable-mtu-discovery".into(), json!(true));
             }
+            hop_options(&mut m, o, hop);
         }
         "tuic" => {
             m.insert("type".into(), json!("tuic"));
@@ -229,6 +244,54 @@ fn singbox_outbound(o: &Value) -> Option<Value> {
         singbox_transport(&mut m, tr);
     }
     Some(Value::Object(m))
+}
+
+/// Скорость sing-box → строка mihomo: `up_mbps: 100` или `up: "100 Mbps"`.
+fn sb_speed(o: &Value, mbps_key: &str, text_key: &str) -> Option<Value> {
+    if let Some(v) = port(o, mbps_key).filter(|v| *v > 0) {
+        return Some(json!(format!("{v} Mbps")));
+    }
+    s(o, text_key).and_then(bandwidth).map(Value::from)
+}
+
+/// `server_ports` sing-box (`"20000:30000"`, `"443"`): первый порт и список ядра `443,20000-30000`.
+/// Если он задан, `server_port` sing-box игнорирует.
+fn singbox_ports(o: &Value) -> Option<(u16, Option<String>)> {
+    let raw: Vec<&str> = match o.get("server_ports")? {
+        Value::Array(a) => a.iter().filter_map(Value::as_str).collect(),
+        Value::String(x) => vec![x.as_str()],
+        _ => return None,
+    };
+    parse_ports(&raw.join(","))
+}
+
+/// Прыжки по портам: `ports` и `hop-interval` (`hop_interval: "30s"`).
+fn hop_options(m: &mut Map<String, Value>, o: &Value, hop: Option<String>) {
+    let Some(hop) = hop else { return };
+    m.insert("ports".into(), json!(hop));
+    let secs = |key: &str| s(o, key).and_then(duration_secs).or_else(|| port(o, key));
+    if let Some(min) = secs("hop_interval") {
+        let max = secs("hop_interval_max").filter(|m| *m > min);
+        let v = match (m.get("type").and_then(Value::as_str), max) {
+            // Hysteria 2 в mihomo принимает диапазон «5-10»; у Hysteria 1 интервал — одно число.
+            (Some("hysteria2"), Some(max)) => json!(format!("{min}-{max}")),
+            (Some("hysteria2"), None) => json!(min.to_string()),
+            _ => json!(min),
+        };
+        m.insert("hop-interval".into(), v);
+    }
+}
+
+/// «30s», «1m», «30» → секунды.
+fn duration_secs(text: &str) -> Option<u64> {
+    let t = text.trim();
+    let (num, mul) = match t.chars().last()? {
+        's' => (&t[..t.len() - 1], 1),
+        'm' => (&t[..t.len() - 1], 60),
+        'h' => (&t[..t.len() - 1], 3600),
+        _ => (t, 1),
+    };
+    num.trim().parse::<u64>().ok().map(|n| n * mul).filter(|n| *n > 0)
 }
 
 fn singbox_tls(m: &mut Map<String, Value>, kind: &str, tls: &Value) {
@@ -312,6 +375,30 @@ fn singbox_wireguard(o: &Value) -> Option<Value> {
     put(&mut m, "mtu", o.get("mtu").cloned());
     put(&mut m, "reserved", peer.and_then(|p| p.get("reserved")).or_else(|| o.get("reserved")).cloned());
     put(&mut m, "allowed-ips", peer.and_then(|p| p.get("allowed_ips")).cloned());
+    put(&mut m, "persistent-keepalive", peer.and_then(|p| port(p, "persistent_keepalive_interval")).filter(|n| *n > 0).map(|n| json!(n)));
+    // Форки sing-box с AmneziaWG (NekoBox, Throne, Lantern) держат параметры прямо в конечной точке.
+    let mut awg = Map::new();
+    for (key, awg_key) in [
+        ("junk_packet_count", "jc"),
+        ("junk_packet_min_size", "jmin"),
+        ("junk_packet_max_size", "jmax"),
+        ("init_packet_junk_size", "s1"),
+        ("response_packet_junk_size", "s2"),
+        ("init_packet_magic_header", "h1"),
+        ("response_packet_magic_header", "h2"),
+        ("underload_packet_magic_header", "h3"),
+        ("transport_packet_magic_header", "h4"),
+    ] {
+        let raw = match o.get(key) {
+            Some(Value::Number(n)) => n.to_string(),
+            Some(Value::String(x)) => x.clone(),
+            _ => continue,
+        };
+        awg_param(&mut awg, awg_key, &raw);
+    }
+    if !awg.is_empty() {
+        m.insert("amnezia-wg-option".into(), Value::Object(awg));
+    }
     m.insert("udp".into(), json!(true));
     Some(Value::Object(m))
 }
@@ -409,6 +496,53 @@ fn xray_outbound(o: &Value, remarks: Option<&str>) -> Option<Value> {
                 }
             }
         }
+        "hysteria" => {
+            // Hysteria 2 в Xray: адрес и порт — в settings, пароль — в hysteriaSettings,
+            // обфускация, скорость и прыжки по портам — в finalmask.
+            let ss = o.get("streamSettings")?;
+            m.insert("type".into(), json!("hysteria2"));
+            m.insert("server".into(), json!(s(settings, "address")?));
+            m.insert("port".into(), json!(port(settings, "port")?));
+            m.insert("password".into(), json!(s(ss.get("hysteriaSettings")?, "auth")?));
+            let fm = ss.get("finalmask");
+            for mask in fm.and_then(|f| f.get("udp")).and_then(Value::as_array).into_iter().flatten() {
+                let Some(st) = mask.get("settings") else { continue };
+                if s(mask, "type") != Some("salamander") {
+                    continue;
+                }
+                put(&mut m, "obfs-password", s(st, "password").map(|v| json!(v)));
+                // С packetSize («512-1200») Xray включает Gecko, а не Salamander.
+                let size = s(st, "packetSize").and_then(|r| r.split_once('-')).and_then(|(a, b)| Some((a.trim().parse::<u64>().ok()?, b.trim().parse::<u64>().ok()?)));
+                match size {
+                    Some((min, max)) => {
+                        m.insert("obfs".into(), json!("gecko"));
+                        m.insert("obfs-min-packet-size".into(), json!(min));
+                        m.insert("obfs-max-packet-size".into(), json!(max));
+                    }
+                    None => {
+                        m.insert("obfs".into(), json!("salamander"));
+                    }
+                }
+            }
+            if let Some(q) = fm.and_then(|f| f.get("quicParams")) {
+                put(&mut m, "up", xray_speed(q.get("brutalUp")));
+                put(&mut m, "down", xray_speed(q.get("brutalDown")));
+                if let Some(h) = q.get("udpHop") {
+                    if let Some((_, Some(ports))) = s(h, "ports").and_then(parse_ports) {
+                        m.insert("ports".into(), json!(ports));
+                        let interval = h.get("interval").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|n| n.to_string())));
+                        put(&mut m, "hop-interval", interval.map(|v| json!(v)));
+                    }
+                }
+            }
+            m.insert("udp".into(), json!(true));
+            xray_stream(&mut m, protocol, ss);
+            // Отпечаток браузера Hysteria не нужен; закрепление сертификата — `fingerprint` ядра.
+            m.remove("client-fingerprint");
+            let pin = ss.get("tlsSettings").and_then(|t| s(t, "pinnedPeerCertSha256")).and_then(|p| p.split(',').next());
+            put(&mut m, "fingerprint", pin.map(|p| json!(p.trim())));
+            return Some(Value::Object(m));
+        }
         "wireguard" => {
             let peer = settings.get("peers").and_then(Value::as_array).and_then(|a| a.first())?;
             let (host, p) = split_endpoint(s(peer, "endpoint")?)?;
@@ -418,6 +552,7 @@ fn xray_outbound(o: &Value, remarks: Option<&str>) -> Option<Value> {
             m.insert("private-key".into(), json!(s(settings, "secretKey")?));
             m.insert("public-key".into(), json!(s(peer, "publicKey")?));
             put(&mut m, "pre-shared-key", s(peer, "preSharedKey").map(|v| json!(v)));
+            put(&mut m, "persistent-keepalive", port(peer, "keepAlive").filter(|n| *n > 0).map(|n| json!(n)));
             let addresses: Vec<String> = settings.get("address").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
             wg_addresses(&mut m, &addresses);
             put(&mut m, "mtu", settings.get("mtu").cloned());
@@ -507,6 +642,18 @@ fn xray_stream(m: &mut Map<String, Value>, protocol: &str, ss: &Value) {
     }
 }
 
+/// Скорость Xray: число или «60» без единицы — биты в секунду, «60 mbps» — как записано.
+fn xray_speed(v: Option<&Value>) -> Option<Value> {
+    match v? {
+        Value::Number(n) => n.as_u64().filter(|n| *n > 0).map(|n| json!(format!("{n} bps"))),
+        Value::String(x) if !x.trim().is_empty() && x.trim().chars().all(|c| c.is_ascii_digit()) => {
+            x.trim().parse::<u64>().ok().filter(|n| *n > 0).map(|n| json!(format!("{n} bps")))
+        }
+        Value::String(x) => bandwidth(x).map(Value::from),
+        _ => None,
+    }
+}
+
 fn split_endpoint(ep: &str) -> Option<(String, u64)> {
     let (host, p) = ep.trim().rsplit_once(':')?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
@@ -514,6 +661,41 @@ fn split_endpoint(ep: &str) -> Option<(String, u64)> {
 }
 
 // ── WireGuard / AmneziaWG .conf ─────────────────────────────────────────
+
+/// Параметры AmneziaWG в `.conf` (ключи в нижнем регистре).
+const AWG_KEYS: [&str; 20] = [
+    "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5", "j1", "j2", "j3", "itime",
+];
+
+/// Один параметр AmneziaWG → `amnezia-wg-option`. Числа — Jc, Jmin, Jmax, S1–S4, Itime; H1–H4 — число
+/// или диапазон `100-200` (AWG 2.0), I1–I5 и J1–J3 — строки как есть. `0` — «не задано»: так пишет
+/// `awg showconf`; ядро нулевое число и так пропускает, а нулевой H стал бы заголовком рукопожатия.
+fn awg_param(awg: &mut Map<String, Value>, key: &str, raw: &str) {
+    let raw = raw.trim();
+    match key {
+        "jc" | "jmin" | "jmax" | "s1" | "s2" | "s3" | "s4" | "itime" => {
+            if let Some(n) = raw.parse::<u64>().ok().filter(|n| *n > 0) {
+                awg.insert(key.into(), json!(n));
+            }
+        }
+        "h1" | "h2" | "h3" | "h4" => {
+            if !raw.is_empty() && raw.parse::<u64>() != Ok(0) {
+                awg.insert(key.into(), json!(raw));
+            }
+        }
+        "i1" | "i2" | "i3" | "i4" | "i5" | "j1" | "j2" | "j3" => {
+            if !raw.is_empty() {
+                awg.insert(key.into(), json!(raw));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `PersistentKeepalive`: секунды; диапазон AWG 3 (`22-30`) — нижняя граница; `0` и `off` — не писать.
+fn keepalive(raw: &str) -> Option<u64> {
+    raw.trim().split('-').next()?.trim().parse::<u64>().ok().filter(|n| *n > 0)
+}
 
 fn wireguard_conf(text: &str) -> Option<Value> {
     let mut section = String::new();
@@ -554,11 +736,12 @@ fn wireguard_conf(text: &str) -> Option<Value> {
     if !allowed.is_empty() {
         m.insert("allowed-ips".into(), json!(allowed));
     }
-    // AmneziaWG: Jc, Jmin, Jmax, S1, S2, H1–H4 — параметры маскировки.
+    put(&mut m, "persistent-keepalive", get(&peer, "persistentkeepalive").and_then(|v| keepalive(&v)).map(|v| json!(v)));
+    // AmneziaWG: Jc, Jmin, Jmax, S1–S4, H1–H4, I1–I5, J1–J3, Itime — параметры маскировки.
     let mut awg = Map::new();
-    for k in ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"] {
-        if let Some(v) = get(&iface, k).and_then(|v| v.parse::<u64>().ok()) {
-            awg.insert(k.into(), json!(v));
+    for k in AWG_KEYS {
+        if let Some(v) = get(&iface, k) {
+            awg_param(&mut awg, k, &v);
         }
     }
     if !awg.is_empty() {
@@ -591,6 +774,166 @@ fn sip008(v: &Value) -> Vec<Value> {
             Some(Value::Object(m))
         })
         .collect()
+}
+
+// ── Ссылки Hysteria ─────────────────────────────────────────────────────
+
+/// Серверы mihomo из ссылок Hysteria; негодные ссылки пропускаем, одинаковые имена нумеруем.
+pub fn hysteria_proxies(links: &[&str]) -> Vec<Value> {
+    let mut out: Vec<Value> = links.iter().filter_map(|l| hysteria_link(l)).collect();
+    unique_names(&mut out);
+    out
+}
+
+/// Ссылка `hysteria2://`, `hy2://` или `hysteria://` → сервер mihomo. `None` — ссылка негодная.
+/// Разбираем сами, а не отдаём ядру: его конвертер оставляет в пароле `%XX` и `user%3Apass`, теряет
+/// IPv6 с прыжками по портам, `mport` и `ech`, не знает `obfsParam` Hysteria 1, оставляет безымянному
+/// серверу пустое имя, а `obfs` без пароля или Hysteria 1 без скорости роняют весь файл серверов.
+pub fn hysteria_link(line: &str) -> Option<Value> {
+    use crate::sub::percent_decode;
+    let (scheme, rest) = line.trim().split_once("://")?;
+    let v2 = match scheme.to_ascii_lowercase().as_str() {
+        "hysteria2" | "hy2" => true,
+        "hysteria" => false,
+        _ => return None,
+    };
+    let (rest, fragment) = rest.split_once('#').unwrap_or((rest, ""));
+    let (rest, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let authority = rest.split('/').next().unwrap_or("");
+    let (userinfo, hostport) = match authority.rsplit_once('@') {
+        Some((u, h)) => (Some(percent_decode(u)).filter(|u| !u.is_empty()), h),
+        None => (None, authority),
+    };
+    let (host, ports) = match hostport.strip_prefix('[') {
+        Some(v6) => {
+            let (host, tail) = v6.split_once(']')?;
+            (host, tail.strip_prefix(':'))
+        }
+        None => match hostport.rsplit_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (hostport, None),
+        },
+    };
+    if host.is_empty() {
+        return None;
+    }
+    let q: Vec<(String, String)> = query
+        .split('&')
+        .filter_map(|kv| kv.split_once('=').or(Some((kv, ""))))
+        .filter(|(k, _)| !k.is_empty())
+        .map(|(k, v)| (k.to_ascii_lowercase(), percent_decode(v)))
+        .collect();
+    let get = |k: &str| q.iter().find(|(x, v)| x == k && !v.trim().is_empty()).map(|(_, v)| v.trim().to_string());
+    // Адрес: `host`, `host:443`, `host:443,20000-30000`; `mport` — те же прыжки отдельным параметром.
+    let (port_, hop) = match ports.filter(|p| !p.is_empty()) {
+        Some(p) => parse_ports(p)?,
+        None => (443, None),
+    };
+    let hop = match get("mport") {
+        Some(mport) => parse_ports(&mport)?.1.or(hop),
+        None => hop,
+    };
+    let truthy = |k: &str| get(k).is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    let name = percent_decode(fragment).trim().to_string();
+    let mut m = Map::new();
+    m.insert("name".into(), json!(if name.is_empty() { host } else { name.as_str() }));
+    m.insert("type".into(), json!(if v2 { "hysteria2" } else { "hysteria" }));
+    m.insert("server".into(), json!(host));
+    m.insert("port".into(), json!(port_));
+    put(&mut m, "ports", hop.map(|h| json!(h)));
+    if truthy("insecure") {
+        m.insert("skip-cert-verify".into(), json!(true));
+    }
+    let alpn: Vec<String> = get("alpn").map(|a| a.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+    if !alpn.is_empty() {
+        m.insert("alpn".into(), json!(alpn));
+    }
+    if v2 {
+        put(&mut m, "sni", get("sni").map(|v| json!(v)));
+        // Весь userinfo — пароль: сервер с userpass ждёт `user:pass` целиком.
+        put(&mut m, "password", userinfo.map(|u| json!(u)));
+        if let Some(obfs) = get("obfs") {
+            let obfs = obfs.to_ascii_lowercase();
+            if !matches!(obfs.as_str(), "salamander" | "gecko") {
+                return None;
+            }
+            m.insert("obfs".into(), json!(obfs));
+            m.insert("obfs-password".into(), json!(get("obfs-password")?));
+        }
+        put(&mut m, "up", get("up").and_then(|v| bandwidth(&v)).map(Value::from));
+        put(&mut m, "down", get("down").and_then(|v| bandwidth(&v)).map(Value::from));
+        if let Some(pin) = get("pinsha256") {
+            // Ядро принимает только 64 hex-символа (двоеточия оно убирает само) и иначе роняет весь файл.
+            let pin: String = pin.chars().filter(|c| *c != ':' && !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+            if pin.len() != 64 || !pin.chars().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            m.insert("fingerprint".into(), json!(pin));
+        }
+        put(&mut m, "ech-opts", get("ech").map(|c| json!({ "enable": true, "config": c })));
+    } else {
+        put(&mut m, "sni", get("peer").or_else(|| get("sni")).map(|v| json!(v)));
+        put(&mut m, "auth-str", get("auth").or(userinfo).map(|v| json!(v)));
+        // Скорость у Hysteria 1 обязательна.
+        m.insert("up".into(), json!(bandwidth(&get("upmbps").or_else(|| get("up"))?)?));
+        m.insert("down".into(), json!(bandwidth(&get("downmbps").or_else(|| get("down"))?)?));
+        // `obfs=xplus&obfsParam=пароль`; у части программ пароль лежит прямо в `obfs`.
+        put(&mut m, "obfs", get("obfsparam").or_else(|| get("obfs").filter(|o| !o.eq_ignore_ascii_case("xplus"))).map(|v| json!(v)));
+        if let Some(proto) = get("protocol") {
+            if !matches!(proto.as_str(), "udp" | "wechat-video" | "faketcp") {
+                return None;
+            }
+            m.insert("protocol".into(), json!(proto));
+        }
+    }
+    Some(Value::Object(m))
+}
+
+/// Порты ссылки и конфигов: `443`, `20000-30000`, `443,20000-30000` (`:` вместо `-` — как в sing-box).
+/// Возвращает первый порт и — если портов больше одного — список в виде, который читает ядро.
+fn parse_ports(spec: &str) -> Option<(u16, Option<String>)> {
+    let mut first = None;
+    let mut parts = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim().replace(':', "-");
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<u16>().ok()?, b.trim().parse::<u16>().ok()?),
+            None => {
+                let p = part.parse::<u16>().ok()?;
+                (p, p)
+            }
+        };
+        if a == 0 || a > b {
+            return None;
+        }
+        first.get_or_insert(a);
+        parts.push(if a == b { a.to_string() } else { format!("{a}-{b}") });
+    }
+    let multi = parts.len() > 1 || parts.first().is_some_and(|p| p.contains('-'));
+    Some((first?, multi.then(|| parts.join(","))))
+}
+
+/// Скорость как её читает ядро: «100» → «100 Mbps», «100 mbps», «1gbps», «10 MBps»; непонятное — `None`.
+/// Латинская `b` — биты, `B` — байты (как в Hysteria); без единицы — мегабиты.
+fn bandwidth(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let digits = raw.chars().take_while(char::is_ascii_digit).count();
+    let n: u64 = raw[..digits].parse().ok().filter(|n| *n > 0)?;
+    let unit = raw[digits..].trim();
+    if unit.is_empty() {
+        return Some(format!("{n} Mbps"));
+    }
+    let (prefix, tail) = match unit.chars().next()? {
+        c @ ('k' | 'K' | 'm' | 'M' | 'g' | 'G' | 't' | 'T') => (c.to_ascii_uppercase().to_string(), &unit[1..]),
+        _ => (String::new(), unit),
+    };
+    // «b» или «B», затем необязательное «ps» (в любом регистре) или «/s».
+    let (b, ps) = tail.split_at(if tail.starts_with(['b', 'B']) { 1 } else { 0 });
+    if b.is_empty() && !prefix.is_empty() && ps.is_empty() {
+        // «1g» — как у Xray, биты.
+        return Some(format!("{n} {prefix}bps"));
+    }
+    (!b.is_empty() && matches!(ps.to_ascii_lowercase().as_str(), "" | "ps" | "/s")).then(|| format!("{n} {prefix}{b}ps"))
 }
 
 #[cfg(test)]
@@ -699,6 +1042,202 @@ mod tests {
         assert_eq!(detect("vless://x@y:1#z"), None);
     }
 
+    #[test]
+    fn hysteria2_link_official_example() {
+        let l = "hysteria2://letmein@example.com:123,5000-6000/?insecure=1&obfs=salamander&obfs-password=gawrgura&pinSHA256=DE:AD:BE:EF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB&sni=real.example.com&alpn=h3,h3-29#%F0%9F%87%A9%F0%9F%87%AA%20cool";
+        let p = hysteria_link(l).unwrap();
+        assert_eq!(p["name"], "🇩🇪 cool");
+        assert_eq!(p["type"], "hysteria2");
+        assert_eq!((p["server"].as_str(), p["port"].as_u64(), p["ports"].as_str()), (Some("example.com"), Some(123), Some("123,5000-6000")));
+        assert_eq!(p["password"], "letmein");
+        assert_eq!((p["obfs"].as_str(), p["obfs-password"].as_str()), (Some("salamander"), Some("gawrgura")));
+        assert_eq!(p["sni"], "real.example.com");
+        assert_eq!(p["skip-cert-verify"], true);
+        assert_eq!(p["alpn"], json!(["h3", "h3-29"]));
+        assert_eq!(p["fingerprint"], "deadbeef00112233445566778899aabbccddeeff00112233445566778899aabb");
+    }
+
+    /// Конвертер ядра оставляет в пароле `%40` и `%3A`: сервер получает не тот пароль.
+    #[test]
+    fn hysteria2_link_password_is_decoded() {
+        let p = hysteria_link("hy2://user:p%40ss%3Aw0rd%2F%23@example.com:443#n").unwrap();
+        assert_eq!(p["password"], "user:p@ss:w0rd/#", "userinfo целиком — это auth сервера");
+        assert_eq!(hysteria_link("hy2://user:pa:ss@example.com#n").unwrap()["password"], "user:pa:ss");
+        assert!(hysteria_link("hy2://example.com:443#n").unwrap().get("password").is_none());
+    }
+
+    #[test]
+    fn hysteria2_link_addresses() {
+        // IPv6 с прыжками по портам ядро молча выбрасывает.
+        let p = hysteria_link("hysteria2://pw@[2001:db8::1]:443,20000-30000/?sni=a.b#v6").unwrap();
+        assert_eq!((p["server"].as_str(), p["port"].as_u64(), p["ports"].as_str()), (Some("2001:db8::1"), Some(443), Some("443,20000-30000")));
+        let p = hysteria_link("hysteria2://pw@example.com:20000-30000").unwrap();
+        assert_eq!((p["port"].as_u64(), p["ports"].as_str()), (Some(20000), Some("20000-30000")));
+        // Без порта — 443, без имени — адрес сервера (у ядра имя пустое, и сервер не выбрать).
+        let p = hysteria_link("HY2://pw@example.com/?sni=a.b").unwrap();
+        assert_eq!((p["port"].as_u64(), p["name"].as_str(), p["ports"].as_str()), (Some(443), Some("example.com"), None));
+        assert_eq!(hysteria_link("hysteria2://pw@[::1]").unwrap()["name"], "::1");
+        // `mport` — прыжки отдельным параметром.
+        let p = hysteria_link("hysteria2://pw@example.com:443/?mport=20000-30000#m").unwrap();
+        assert_eq!((p["port"].as_u64(), p["ports"].as_str()), (Some(443), Some("20000-30000")));
+        assert!(hysteria_link("hysteria2://pw@example.com:70000").is_none());
+        assert!(hysteria_link("hysteria2://pw@example.com:30000-20000").is_none());
+        assert!(hysteria_link("hysteria2://pw@:443").is_none());
+        assert!(hysteria_link("vless://a@b:1").is_none());
+    }
+
+    /// Ядро роняет весь файл серверов из-за одного такого сервера.
+    #[test]
+    fn hysteria2_link_rejects_what_would_break_the_core() {
+        assert!(hysteria_link("hysteria2://pw@e.com:443/?obfs=salamander").is_none(), "obfs без пароля");
+        assert!(hysteria_link("hysteria2://pw@e.com:443/?obfs=xplus&obfs-password=x").is_none(), "неизвестный obfs");
+        assert!(hysteria_link("hysteria2://pw@e.com:443/?pinSHA256=abc").is_none(), "отпечаток не sha256");
+        let p = hysteria_link("hysteria2://pw@e.com:443/?obfs=Gecko&obfs-password=x").unwrap();
+        assert_eq!(p["obfs"], "gecko");
+    }
+
+    #[test]
+    fn hysteria_speed_units() {
+        assert_eq!(bandwidth("100").as_deref(), Some("100 Mbps"));
+        assert_eq!(bandwidth("100 mbps").as_deref(), Some("100 Mbps"), "ядро строчное mbps не знает и считает скорость нулём");
+        assert_eq!(bandwidth("1gbps").as_deref(), Some("1 Gbps"));
+        assert_eq!(bandwidth("10 MBps").as_deref(), Some("10 MBps"));
+        assert_eq!(bandwidth("500 kbps").as_deref(), Some("500 Kbps"));
+        assert_eq!(bandwidth("1g").as_deref(), Some("1 Gbps"));
+        assert_eq!(bandwidth("12.5 mbps"), None);
+        assert_eq!(bandwidth("0"), None);
+        assert_eq!(bandwidth("fast"), None);
+        let p = hysteria_link("hy2://pw@e.com:443/?up=20&down=100%20mbps").unwrap();
+        assert_eq!((p["up"].as_str(), p["down"].as_str()), (Some("20 Mbps"), Some("100 Mbps")));
+    }
+
+    #[test]
+    fn hysteria2_link_ech() {
+        let p = hysteria_link("hysteria2://pw@e.com:443/?ech=AEX%2BDQA%3D&sni=a.b").unwrap();
+        assert_eq!(p["ech-opts"], json!({ "enable": true, "config": "AEX+DQA=" }));
+    }
+
+    #[test]
+    fn hysteria1_link() {
+        let l = "hysteria://example.com:443?protocol=wechat-video&auth=secret&peer=sni.example&insecure=1&upmbps=50&downmbps=200&alpn=hysteria&obfs=xplus&obfsParam=pw#v1";
+        let p = hysteria_link(l).unwrap();
+        assert_eq!(p["type"], "hysteria");
+        assert_eq!((p["auth-str"].as_str(), p["sni"].as_str(), p["protocol"].as_str()), (Some("secret"), Some("sni.example"), Some("wechat-video")));
+        assert_eq!((p["up"].as_str(), p["down"].as_str()), (Some("50 Mbps"), Some("200 Mbps")));
+        // У Hysteria 1 пароль обфускации — obfsParam, а не слово xplus (конвертер ядра берёт xplus как пароль).
+        assert_eq!(p["obfs"], "pw");
+        assert_eq!(p["skip-cert-verify"], true);
+        let hop = hysteria_link("hysteria://example.com:443?auth=a&upmbps=1&downmbps=1&mport=20000-30000").unwrap();
+        assert_eq!(hop["ports"], "20000-30000");
+        // Без скорости ядро отвергает весь файл.
+        assert!(hysteria_link("hysteria://example.com:443?auth=a").is_none());
+    }
+
+    #[test]
+    fn hysteria_proxies_get_unique_names() {
+        let list = hysteria_proxies(&["hy2://a@h1.example.com:443#DE", "hy2://b@h2.example.com:443#DE", "hy2://obfs@h3.example.com/?obfs=salamander", "vless://x@y:1"]);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[1]["name"], "DE 2");
+    }
+
+    #[test]
+    fn singbox_hysteria2_hop_and_speeds() {
+        let cfg = r#"{"outbounds": [
+          { "type": "hysteria2", "tag": "a", "server": "h.example.com", "server_ports": ["20000:30000", "443"], "hop_interval": "30s", "hop_interval_max": "1m",
+            "up_mbps": 50, "down_mbps": 200, "password": "p", "obfs": { "type": "salamander", "password": "o" },
+            "tls": { "enabled": true, "server_name": "h.example.com", "insecure": true, "alpn": ["h3"] } },
+          { "type": "hysteria2", "tag": "b", "server": "h2.example.com", "server_port": 8443, "up": "100 Mbps", "password": "p", "tls": { "enabled": true } }
+        ]}"#;
+        let p = proxies(cfg, Format::SingBox);
+        assert_eq!(p.len(), 2, "{p:#?}");
+        // Порта нет — только прыжки: первый порт списка становится основным.
+        assert_eq!((p[0]["port"].as_u64(), p[0]["ports"].as_str()), (Some(20000), Some("20000-30000,443")));
+        assert_eq!((p[0]["hop-interval"].as_str(), p[0]["up"].as_str(), p[0]["down"].as_str()), (Some("30-60"), Some("50 Mbps"), Some("200 Mbps")));
+        assert_eq!((p[0]["skip-cert-verify"].as_bool(), p[0]["alpn"].clone()), (Some(true), json!(["h3"])));
+        assert_eq!((p[1]["port"].as_u64(), p[1]["up"].as_str()), (Some(8443), Some("100 Mbps")));
+        assert!(p[1].get("ports").is_none() && p[1].get("hop-interval").is_none());
+    }
+
+    #[test]
+    fn singbox_hysteria1() {
+        let cfg = r#"{"outbounds": [
+          { "type": "hysteria", "tag": "h1", "server": "h.example.com", "server_port": 443, "up_mbps": 20, "down": "100 Mbps", "auth_str": "s", "obfs": "xp",
+            "recv_window_conn": 1048576, "disable_mtu_discovery": true, "tls": { "enabled": true, "server_name": "h.example.com", "alpn": ["hysteria"] } },
+          { "type": "hysteria", "tag": "no-speed", "server": "h.example.com", "server_port": 443, "auth_str": "s", "tls": { "enabled": true } }
+        ]}"#;
+        let p = proxies(cfg, Format::SingBox);
+        assert_eq!(p.len(), 1, "без скорости Hysteria 1 ядро не примет: {p:#?}");
+        assert_eq!(p[0]["type"], "hysteria");
+        assert_eq!((p[0]["up"].as_str(), p[0]["down"].as_str(), p[0]["auth-str"].as_str(), p[0]["obfs"].as_str()), (Some("20 Mbps"), Some("100 Mbps"), Some("s"), Some("xp")));
+        assert_eq!((p[0]["recv-window-conn"].as_u64(), p[0]["disable-mtu-discovery"].as_bool(), p[0]["sni"].as_str()), (Some(1048576), Some(true), Some("h.example.com")));
+    }
+
+    #[test]
+    fn xray_hysteria() {
+        let cfg = r#"{ "remarks": "HY", "outbounds": [
+          { "tag": "proxy", "protocol": "hysteria", "settings": { "version": 2, "address": "h.example.com", "port": 443 },
+            "streamSettings": { "network": "hysteria", "security": "tls",
+              "tlsSettings": { "serverName": "h.example.com", "alpn": ["h3"], "fingerprint": "chrome", "pinnedPeerCertSha256": "e8e2d387fdbffeb38e9c9065cf30a97ee23c0e3d32ee6f78ffae40966befccc9" },
+              "hysteriaSettings": { "version": 2, "auth": "secret" },
+              "finalmask": { "udp": [{ "type": "salamander", "settings": { "password": "obfs-pw" } }],
+                "quicParams": { "brutalUp": "60 mbps", "brutalDown": 0, "udpHop": { "ports": "20000-50000", "interval": "5-10" } } } } },
+          { "tag": "direct", "protocol": "freedom" } ] }"#;
+        assert_eq!(detect(cfg), Some(Format::Xray));
+        let p = proxies(cfg, Format::Xray);
+        assert_eq!(p.len(), 1, "{p:#?}");
+        let h = &p[0];
+        assert_eq!((h["type"].as_str(), h["password"].as_str(), h["obfs"].as_str(), h["obfs-password"].as_str()), (Some("hysteria2"), Some("secret"), Some("salamander"), Some("obfs-pw")));
+        assert_eq!((h["up"].as_str(), h["ports"].as_str(), h["hop-interval"].as_str(), h["sni"].as_str()), (Some("60 Mbps"), Some("20000-50000"), Some("5-10"), Some("h.example.com")));
+        assert!(h.get("down").is_none() && h.get("client-fingerprint").is_none() && h.get("tls").is_none());
+        assert_eq!(h["fingerprint"], "e8e2d387fdbffeb38e9c9065cf30a97ee23c0e3d32ee6f78ffae40966befccc9");
+    }
+
+    #[test]
+    fn awg_two_point_zero_params() {
+        // AWG 2.0: H1–H4 — диапазоны, плюс S3, S4 и I1–I5; AWG 1.5: J1–J3 и Itime.
+        let conf = "[Interface]\nPrivateKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAddress = 10.8.0.2/32\nJc = 5\nJmin = 10\nJmax = 50\nS1 = 30\nS2 = 40\nS3 = 18\nS4 = 9\nH1 = 100000-200000\nH2 = 300000-400000\nH3 = 500000-600000\nH4 = 700000\nI1 = <b 0xf6ab3267fa><c><t><r 10>\nI2 = <r 20>\nJ1 = <b 0x00>\nItime = 7\n\n[Peer]\nPublicKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 203.0.113.5:51820\nPersistentKeepalive = 25\n";
+        let p = &proxies(conf, Format::WireGuard)[0];
+        let o = &p["amnezia-wg-option"];
+        assert_eq!((o["jc"].as_u64(), o["s3"].as_u64(), o["s4"].as_u64(), o["itime"].as_u64()), (Some(5), Some(18), Some(9), Some(7)));
+        assert_eq!((o["h1"].as_str(), o["h2"].as_str(), o["h3"].as_str(), o["h4"].as_str()), (Some("100000-200000"), Some("300000-400000"), Some("500000-600000"), Some("700000")));
+        assert_eq!((o["i1"].as_str(), o["i2"].as_str(), o["j1"].as_str()), (Some("<b 0xf6ab3267fa><c><t><r 10>"), Some("<r 20>"), Some("<b 0x00>")));
+        assert!(o.get("i3").is_none());
+        assert_eq!(p["persistent-keepalive"], 25);
+    }
+
+    #[test]
+    fn awg_zero_values_and_keepalive_forms() {
+        // `awg showconf` пишет нули для незаданного: нулевые H не переносим, нулевые числа пропускает и ядро.
+        let conf = |extra: &str| format!("[Interface]\nPrivateKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAddress = 10.8.0.2/32\nJc = 0\nJmin = 0\nJmax = 0\nS1 = 0\nS2 = 0\nH1 = 0\nH2 = 0\nH3 = 0\nH4 = 0\n\n[Peer]\nPublicKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 203.0.113.5:51820\n{extra}");
+        let p = &proxies(&conf("PersistentKeepalive = 22-30\n"), Format::WireGuard)[0];
+        assert!(p.get("amnezia-wg-option").is_none(), "одни нули — обычный WireGuard: {p}");
+        assert_eq!(p["persistent-keepalive"], 22, "диапазон AWG 3 — нижняя граница");
+        for off in ["PersistentKeepalive = 0\n", "PersistentKeepalive = off\n", ""] {
+            assert!(proxies(&conf(off), Format::WireGuard)[0].get("persistent-keepalive").is_none(), "{off:?}");
+        }
+        // Часть параметров нулевая, часть нет: переносим только заданные.
+        let part = conf("").replace("Jc = 0", "Jc = 4").replace("H1 = 0", "H1 = 123");
+        let o = &proxies(&part, Format::WireGuard)[0]["amnezia-wg-option"];
+        assert_eq!((o["jc"].as_u64(), o["h1"].as_str()), (Some(4), Some("123")));
+        assert!(o.get("jmin").is_none() && o.get("h2").is_none());
+    }
+
+    #[test]
+    fn wireguard_keepalive_and_awg_from_json_configs() {
+        let sb = r#"{ "endpoints": [{ "type": "wireguard", "tag": "wg", "address": ["10.0.0.2/32"], "private_key": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=",
+            "junk_packet_count": 4, "junk_packet_min_size": 40, "junk_packet_max_size": 70, "init_packet_junk_size": 15, "response_packet_junk_size": 0,
+            "init_packet_magic_header": 1234567, "response_packet_magic_header": 2345678,
+            "peers": [{ "address": "wg.example.com", "port": 51820, "public_key": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=", "allowed_ips": ["0.0.0.0/0"], "persistent_keepalive_interval": 25 }] }] }"#;
+        let p = &proxies(sb, Format::SingBox)[0];
+        assert_eq!(p["persistent-keepalive"], 25);
+        let o = &p["amnezia-wg-option"];
+        assert_eq!((o["jc"].as_u64(), o["jmax"].as_u64(), o["s1"].as_u64(), o["h1"].as_str()), (Some(4), Some(70), Some(15), Some("1234567")));
+        assert!(o.get("s2").is_none());
+        let xr = r#"{ "outbounds": [{ "protocol": "wireguard", "tag": "wg", "settings": { "secretKey": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=", "address": ["10.0.0.2/32"],
+            "peers": [{ "publicKey": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=", "endpoint": "wg.example.com:51820", "keepAlive": 20 }] } }] }"#;
+        assert_eq!(proxies(xr, Format::Xray)[0]["persistent-keepalive"], 20);
+    }
+
     /// Свой файл: `KLICK_CONVERT_FILE=путь cargo test -p klick-core convert_file -- --ignored --nocapture`.
     /// Печатает только число и виды серверов — ключи из файла на экран не попадают.
     #[test]
@@ -736,6 +1275,36 @@ mod tests {
         let mut all = proxies(SINGBOX, Format::SingBox);
         all.extend(proxies(XRAY, Format::Xray));
         all.extend(proxies(AWG, Format::WireGuard));
+        check_with_mihomo(all);
+    }
+
+    /// Ядро принимает Hysteria и AmneziaWG 2.0 в нашем виде: `cargo test -p klick-core mihomo_accepts_hysteria -- --ignored`.
+    #[test]
+    #[ignore]
+    fn mihomo_accepts_hysteria_and_awg() {
+        let mut all = hysteria_proxies(&[
+            "hysteria2://letmein@example.com:443,5000-6000/?insecure=1&obfs=salamander&obfs-password=gawrgura&pinSHA256=DE:AD:BE:EF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB&sni=real.example.com&up=100%20mbps&down=200&alpn=h3#a",
+            "hy2://user:p%40ss%3Aw0rd@[2001:db8::1]:443,20000-30000/?ech=AEX%2BDQA%3D&obfs=gecko&obfs-password=g#b",
+            "hysteria2://pw@example.org",
+            "hysteria://example.net:443?protocol=udp&auth=s&peer=p.example&insecure=1&upmbps=10&downmbps=50&obfs=xplus&obfsParam=pw&mport=20000-30000#d",
+        ]);
+        assert_eq!(all.len(), 4);
+        let sb = r#"{"outbounds": [
+          { "type": "hysteria2", "tag": "sb-hy2", "server": "h.example.com", "server_ports": ["20000:30000", "443"], "hop_interval": "30s", "hop_interval_max": "1m",
+            "up_mbps": 50, "down_mbps": 200, "password": "p", "obfs": { "type": "salamander", "password": "o" }, "tls": { "enabled": true, "server_name": "h.example.com", "insecure": true, "alpn": ["h3"] } },
+          { "type": "hysteria", "tag": "sb-hy1", "server": "h.example.com", "server_port": 443, "up_mbps": 20, "down": "100 Mbps", "auth_str": "s", "obfs": "xp",
+            "recv_window_conn": 1048576, "tls": { "enabled": true, "server_name": "h.example.com", "alpn": ["hysteria"] } }]}"#;
+        all.extend(proxies(sb, Format::SingBox));
+        let xr = r#"{ "remarks": "xray-hy", "outbounds": [
+          { "tag": "proxy", "protocol": "hysteria", "settings": { "version": 2, "address": "h.example.com", "port": 443 },
+            "streamSettings": { "network": "hysteria", "security": "tls",
+              "tlsSettings": { "serverName": "h.example.com", "pinnedPeerCertSha256": "e8e2d387fdbffeb38e9c9065cf30a97ee23c0e3d32ee6f78ffae40966befccc9" },
+              "hysteriaSettings": { "version": 2, "auth": "secret" },
+              "finalmask": { "udp": [{ "type": "salamander", "settings": { "password": "obfs-pw", "packetSize": "512-1200" } }],
+                "quicParams": { "brutalUp": "60 mbps", "udpHop": { "ports": "20000-50000", "interval": "5-10" } } } } } ] }"#;
+        all.extend(proxies(xr, Format::Xray));
+        let awg = "[Interface]\nPrivateKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAddress = 10.8.0.2/32\nJc = 5\nJmin = 10\nJmax = 50\nS1 = 30\nS2 = 40\nS3 = 18\nS4 = 9\nH1 = 100000-200000\nH2 = 300000-400000\nH3 = 500000-600000\nH4 = 700000\nI1 = <b 0xf6ab3267fa><c><t><r 10>\n\n[Peer]\nPublicKey = YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXphYmNkZWY=\nAllowedIPs = 0.0.0.0/0\nEndpoint = 203.0.113.5:51820\nPersistentKeepalive = 25\n";
+        all.extend(proxies(awg, Format::WireGuard));
         check_with_mihomo(all);
     }
 }
