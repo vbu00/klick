@@ -212,6 +212,26 @@ pub fn compile_tester(layout: &CoreLayout, provider_path: &str) -> Value {
     Value::Object(cfg)
 }
 
+/// Проверочное ядро с отдельным входом для каждого сервера, который проверяется параллельно.
+pub fn compile_probe(layout: &CoreLayout, provider_path: &str, slot_ports: &[u16]) -> Value {
+    let mut cfg = base(layout, provider_path);
+    let groups: Vec<Value> = slot_ports
+        .iter()
+        .enumerate()
+        .map(|(i, _)| json!({ "name": format!("klick-probe-{i}"), "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }))
+        .collect();
+    let listeners: Vec<Value> = slot_ports
+        .iter()
+        .enumerate()
+        .map(|(i, port)| json!({ "name": format!("klick-probe-listener-{i}"), "type": "http", "port": port, "listen": "127.0.0.1", "proxy": format!("klick-probe-{i}") }))
+        .collect();
+    cfg.insert("allow-lan".into(), json!(false));
+    cfg.insert("proxy-groups".into(), Value::Array(groups));
+    cfg.insert("listeners".into(), Value::Array(listeners));
+    cfg.insert("rules".into(), json!(["MATCH,DIRECT"]));
+    Value::Object(cfg)
+}
+
 fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
     let v = json!({
         "mode": "rule",
@@ -851,6 +871,22 @@ mod tests {
         assert_eq!(cfg["ipv6"], true);
         assert_eq!(cfg["sniffer"]["sniff"]["TLS"]["override-destination"], true);
         assert_eq!(cfg["sniffer"]["sniff"]["QUIC"]["override-destination"], true);
+    }
+
+    #[test]
+    fn probe_core_has_one_rejecting_group_and_listener_per_slot() {
+        let cfg = compile_probe(&layout(), "providers/a.txt", &[12001, 12002]);
+        assert_eq!(cfg["proxy-providers"][PROVIDER]["path"], "providers/a.txt");
+        assert_eq!(cfg["proxy-providers"][PROVIDER]["override"]["override-expr"].as_array().unwrap().len(), SERVER_FIXES.len());
+        assert_eq!(cfg["proxy-groups"].as_array().unwrap().len(), 2);
+        assert_eq!(cfg["proxy-groups"][0], json!({ "name": "klick-probe-0", "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }));
+        assert_eq!(cfg["proxy-groups"][1]["name"], "klick-probe-1");
+        assert_eq!(cfg["listeners"][0]["port"], 12001);
+        assert_eq!(cfg["listeners"][0]["proxy"], "klick-probe-0");
+        assert_eq!(cfg["listeners"][1]["port"], 12002);
+        assert_eq!(cfg["listeners"][1]["proxy"], "klick-probe-1");
+        assert_eq!(cfg["rules"], json!(["MATCH,DIRECT"]));
+        assert_eq!(cfg["allow-lan"], false);
     }
 
     #[test]

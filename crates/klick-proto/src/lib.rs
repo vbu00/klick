@@ -4,6 +4,7 @@
 //! шлёт события. Служба не присылает человеческих фраз: только коды и параметры,
 //! переводит интерфейс.
 
+use klick_core::probe::ProbeVerdict;
 use klick_core::{Appearance, ExitAction, Mode, Route, Routing, Rule, ServerDownPolicy, SubInfo};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,6 +58,10 @@ pub enum Command {
     SelectServer { name: String },
     /// Проверить задержку всех серверов активного подключения.
     TestLatency,
+    /// Проверить серверы активного подключения напрямую.
+    Probe,
+    /// Разрешить или запретить отправку результата панели подписки.
+    ProbeShare { id: String, enabled: bool },
     ListAdd { position: Routing, rule: Rule },
     ListRemove { position: Routing, index: usize },
     ListSetRoute { position: Routing, index: usize, route: Route },
@@ -167,8 +172,12 @@ pub struct IpColumn {
     pub country_code: Option<String>,
     /// Примерный: базы геолокации ошибаются.
     pub city: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
     pub provider: Option<String>,
     pub asn: Option<u32>,
+    #[serde(default)]
+    pub net_type: Option<String>,
     /// Обратное DNS-имя адреса.
     pub reverse_dns: Option<String>,
     /// «Сайты могут понять, что это VPN»: по базе одного сервиса, у других может отличаться.
@@ -375,6 +384,68 @@ pub struct ConnectionView {
     pub id: String,
     pub name: String,
     pub info: Option<SubInfo>,
+    #[serde(default)]
+    pub probe_share: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_last: Option<ProbeLast>,
+}
+
+/// Сеть, через которую запускалась проверка. Адреса и город сюда не входят.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeNetwork {
+    pub vpn: bool,
+    pub direct_checked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asn: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub net_type: Option<String>,
+}
+
+/// Краткий итог для окна и CLI.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeReport {
+    pub network: ProbeNetwork,
+    pub servers: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<String>,
+}
+
+/// Последняя локальная проверка подключения.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeLast {
+    pub checked_at: i64,
+    pub report: ProbeReport,
+}
+
+/// Результат проверки сервера. Адрес нужен только службе для отчёта панели.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerProbe {
+    pub verdict: ProbeVerdict,
+    pub flaky: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_ok: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_tries: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dl_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dl_stalled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns: Option<String>,
+    #[serde(skip)]
+    pub host: String,
+    #[serde(skip)]
+    pub port: u16,
 }
 
 /// Сервер из списка.
@@ -386,6 +457,8 @@ pub struct ServerView {
     /// Задержка через сервер в миллисекундах; `None` — не проверяли или нет ответа.
     pub delay: Option<u32>,
     pub selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe: Option<ServerProbe>,
 }
 
 #[cfg(test)]
@@ -425,5 +498,45 @@ mod tests {
         assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"t":"event","ev":"traffic","up":1,"down":2}"#);
         let err = ServerMsg::err(3, ErrorInfo::new("core.start_failed"));
         assert_eq!(serde_json::to_string(&err).unwrap(), r#"{"t":"res","id":3,"ok":false,"error":{"code":"core.start_failed"}}"#);
+    }
+
+    #[test]
+    fn probe_wire_types_never_serialize_server_addresses() {
+        let command = Request { id: 1, cmd: Command::Probe };
+        assert_eq!(serde_json::to_string(&command).unwrap(), r#"{"id":1,"cmd":"probe"}"#);
+
+        let server = ServerView {
+            name: "🇩🇪 DE · VLESS · TCP".into(),
+            kind: "vless".into(),
+            delay: None,
+            selected: false,
+            probe: Some(ServerProbe {
+                verdict: ProbeVerdict::Freeze,
+                flaky: false,
+                tcp_ok: Some(3),
+                tcp_tries: Some(3),
+                tcp_ms: Some(52),
+                delay_ms: Some(140),
+                dl_bytes: Some(10_985),
+                dl_stalled: Some(true),
+                dns: Some("same".into()),
+                host: "secret.example.com".into(),
+                port: 443,
+            }),
+        };
+        let json = serde_json::to_string(&server).unwrap();
+        assert!(json.contains("freeze"));
+        assert!(!json.contains("secret.example.com"));
+        assert!(!json.contains("443"));
+
+        let report = ProbeReport {
+            network: ProbeNetwork { vpn: false, direct_checked: true, ..ProbeNetwork::default() },
+            servers: 33,
+            shared: Some("sent".into()),
+        };
+        assert_eq!(
+            serde_json::to_string(&report).unwrap(),
+            r#"{"network":{"vpn":false,"direct_checked":true},"servers":33,"shared":"sent"}"#
+        );
     }
 }

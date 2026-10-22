@@ -15,6 +15,7 @@ use crate::pf;
 use crate::netwatch::{self, NetWatch};
 use crate::paths::{Paths, Profile};
 use crate::programs;
+use crate::probe::{self, ProbeOutcome, ShareTarget};
 use crate::storage::{self, Secrets};
 use crate::subs;
 use crate::sys;
@@ -28,14 +29,15 @@ use klick_core::{
     ServerDownPolicy, Settings, Target,
 };
 use klick_proto::{
-    AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ServerView, StateView, SystemProxy, UpdateView, VpnState,
+    AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ProbeLast, ProbeReport, ServerProbe, ServerView,
+    StateView, SystemProxy, UpdateView, VpnState,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 pub const TUN_DEVICE: &str = "klick";
@@ -63,6 +65,7 @@ pub enum Msg {
     Probed { generation: u64, retry: bool, ok: bool, net: u64 },
     /// Задержка серверов подключения измерена в фоне.
     Measured { conn: String, result: Result<Measured, ErrorInfo> },
+    ProbeDone { conn: String, net: u64, result: Result<ProbeOutcome, ErrorInfo> },
     /// macOS: ядро-страж Kill Switch завершилось само.
     #[cfg(unix)]
     KsCoreExited { generation: u64 },
@@ -215,6 +218,10 @@ pub struct Engine {
     servers: HashMap<String, Vec<ServerView>>,
     /// Ждут итога проверки задержки, которая идёт в фоне; не пусто — проверка идёт.
     latency_waiters: Vec<Reply>,
+    probe_waiters: Vec<Reply>,
+    last_probe: HashMap<String, ProbeLast>,
+    shared_at: HashMap<String, Instant>,
+    net_change_tx: watch::Sender<u64>,
     failures: Failures,
     /// Следующая плановая работа: обновление подписок, предупреждения о сроке и трафике.
     next_maintenance: Instant,
@@ -327,6 +334,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     );
     let (tx, rx) = mpsc::channel(64);
     let (events, _) = broadcast::channel(256);
+    let (net_change_tx, _) = watch::channel(0_u64);
     let restore_pending = !profile.dev && should_restore(&paths);
     let resume_on_logon = !profile.dev && was_on_before_reboot(&paths);
 
@@ -433,6 +441,10 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         server_dns: Vec::new(),
         servers: HashMap::new(),
         latency_waiters: Vec::new(),
+        probe_waiters: Vec::new(),
+        last_probe: HashMap::new(),
+        shared_at: HashMap::new(),
+        net_change_tx,
         failures: Arc::new(Mutex::new(VecDeque::with_capacity(FAILURES_KEPT))),
         next_maintenance: Instant::now() + Duration::from_secs(60),
         warned: HashSet::new(),
@@ -534,14 +546,7 @@ async fn run_tester(paths: Paths, pipe: String, conn_id: String, measure: bool) 
         ErrorInfo::new("core.start_failed")
     })?;
     // Ядро отвечает раньше, чем дочитает файл подписки: первые запросы бывают с пустым списком.
-    let mut list = api.provider_proxies(PROVIDER).await;
-    for _ in 0..30 {
-        if matches!(&list, Ok(l) if !l.is_empty()) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        list = api.provider_proxies(PROVIDER).await;
-    }
+    let list = api.wait_provider(PROVIDER, 30, Duration::from_millis(100)).await;
     let delays = match &list {
         Ok(l) if measure => measure_all(&api, l).await,
         _ => HashMap::new(),
@@ -636,10 +641,12 @@ impl Engine {
                     let Some(msg) = msg else { break };
                     match msg {
                         Msg::Cmd(Command::TestLatency, reply) => self.test_latency(reply).await,
+                        Msg::Cmd(Command::Probe, reply) => self.probe(reply),
                         // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
                         // ядро на том же входе управления не запустится).
                         Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
                         Msg::Measured { conn, result } => self.measured(conn, result),
+                        Msg::ProbeDone { conn, net, result } => self.probe_done(conn, net, result),
                         Msg::Cmd(cmd, reply) => {
                             let res = self.handle(cmd).await;
                             let _ = reply.send(res);
@@ -731,7 +738,7 @@ impl Engine {
             }
             Command::AddConnection { source, name } => self.add_connection(source, name).await,
             Command::FindConnection { source } => {
-                let found = self.find_connection(&source).map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() });
+                let found = self.find_connection(&source).map(|c| self.connection_view(c));
                 serde_json::to_value(found).map_err(internal)
             }
             Command::ImportFile { file_name, content } => self.import_file(file_name, content).await,
@@ -741,6 +748,8 @@ impl Engine {
             Command::Servers => self.list_servers().await,
             // Обычно идёт в фоне (run → test_latency); сюда попадает только как список.
             Command::TestLatency => self.list_servers().await,
+            Command::Probe => Err(ErrorInfo::new("probe.unexpected")),
+            Command::ProbeShare { id, enabled } => self.set_probe_share(&id, enabled),
             Command::SelectServer { name } => self.select_server(name).await,
             Command::ListAdd { position, rule } => {
                 let rule = self.validate_rule(rule)?;
@@ -922,11 +931,12 @@ impl Engine {
     /// После сна, смены Wi-Fi или кабеля: сразу проверить связь, а не ждать плановой проверки.
     /// Проверка — в фоне, как плановая: окно не ждёт, а итог проходит те же правила стража.
     async fn on_network_change(&mut self, moved: bool) {
+        self.net_seq = self.net_seq.wrapping_add(1);
+        self.net_change_tx.send_replace(self.net_seq);
         // macOS: появилась новая сетевая служба (USB-модем, другой адаптер) — ей тоже прокси и DNS.
         #[cfg(unix)]
         self.refresh_netconf().await;
         // Проверка, которая шла через прежнюю сеть, — не в счёт (её итог запустит новую).
-        self.net_seq += 1;
         let Some(r) = self.running.as_ref() else { return };
         if r.started.elapsed() < Duration::from_secs(10) || !netwatch::has_network() {
             return;
@@ -1113,7 +1123,7 @@ impl Engine {
             mode: self.settings.mode,
             routing: self.settings.routing,
             kill_switch: self.settings.kill_switch.enabled,
-            connection: active.map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() }),
+            connection: active.map(|c| self.connection_view(c)),
             server: active.and_then(|c| c.selected_server.clone()),
             since: self.since,
             attempt: None,
@@ -1132,6 +1142,16 @@ impl Engine {
 
     fn view_json(&self) -> Value {
         serde_json::to_value(self.view()).unwrap_or(Value::Null)
+    }
+
+    fn connection_view(&self, conn: &Connection) -> ConnectionView {
+        ConnectionView {
+            id: conn.id.clone(),
+            name: conn.name.clone(),
+            info: conn.info.clone(),
+            probe_share: conn.probe_share,
+            probe_last: self.last_probe.get(&conn.id).cloned(),
+        }
     }
 
     fn emit(&self, event: Event) {
@@ -2261,6 +2281,7 @@ impl Engine {
                     updated_at: Some(unix_now()),
                     update_interval_hours: f.interval_hours,
                     selected_server: None,
+                    probe_share: false,
                 }
             }
             SourceKind::Link => {
@@ -2273,6 +2294,7 @@ impl Engine {
                     updated_at: Some(unix_now()),
                     update_interval_hours: None,
                     selected_server: None,
+                    probe_share: false,
                 }
             }
         };
@@ -2302,12 +2324,13 @@ impl Engine {
             updated_at: Some(unix_now()),
             update_interval_hours: None,
             selected_server: None,
+            probe_share: false,
         };
         self.push_connection(conn)
     }
 
     fn push_connection(&mut self, conn: Connection) -> Result<Value, ErrorInfo> {
-        let view = ConnectionView { id: conn.id.clone(), name: conn.name.clone(), info: conn.info.clone() };
+        let view = self.connection_view(&conn);
         if self.settings.active_connection.is_none() {
             self.settings.active_connection = Some(conn.id.clone());
         }
@@ -2366,6 +2389,7 @@ impl Engine {
                     c.update_interval_hours = f.interval_hours.or(c.update_interval_hours);
                 }
                 self.servers.remove(id);
+                self.last_probe.remove(id);
                 self.warned.remove(&(id.to_string(), "refused"));
                 self.keep_page_secret(id);
                 self.save()
@@ -2386,6 +2410,7 @@ impl Engine {
 
     async fn refresh(&mut self, id: &str) -> Result<Value, ErrorInfo> {
         self.download(id).await?;
+        self.last_probe.remove(id);
         if self.settings.active_connection.as_deref() == Some(id) {
             if let Some(api) = self.api() {
                 if let Err(e) = api.refresh_provider(PROVIDER).await {
@@ -2396,7 +2421,7 @@ impl Engine {
         }
         self.emit_state();
         let c = self.settings.connections.iter().find(|c| c.id == id).ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
-        serde_json::to_value(ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() }).map_err(internal)
+        serde_json::to_value(self.connection_view(c)).map_err(internal)
     }
 
     async fn remove(&mut self, id: &str) -> Result<Value, ErrorInfo> {
@@ -2416,6 +2441,8 @@ impl Engine {
         self.secrets.save(&self.paths).map_err(internal)?;
         let _ = std::fs::remove_file(self.paths.provider_file(id));
         self.servers.remove(id);
+        self.last_probe.remove(id);
+        self.shared_at.remove(id);
         self.warned.retain(|(conn, _)| conn != id);
         self.save()?;
         self.emit_state();
@@ -2456,7 +2483,104 @@ impl Engine {
             Some(api) => (api.provider_proxies(PROVIDER).await.map_err(internal)?, api.selected(VPN_GROUP).await.ok().flatten()),
             None => (run_tester(self.paths.clone(), self.profile.tester_pipe.clone(), conn.id.clone(), false).await?.0, None),
         };
-        serde_json::to_value(self.store_servers(&conn, list, None, now)).map_err(internal)
+        serde_json::to_value(self.store_servers(&conn, list, None, now, None)).map_err(internal)
+    }
+
+    fn probe(&mut self, reply: Reply) {
+        self.probe_waiters.push(reply);
+        if self.probe_waiters.len() > 1 {
+            return;
+        }
+        if let Err(error) = self.start_probe() {
+            for waiter in self.probe_waiters.drain(..) {
+                let _ = waiter.send(Err(error.clone()));
+            }
+        }
+    }
+
+    fn start_probe(&mut self) -> Result<(), ErrorInfo> {
+        let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
+        if !self.paths.provider_file(&conn.id).is_file() {
+            return Err(ErrorInfo::new("sub.no_servers"));
+        }
+        let vpn = self.vpn == VpnState::Connected;
+        let direct_port = self.running.as_ref().map(|running| running.layout.check_direct_port);
+        let vpn_port = vpn.then(|| self.vpn_port()).flatten();
+        let share_target = if conn.probe_share && conn.kind == ConnectionKind::Subscription {
+            conn.info.as_ref().and_then(|info| info.probe_report).and_then(|version| {
+                let url = self.secrets.0.get(&conn.id).and_then(|source| subs::report_url(source))?;
+                Some(ShareTarget { url, version, vpn_port })
+            })
+        } else {
+            None
+        };
+        let (share, share_later) = match share_target {
+            Some(_) if self.shared_at.get(&conn.id).is_some_and(|at| at.elapsed() < Duration::from_secs(600)) => (None, true),
+            Some(target) => (Some(target), false),
+            None => (None, false),
+        };
+        let (paths, profile, tx, net_change, net) =
+            (self.paths.clone(), self.profile.clone(), self.tx.clone(), self.net_change_tx.subscribe(), self.net_seq);
+        let (conn_id, tun) = (conn.id, sys::tun_up());
+        tokio::spawn(async move {
+            let result = probe::run(paths, profile, conn_id.clone(), vpn, tun, direct_port, share, net_change, net)
+                .await
+                .map(|mut outcome| {
+                    if share_later && outcome.shared.is_none() {
+                        outcome.shared = Some("later".into());
+                    }
+                    outcome
+                });
+            let _ = tx.send(Msg::ProbeDone { conn: conn_id, net, result }).await;
+        });
+        Ok(())
+    }
+
+    fn probe_done(&mut self, conn_id: String, net: u64, result: Result<ProbeOutcome, ErrorInfo>) {
+        let result = if net == self.net_seq {
+            result.and_then(|outcome| {
+                let conn = self.settings.connections.iter().find(|conn| conn.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+                let ProbeOutcome { list, servers, network, shared, attempted_share, .. } = outcome;
+                if attempted_share {
+                    self.shared_at.insert(conn_id.clone(), Instant::now());
+                }
+                self.store_servers(&conn, list, None, conn.selected_server.clone(), Some(&servers));
+                let report = ProbeReport { network, servers: servers.len(), shared };
+                self.last_probe.insert(conn_id.clone(), ProbeLast { checked_at: unix_now(), report: report.clone() });
+                self.emit(Event::Servers { connection: conn_id.clone() });
+                if self.settings.active_connection.as_deref() == Some(&conn_id) {
+                    self.emit_state();
+                }
+                serde_json::to_value(report).map_err(internal)
+            })
+        } else {
+            Err(ErrorInfo::new("probe.network_changed"))
+        };
+        for waiter in self.probe_waiters.drain(..) {
+            let _ = waiter.send(result.clone());
+        }
+    }
+
+    fn set_probe_share(&mut self, id: &str, enabled: bool) -> Result<Value, ErrorInfo> {
+        let Some(index) = self.settings.connections.iter().position(|conn| conn.id == id) else {
+            return Err(ErrorInfo::new("conn.not_found"));
+        };
+        if enabled {
+            let conn = &self.settings.connections[index];
+            let supported = conn.kind == ConnectionKind::Subscription
+                && conn.info.as_ref().and_then(|info| info.probe_report).is_some()
+                && self.secrets.0.get(id).and_then(|source| subs::report_url(source)).is_some();
+            if !supported {
+                return Err(ErrorInfo::new("probe.share_unavailable"));
+            }
+        }
+        if self.settings.connections[index].probe_share != enabled {
+            self.settings.connections[index].probe_share = enabled;
+            self.save()?;
+            self.emit_state();
+        }
+        let conn = &self.settings.connections[index];
+        serde_json::to_value(self.connection_view(conn)).map_err(internal)
     }
 
     /// Проверка задержки — в фоне: десятки серверов проверяются до минуты, а «Отключить» и другие команды
@@ -2498,7 +2622,7 @@ impl Engine {
     fn measured(&mut self, conn_id: String, result: Result<Measured, ErrorInfo>) {
         let reply = result.and_then(|(list, delays, now)| {
             let conn = self.settings.connections.iter().find(|c| c.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
-            let views = self.store_servers(&conn, list, Some(&delays), now);
+            let views = self.store_servers(&conn, list, Some(&delays), now, None);
             self.emit(Event::Servers { connection: conn_id });
             serde_json::to_value(views).map_err(internal)
         });
@@ -2508,7 +2632,14 @@ impl Engine {
     }
 
     /// Запомнить список серверов: `delays` — свежий замер; без него задержка остаётся с прошлого раза.
-    fn store_servers(&mut self, conn: &Connection, list: Vec<(String, String)>, delays: Option<&HashMap<String, u32>>, now: Option<String>) -> Vec<ServerView> {
+    fn store_servers(
+        &mut self,
+        conn: &Connection,
+        list: Vec<(String, String)>,
+        delays: Option<&HashMap<String, u32>>,
+        now: Option<String>,
+        probes: Option<&HashMap<String, ServerProbe>>,
+    ) -> Vec<ServerView> {
         let selected = now.or(conn.selected_server.clone());
         let old = self.servers.get(&conn.id).cloned().unwrap_or_default();
         let views: Vec<ServerView> = list
@@ -2518,7 +2649,11 @@ impl Engine {
                     Some(d) => d.get(&name).copied(),
                     None => old.iter().find(|s| s.name == name).and_then(|s| s.delay),
                 };
-                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay }
+                let probe = match probes {
+                    Some(probes) => probes.get(&name).cloned(),
+                    None => old.iter().find(|s| s.name == name).and_then(|s| s.probe.clone()),
+                };
+                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay, probe }
             })
             .collect();
         self.servers.insert(conn.id.clone(), views.clone());
@@ -2581,6 +2716,7 @@ mod tests {
             updated_at: None,
             update_interval_hours: None,
             selected_server: None,
+            probe_share: false,
         };
         let connections = [conn("a"), conn("b")];
         let secrets = HashMap::from([

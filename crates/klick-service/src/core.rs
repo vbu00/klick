@@ -15,9 +15,9 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
 #[cfg(windows)]
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::oneshot;
 
 #[cfg(windows)]
@@ -41,11 +41,15 @@ impl CoreApi {
     }
 
     #[cfg(windows)]
-    async fn open(&self) -> Result<NamedPipeClient> {
+    async fn open(&self) -> Result<Box<dyn CoreStream>> {
+        #[cfg(test)]
+        if let Some(address) = self.pipe.strip_prefix("tcp://") {
+            return Ok(Box::new(tokio::net::TcpStream::connect(address).await?));
+        }
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             match ClientOptions::new().open(&self.pipe) {
-                Ok(c) => return Ok(c),
+                Ok(c) => return Ok(Box::new(c)),
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && Instant::now() < deadline => {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
@@ -55,8 +59,12 @@ impl CoreApi {
     }
 
     #[cfg(unix)]
-    async fn open(&self) -> Result<tokio::net::UnixStream> {
-        tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")
+    async fn open(&self) -> Result<Box<dyn CoreStream>> {
+        #[cfg(test)]
+        if let Some(address) = self.pipe.strip_prefix("tcp://") {
+            return Ok(Box::new(tokio::net::TcpStream::connect(address).await?));
+        }
+        Ok(Box::new(tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")?))
     }
 
     async fn send(&self, method: Method, path: &str, body: Option<&Value>) -> Result<hyper::Response<hyper::body::Incoming>> {
@@ -116,6 +124,19 @@ impl CoreApi {
             .iter()
             .filter_map(|p| Some((p["name"].as_str()?.to_string(), p["type"].as_str().unwrap_or("").to_lowercase())))
             .collect())
+    }
+
+    /// Ядро отвечает раньше, чем дочитает файл провайдера: подождать, пока появится список.
+    pub async fn wait_provider(&self, provider: &str, attempts: usize, pause: Duration) -> Result<Vec<(String, String)>> {
+        let mut list = self.provider_proxies(provider).await;
+        for _ in 0..attempts {
+            if matches!(&list, Ok(servers) if !servers.is_empty()) {
+                break;
+            }
+            tokio::time::sleep(pause).await;
+            list = self.provider_proxies(provider).await;
+        }
+        list
     }
 
     pub async fn selected(&self, group: &str) -> Result<Option<String>> {
@@ -229,6 +250,9 @@ impl CoreApi {
         Ok(())
     }
 }
+
+trait CoreStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> CoreStream for T {}
 
 /// Строка журнала ядра без адресов сайтов: `--> youtube.com:443` превращается в `--> <адрес>`.
 /// Журнал рабочей службы по брифу не хранит, куда ходил человек.

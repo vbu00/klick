@@ -285,7 +285,17 @@ pub enum Unusable {
 /// Пригоден ли ответ как список серверов. Не знаем формата или не смогли разобрать — `None`, то есть «пригоден».
 /// Заглушкой считается ответ, где заглушкой является каждый сервер (так делают Mistgate, Remnawave, Marzban).
 pub fn unusable(body: &str, content: Content) -> Option<Unusable> {
-    let endpoints: Vec<Endpoint> = match content {
+    let endpoints = endpoints(body, content)?;
+    if endpoints.is_empty() {
+        return Some(Unusable::NoServers);
+    }
+    endpoints.iter().all(Endpoint::is_placeholder).then(|| {
+        Unusable::Placeholder(endpoints.iter().filter_map(|e| e.name.as_deref()).map(sanitize_reason).find(|r| !r.is_empty()))
+    })
+}
+
+fn endpoints(body: &str, content: Content) -> Option<Vec<Endpoint>> {
+    Some(match content {
         Content::ClashYaml => {
             let t = body.trim_start_matches('\u{feff}').trim_start();
             if t.starts_with('{') {
@@ -298,12 +308,6 @@ pub fn unusable(body: &str, content: Content) -> Option<Unusable> {
         Content::Links(_) => link_endpoints(body),
         Content::Base64Links(_) => link_endpoints(&decode_links(body)?),
         Content::Html | Content::Unknown => return None,
-    };
-    if endpoints.is_empty() {
-        return Some(Unusable::NoServers);
-    }
-    endpoints.iter().all(Endpoint::is_placeholder).then(|| {
-        Unusable::Placeholder(endpoints.iter().filter_map(|e| e.name.as_deref()).map(sanitize_reason).find(|r| !r.is_empty()))
     })
 }
 
@@ -312,10 +316,51 @@ pub fn sanitize_reason(text: &str) -> String {
     text.chars().filter(|c| !c.is_control()).take(200).collect::<String>().trim().to_string()
 }
 
+/// Адрес сервера из подписки. Не передавать в окно или журнал.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerAddr {
+    pub name: String,
+    pub kind: String,
+    pub host: String,
+    pub port: u16,
+}
+
+/// Адреса серверов в формате mihomo, ссылках или WireGuard-конфигурации.
+pub fn server_addrs(body: &str) -> Vec<ServerAddr> {
+    let endpoints = match inspect_content(body) {
+        Content::Converted(format, _) => crate::convert::proxies(body, format).iter().map(value_endpoint).collect(),
+        content => endpoints(body, content).unwrap_or_default(),
+    };
+    endpoints
+        .into_iter()
+        .filter_map(|e| {
+            if e.is_placeholder() {
+                return None;
+            }
+            let host = e.host?.trim().to_string();
+            let port = u16::try_from(e.port?).ok().filter(|p| *p > 1)?;
+            let kind = normalize_link_kind(e.kind?).to_ascii_lowercase();
+            if host.is_empty() {
+                return None;
+            }
+            Some(ServerAddr { name: e.name.unwrap_or_default(), kind, host, port })
+        })
+        .collect()
+}
+
+fn normalize_link_kind(kind: String) -> String {
+    match kind.to_ascii_lowercase().as_str() {
+        "hy2" | "hy2+realm" | "hysteria2+realm" => "hysteria2".into(),
+        "wg" => "wireguard".into(),
+        _ => kind,
+    }
+}
+
 /// Куда ведёт сервер подписки: всё, что нужно, чтобы узнать заглушку.
 #[derive(Default)]
 struct Endpoint {
     name: Option<String>,
+    kind: Option<String>,
     host: Option<String>,
     port: Option<u32>,
 }
@@ -324,6 +369,7 @@ impl Endpoint {
     fn set(&mut self, key: &str, value: String) {
         match key {
             "name" => self.name = Some(value),
+            "type" => self.kind = Some(value),
             "server" => self.host = Some(value),
             "port" => self.port = value.trim().parse().ok(),
             _ => {}
@@ -338,7 +384,7 @@ impl Endpoint {
 
 fn value_endpoint(p: &serde_json::Value) -> Endpoint {
     let text = |key: &str| p.get(key).and_then(|v| v.as_str()).map(str::to_string);
-    Endpoint { name: text("name"), host: text("server"), port: port_of(p.get("port")) }
+    Endpoint { name: text("name"), kind: text("type"), host: text("server"), port: port_of(p.get("port")) }
 }
 
 fn port_of(v: Option<&serde_json::Value>) -> Option<u32> {
@@ -480,11 +526,13 @@ fn link_endpoint(line: &str) -> Endpoint {
     let (rest, fragment) = rest.split_once('#').unwrap_or((rest, ""));
     e.name = Some(percent_decode(fragment)).filter(|n| !n.trim().is_empty());
     let scheme = scheme.to_ascii_lowercase();
+    e.kind = Some(normalize_link_kind(scheme.clone()));
     if scheme == "vmess" {
         // vmess://base64(JSON): add, port, ps.
         let Some(v) = base64_text(rest.trim()).and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else { return e };
         let text = |key: &str| v.get(key).and_then(|x| x.as_str()).map(str::to_string);
         e.name = e.name.or_else(|| text("ps"));
+        e.kind = Some("vmess".into());
         e.host = text("add");
         e.port = port_of(v.get("port"));
         return e;
@@ -693,6 +741,36 @@ mod mistgate_compat {
         assert_eq!(unquote(r#""A\x42 \"q\" a\\b""#), "AB \"q\" a\\b");
         assert_eq!(unquote("'it''s'"), "it's");
         assert_eq!(unquote("plain # comment"), "plain");
+    }
+
+    #[test]
+    fn server_addresses_cover_subscription_formats() {
+        let yaml = r#"proxies:
+  - name: "\U0001F1E9\U0001F1EA DE · VLESS · TCP"
+    type: vless
+    server: de.example.com
+    port: 443
+"#;
+        assert_eq!(
+            server_addrs(yaml),
+            [ServerAddr { name: "🇩🇪 DE · VLESS · TCP".into(), kind: "vless".into(), host: "de.example.com".into(), port: 443 }]
+        );
+
+        let json = r#"{"proxies":[{"name":"json","type":"trojan","server":"jp.example.com","port":8443}]}"#;
+        assert_eq!(server_addrs(json)[0].kind, "trojan");
+        assert_eq!(server_addrs(json)[0].port, 8443);
+
+        let vmess = base64::engine::general_purpose::STANDARD.encode(r#"{"ps":"vmess","add":"vm.example.com","port":"2053"}"#);
+        let links = format!("vmess://{vmess}\nhy2://secret@hy.example.com:443,20000-30000/?sni=example.com#hydra\n");
+        let addrs = server_addrs(&links);
+        assert_eq!(addrs.len(), 2);
+        assert_eq!((addrs[0].name.as_str(), addrs[0].kind.as_str(), addrs[0].host.as_str(), addrs[0].port), ("vmess", "vmess", "vm.example.com", 2053));
+        assert_eq!((addrs[1].name.as_str(), addrs[1].kind.as_str(), addrs[1].host.as_str(), addrs[1].port), ("hydra", "hysteria2", "hy.example.com", 443));
+
+        let wireguard = "[Interface]\nPrivateKey = key\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = key\nEndpoint = wg.example.com:51820\nAllowedIPs = 0.0.0.0/0\n";
+        let addrs = server_addrs(wireguard);
+        assert_eq!(addrs.len(), 1);
+        assert_eq!((addrs[0].kind.as_str(), addrs[0].host.as_str(), addrs[0].port), ("wireguard", "wg.example.com", 51820));
     }
 
     macro_rules! fx {

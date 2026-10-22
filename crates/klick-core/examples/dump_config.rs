@@ -1,7 +1,7 @@
 //! Печатает пример конфига для проверки ядром:
-//! `cargo run -p klick-core --example dump_config -- tun|proxy|tester|guard selected|all_vpn [windows|macos]`.
+//! `cargo run -p klick-core --example dump_config -- tun|proxy|tester|probe|guard selected|all_vpn [windows|macos]`.
 
-use klick_core::compile::{compile, compile_guard, compile_tester, Capture, CompileInput, CoreLayout, SetFiles};
+use klick_core::compile::{compile, compile_guard, compile_probe, compile_tester, Capture, CompileInput, CoreLayout, SetFiles};
 use klick_core::{Catalog, Os, Route, Routing, Rule, Service, Settings, Target};
 
 fn main() {
@@ -70,6 +70,7 @@ fn main() {
     };
     let cfg = match capture {
         "tester" => compile_tester(&layout, "providers/test.txt"),
+        "probe" => compile_probe(&layout, "providers/test.txt", &[27893, 27894, 27895, 27896]),
         "guard" => compile_guard(&settings, &layout),
         other => compile(&CompileInput {
             settings: &settings,

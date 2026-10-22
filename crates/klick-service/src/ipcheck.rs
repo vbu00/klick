@@ -26,7 +26,7 @@ const IP_V6: &str = "https://api6.ipify.org";
 const PROXYCHECK: &str = "https://proxycheck.io/v2/";
 const DOH_JSON: &str = "https://cloudflare-dns.com/dns-query";
 
-fn client(port: Option<u16>) -> Option<reqwest::Client> {
+pub(super) fn client(port: Option<u16>) -> Option<reqwest::Client> {
     let b = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
         .connect_timeout(Duration::from_secs(6))
@@ -59,7 +59,7 @@ pub async fn run(plan: Plan) -> IpReport {
     IpReport { via_vpn, direct, ipv6_leak, dns_protected, checked_at: crate::engine::unix_now() }
 }
 
-async fn column(port: Option<u16>) -> IpColumn {
+pub(super) async fn column(port: Option<u16>) -> IpColumn {
     let mut col = IpColumn::default();
     let Some(c) = client(port) else {
         col.error = Some("ip.client".into());
@@ -89,10 +89,22 @@ fn fill(col: &mut IpColumn, v: &Value) {
     col.country = s(&v["country"]);
     col.country_code = s(&v["isocode"]);
     col.city = s(&v["city"]);
+    col.region = s(&v["region"]);
     col.provider = s(&v["provider"]).or_else(|| s(&v["organisation"]));
     col.asn = v["asn"].as_str().and_then(|a| a.trim_start_matches("AS").parse().ok());
     col.vpn_detected = v["proxy"].as_str().map(|p| p.eq_ignore_ascii_case("yes"));
     col.datacenter = v["type"].as_str().map(|t| t.eq_ignore_ascii_case("hosting"));
+    col.net_type = if col.vpn_detected == Some(true) {
+        Some("vpn".into())
+    } else {
+        match s(&v["type"]).as_deref().map(str::to_ascii_lowercase).as_deref() {
+            Some("wireless" | "mobile") => Some("mobile".into()),
+            Some("residential") => Some("home".into()),
+            Some("business") => Some("business".into()),
+            Some("hosting") => Some("hosting".into()),
+            _ => None,
+        }
+    };
 }
 
 async fn json(c: &reqwest::Client, url: &str) -> Result<Value, &'static str> {

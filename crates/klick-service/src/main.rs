@@ -8,6 +8,7 @@ mod ipcheck;
 mod logring;
 mod paths;
 mod pipe;
+mod probe;
 mod storage;
 mod subs;
 

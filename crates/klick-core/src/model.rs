@@ -229,6 +229,9 @@ pub struct SubInfo {
     /// Страница подписки (`profile-web-page-url`), только https.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_url: Option<String>,
+    /// Максимальная версия отчёта, которую принимает панель (`probe-report`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_report: Option<u32>,
 }
 
 /// Подключение: подписка, ссылка или файл. Сама ссылка — секрет и хранится отдельно.
@@ -247,6 +250,9 @@ pub struct Connection {
     pub update_interval_hours: Option<u32>,
     #[serde(default)]
     pub selected_server: Option<String>,
+    /// Разрешить отправку локальной проверки панели этой подписки.
+    #[serde(default)]
+    pub probe_share: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

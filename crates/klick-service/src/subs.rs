@@ -5,6 +5,7 @@ use klick_core::SubInfo;
 use klick_proto::ErrorInfo;
 use serde_json::json;
 use std::time::Duration;
+use reqwest::Url;
 
 /// Так панели вроде Remnawave и Marzban отдают конфиг в формате mihomo.
 pub const USER_AGENT: &str = "mihomo/1.19.33";
@@ -74,9 +75,10 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, FetchErr
     let announce = header("announce").and_then(|h| sub::parse_announce(&h));
     let support_url = header("support-url").and_then(|h| sub::parse_https_link(&h));
     let page_url = header("profile-web-page-url").and_then(|h| sub::parse_https_link(&h));
-    if announce.is_some() || support_url.is_some() || page_url.is_some() {
+    let probe_report = header("probe-report").and_then(|h| parse_probe_report(&h));
+    if announce.is_some() || support_url.is_some() || page_url.is_some() || probe_report.is_some() {
         let i = info.get_or_insert_with(SubInfo::default);
-        (i.announce, i.support_url, i.page_url) = (announce.clone(), support_url, page_url);
+        (i.announce, i.support_url, i.page_url, i.probe_report) = (announce.clone(), support_url, page_url, probe_report);
     }
     let interval_hours = header("profile-update-interval").and_then(|h| sub::parse_update_interval(&h));
     let title = header("profile-title")
@@ -108,6 +110,22 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, FetchErr
     Ok(Fetched { body, info, title, interval_hours, content })
 }
 
+fn parse_probe_report(header: &str) -> Option<u32> {
+    header.trim().parse::<u32>().ok().filter(|version| *version > 0)
+}
+
+/// Адрес отправки строится только из ссылки той подписки, которая включила отчёты.
+pub fn report_url(sub_url: &str) -> Option<String> {
+    let mut url = Url::parse(&sub::fetch_url(sub_url)).ok()?;
+    if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    url.path_segments_mut().ok()?.pop_if_empty().push("probe");
+    Some(url.to_string())
+}
+
 /// Что внутри: подходит ли это ядру. Ответ без настоящих серверов отвергаем, чтобы он не стёр рабочий список.
 pub fn check(body: &str) -> Result<Content, ErrorInfo> {
     let content = match sub::inspect_content(body) {
@@ -131,4 +149,25 @@ fn without_url(e: &reqwest::Error) -> String {
         text = text.replace(url.as_str(), "<подписка>");
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_probe_report, report_url};
+
+    #[test]
+    fn report_url_uses_only_subscription_path() {
+        assert_eq!(report_url("https://panel.example/pre/token?format=x#top").as_deref(), Some("https://panel.example/pre/token/probe"));
+        assert_eq!(report_url("https://panel.example/pre/token/").as_deref(), Some("https://panel.example/pre/token/probe"));
+        assert_eq!(report_url("ssconf://panel.example/pre/key?format=x").as_deref(), Some("https://panel.example/pre/key/probe"));
+        assert_eq!(report_url("http://panel.example/pre/token"), None);
+        assert_eq!(report_url("https://user:pass@panel.example/pre/token"), None);
+    }
+
+    #[test]
+    fn panel_report_version_is_bounded_to_positive_numbers() {
+        assert_eq!(parse_probe_report(" 1 "), Some(1));
+        assert_eq!(parse_probe_report("0"), None);
+        assert_eq!(parse_probe_report("v1"), None);
+    }
 }

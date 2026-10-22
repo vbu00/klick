@@ -43,6 +43,8 @@ enum Cmd {
     Servers,
     /// Проверить задержку серверов.
     Latency,
+    /// Локально проверить серверы активного подключения.
+    Probe,
     /// Выбрать сервер по имени.
     Server { name: String },
     Connect,
@@ -203,6 +205,7 @@ fn command(cmd: Cmd) -> Result<Command> {
         Cmd::Use { id } => Command::SelectConnection { id },
         Cmd::Servers => Command::Servers,
         Cmd::Latency => Command::TestLatency,
+        Cmd::Probe => Command::Probe,
         Cmd::Server { name } => Command::SelectServer { name },
         Cmd::Connect => Command::Connect,
         Cmd::Disconnect => Command::Disconnect,
@@ -272,7 +275,8 @@ fn command(cmd: Cmd) -> Result<Command> {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let pipe = if cli.prod { klick_proto::CONTROL } else { klick_proto::CONTROL_DEV };
-    let watch = matches!(cli.cmd, Cmd::Watch);
+    let watch = matches!(&cli.cmd, Cmd::Watch);
+    let probe = matches!(&cli.cmd, Cmd::Probe);
     let cmd = if watch { Command::Subscribe } else { command(cli.cmd)? };
 
     let client = connect(pipe).await.with_context(|| format!("служба не отвечает на {pipe}"))?;
@@ -281,7 +285,13 @@ async fn main() -> Result<()> {
     let req = Request { id: 1, cmd };
     write.write_all(format!("{}\n", serde_json::to_string(&req)?).as_bytes()).await?;
 
-    let timeout = if watch { Duration::from_secs(u64::MAX / 4) } else { Duration::from_secs(120) };
+    let timeout = if watch {
+        Duration::from_secs(u64::MAX / 4)
+    } else if probe {
+        Duration::from_secs(180)
+    } else {
+        Duration::from_secs(120)
+    };
     loop {
         let line = tokio::time::timeout(timeout, lines.next_line()).await.context("служба не ответила")??;
         let Some(line) = line else { bail!("служба закрыла канал") };
