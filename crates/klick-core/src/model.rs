@@ -269,6 +269,8 @@ pub struct Settings {
     pub auto_update: bool,
     /// «Уведомлять об обрывах»: уведомления Windows показывает окно.
     pub notify: bool,
+    /// «Серверы по странам»: окно показывает список серверов по странам. Только вид — ядро не трогает.
+    pub servers_by_country: bool,
     pub appearance: Appearance,
     pub on_exit: ExitAction,
     pub language: String,
@@ -290,6 +292,7 @@ impl Default for Settings {
             restore_on_logon: false,
             auto_update: true,
             notify: true,
+            servers_by_country: false,
             appearance: Appearance::default(),
             on_exit: ExitAction::Ask,
             language: "ru".into(),
@@ -649,6 +652,7 @@ mod tests {
         assert_eq!(s.routing, Routing::Selected);
         assert!(s.kill_switch.enabled);
         assert!(s.auto_update && s.notify);
+        assert!(!s.servers_by_country);
         assert_eq!(s.appearance, Appearance::default());
     }
 

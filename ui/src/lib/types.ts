@@ -79,6 +79,8 @@ export interface Settings {
   restore_on_logon: boolean;
   auto_update: boolean;
   notify: boolean;
+  /** «Серверы по странам»: список серверов в окне сгруппирован по странам. Старая служба поле не присылает. */
+  servers_by_country?: boolean;
   appearance: Appearance;
   on_exit: ExitAction;
   language: string;
@@ -123,6 +125,7 @@ export interface Preferences {
   restore_on_logon?: boolean;
   auto_update?: boolean;
   notify?: boolean;
+  servers_by_country?: boolean;
   appearance?: Appearance;
   on_exit?: ExitAction;
   language?: string;

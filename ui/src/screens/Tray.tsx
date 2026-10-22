@@ -8,6 +8,7 @@ import mark from '../assets/mark.png';
 import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
 import { Icon } from '../components/Icon';
+import { parseServer } from '../lib/countries';
 import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
 import { errorText } from '../lib/i18n';
 import { plural } from '../lib/rules';
@@ -32,40 +33,6 @@ function clock(since: number | null, now: number): string {
   const s = since ? Math.max(0, Math.floor(now / 1000 - since)) : 0;
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
-}
-
-/** Страны по названию — когда в имени сервера нет флага. */
-const COUNTRIES: [RegExp, string][] = [
-  [/нидерланд|netherlands|голланд|amsterdam|амстердам/i, 'NL'],
-  [/германи|germany|frankfurt|франкфурт/i, 'DE'],
-  [/финлян|finland|helsinki|хельсинки/i, 'FI'],
-  [/сша|usa|united states|америк|new york|нью-йорк/i, 'US'],
-  [/турци|turkey|türkiye|istanbul|стамбул/i, 'TR'],
-  [/япони|japan|tokyo|токио/i, 'JP'],
-  [/франци|france|paris|париж/i, 'FR'],
-  [/великобритан|англи|united kingdom|london|лондон/i, 'GB'],
-  [/швеци|sweden|stockholm/i, 'SE'],
-  [/польш|poland|warsaw|варшав/i, 'PL'],
-  [/казахстан|kazakhstan|алматы|almaty/i, 'KZ'],
-  [/латви|latvia|рига|riga/i, 'LV'],
-  [/эстони|estonia|таллин|tallinn/i, 'EE'],
-  [/сингапур|singapore/i, 'SG'],
-  [/гонконг|hong kong/i, 'HK'],
-  [/швейцари|switzerland|zurich|цюрих/i, 'CH'],
-  [/канад|canada|toronto/i, 'CA'],
-  [/росси|russia|москв|moscow/i, 'RU'],
-];
-
-/** Код страны из флага в имени сервера: «🇳🇱 Амстердам» → NL; «NL-2 Amsterdam» → NL; «Нидерланды» → NL. */
-function countryCode(name: string): string {
-  const flag = [...name].filter((ch) => {
-    const c = ch.codePointAt(0) ?? 0;
-    return c >= 0x1f1e6 && c <= 0x1f1ff;
-  });
-  if (flag.length >= 2) return flag.slice(0, 2).map((ch) => String.fromCharCode((ch.codePointAt(0) ?? 0) - 0x1f1e6 + 65)).join('');
-  const m = /^([A-Z]{2})(?=[\s\-_·|]|\d)/.exec(name.trim());
-  if (m) return m[1];
-  return COUNTRIES.find(([re]) => re.test(name))?.[1] ?? '';
 }
 
 /** Имя сервера без флага в начале. */
@@ -437,7 +404,7 @@ function pingLabel(delay: number | null | undefined, tested: boolean): string {
 }
 
 function ServerRow({ s, active, pinging, tested, onPick }: { s: ServerView; active: boolean; pinging: boolean; tested: boolean; onPick: () => void }) {
-  const code = countryCode(s.name);
+  const code = parseServer(s.name, s.kind).code;
   return (
     <button className={active ? 'tr-server on' : 'tr-server'} onClick={onPick}>
       <span className={active ? 'tr-radio on' : 'tr-radio'}>

@@ -147,6 +147,12 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
       <SectionHead title="Оформление" />
       <div className="card-list">
         <Row title="Тема" sub={themeSummary} onClick={() => onSub('theme')} chevron />
+        <Row
+          wrap
+          title="Серверы по странам"
+          sub="Сначала страны, внутри — их серверы"
+          right={<Toggle label="Серверы по странам" on={!!settings.servers_by_country} onChange={(v) => void store.setPrefs({ servers_by_country: v })} />}
+        />
       </div>
 
       <SectionHead title="Общие" />

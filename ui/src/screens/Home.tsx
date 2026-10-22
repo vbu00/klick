@@ -1,12 +1,16 @@
 // Главная: как в макете — статус, кнопка, чип режима, подключения с серверами, скорость.
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import { Flag } from '../components/Flag';
 import { Icon } from '../components/Icon';
+import { ServerCountries } from '../components/ServerCountries';
 import { Sheet, type Tab } from '../components/Chrome';
 import { SwitchDiagram } from '../components/SwitchDiagram';
 import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, pingColor, pingText, protocolName } from '../lib/format';
 import { errorText, modeName, routingName } from '../lib/i18n';
+import { countryName, parseServer } from '../lib/countries';
 import { isMac } from '../lib/platform';
+import { plural } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { Connection, ServerView } from '../lib/types';
 
@@ -334,6 +338,11 @@ function ProfileCard(props: {
   ].filter((l): l is { label: string; url: string } => !!l.url);
   // Задержку в строке показываем, только когда её измерили: null до проверки не значит «нет ответа».
   const ping = pinging ? '…' : current && current.delay != null ? pingText(current.delay) : '';
+  // «Серверы по странам»: если ни одной страны не узнали, по странам делить нечего — обычный список.
+  const countries = new Set(list.map((s) => parseServer(s.name, s.kind).code).filter(Boolean)).size;
+  const byCountry = !!store.settings?.servers_by_country && countries > 0;
+  // По странам и в шапке карточки: флаг и «Беларусь · Hysteria2» вместо «🇧🇾 BY · HY2» (эмодзи Windows не рисует).
+  const curP = byCountry && current ? parseServer(current.name, current.kind) : null;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -366,7 +375,10 @@ function ProfileCard(props: {
               {props.viewingLive && props.live ? <span className="badge-live">Работает</span> : null}
             </div>
             <div className="pcard-sub">
-              <span className="name">{current?.name ?? conn.selected_server ?? (isSub ? 'Подписка' : 'Одиночная конфигурация')}</span>
+              {curP?.code ? <Flag code={curP.code} /> : null}
+              <span className="name">
+                {current && curP?.code ? `${countryName(curP.code)} · ${curP.title || protocolName(current.kind)}` : current?.name ?? conn.selected_server ?? (isSub ? 'Подписка' : 'Одиночная конфигурация')}
+              </span>
               {ping ? (
                 <>
                   <span className="sep" />
@@ -442,12 +454,18 @@ function ProfileCard(props: {
             ) : isSub || list.length > 1 ? (
               <>
                 <div className="servers-head">
-                  <div className="caps">Серверы · {list.length}</div>
+                  <div className="caps">
+                    Серверы · {list.length}
+                    {byCountry ? ` · ${plural(countries, ['страна', 'страны', 'стран'])}` : ''}
+                  </div>
                   <button className="btn-elem" onClick={() => void store.testLatency()} disabled={pinging}>
                     {pinging ? 'Проверяем…' : 'Проверить задержку'}
                   </button>
                 </div>
-                {list.map((s) => (
+                {list.length === 0 ? <div className="srv-empty">Серверов пока нет. Обновите подписку — список придёт от панели.</div> : null}
+                {byCountry ? (
+                  <ServerCountries list={list} current={current} pinging={pinging} tested={!!store.tested[conn.id]} onPick={(name) => void store.selectServer(name)} />
+                ) : list.map((s) => (
                   <button key={s.name} className={s.name === current?.name ? 'srv on' : 'srv'} onClick={() => s.name !== current?.name && void store.selectServer(s.name)}>
                     <span className="radio">
                       <i />

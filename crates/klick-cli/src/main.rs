@@ -258,6 +258,7 @@ fn command(cmd: Cmd) -> Result<Command> {
                     restore_on_logon: on(restore),
                     auto_update: on(auto_update),
                     notify: on(notify),
+                    servers_by_country: None,
                     appearance: None,
                     on_exit: None,
                     language: lang,

@@ -53,12 +53,29 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
   return {
     connections: [sub, link],
     servers: {
+      // Имена — как у разных панелей: Remnawave («Страна · Город»), Mistgate (флаг, код, протокол),
+      // код в скобках и серверы без страны (попадут в «Другие» в списке по странам).
       alex: [
         { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: true },
         { name: 'Германия · Frankfurt', kind: 'vless', delay: 61, selected: false },
         { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: false },
         { name: 'США · New York', kind: 'trojan', delay: 142, selected: false },
         { name: 'Турция · Istanbul', kind: 'vless', delay: null, selected: false },
+        { name: '🇧🇾 BY · HY2', kind: 'hysteria2', delay: 56, selected: false },
+        { name: '🇧🇾 BY · VLESS · TCP', kind: 'vless', delay: null, selected: false },
+        { name: '🇧🇾 BY · VLESS · XHTTP', kind: 'vless', delay: 71, selected: false },
+        { name: '🇧🇾 BY · AWG2', kind: 'wireguard', delay: 44, selected: false },
+        { name: '🇧🇾 BY · AWG3.1', kind: 'wireguard', delay: 47, selected: false },
+        { name: '🇩🇪 DE · HY2', kind: 'hysteria2', delay: 63, selected: false },
+        { name: '🇩🇪 DE · HY2 · WARP', kind: 'hysteria2', delay: 62, selected: false },
+        { name: '🇩🇪 DE · VLESS · XHTTP', kind: 'vless', delay: 88, selected: false },
+        { name: '🇩🇪 DE · AWG2', kind: 'wireguard', delay: null, selected: false },
+        { name: '🇳🇱 NL · HY2', kind: 'hysteria2', delay: 52, selected: false },
+        { name: '🇳🇱 NL · HY2 · WARP', kind: 'hysteria2', delay: 58, selected: false },
+        { name: '🇳🇱 NL · AWG3.1', kind: 'wireguard', delay: 49, selected: false },
+        { name: '[FI] Helsinki-2', kind: 'vless', delay: 41, selected: false },
+        { name: 'AWG2', kind: 'wireguard', delay: 95, selected: false },
+        { name: 'AWG3.1', kind: 'wireguard', delay: null, selected: false },
       ],
       grpc: [{ name: 'grpc', kind: 'vless', delay: 57, selected: true }],
     },
@@ -214,6 +231,8 @@ class MockService {
       restore_on_logon: false,
       auto_update: true,
       notify: true,
+      // `?countries=1` — список серверов сразу по странам.
+      servers_by_country: new URLSearchParams(location.search).get('countries') === '1',
       // `?theme=light` — посмотреть превью в светлой теме.
       appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158' },
       on_exit: 'ask',
@@ -447,6 +466,7 @@ class MockService {
         if (p.restore_on_logon !== undefined) this.settings.restore_on_logon = p.restore_on_logon;
         if (p.auto_update !== undefined) this.settings.auto_update = p.auto_update;
         if (p.notify !== undefined) this.settings.notify = p.notify;
+        if (p.servers_by_country !== undefined) this.settings.servers_by_country = p.servers_by_country;
         if (p.appearance !== undefined) this.settings.appearance = p.appearance;
         if (p.on_exit !== undefined) this.settings.on_exit = p.on_exit;
         return this.settings;

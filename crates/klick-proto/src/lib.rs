@@ -249,6 +249,9 @@ pub struct Preferences {
     pub auto_update: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify: Option<bool>,
+    /// «Серверы по странам» — вид списка серверов в окне.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub servers_by_country: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance: Option<Appearance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
