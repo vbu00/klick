@@ -13,22 +13,25 @@ import { ModeInfo } from '../components/ModeInfo';
 import { failureReason, routeName, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget, siteRule, siteTarget, type AppRow, type SiteRow } from '../lib/live';
 import { defaultRoute, plural, ruleTitle, unicodeDomain } from '../lib/rules';
-import { useStore } from '../lib/store';
+import { useStore, useVisible } from '../lib/store';
 import type { Transport } from '../lib/transport';
 import type { ConnView, FailureView, Mode, Routing, Rule, Service, Target } from '../lib/types';
 
 type Sub = null | 'list' | 'live' | 'failures';
 
-/** Соединения и неудачи раз в 2 секунды, пока открыта вкладка и работает VPN. */
+/** Соединения и неудачи раз в 2 секунды, пока открыта вкладка, работает VPN и окно видно. Спрятанное
+ *  в трей окно службу не опрашивает; показали — сразу свежие данные. */
 function useLive(running: boolean, transport: Transport) {
   const [conns, setConns] = useState<ConnView[]>([]);
   const [fails, setFails] = useState<FailureView[]>([]);
+  const visible = useVisible();
   useEffect(() => {
     if (!running) {
       setConns([]);
       setFails([]);
       return;
     }
+    if (!visible) return;
     let alive = true;
     const tick = async () => {
       const [c, f] = await Promise.all([
@@ -45,7 +48,7 @@ function useLive(running: boolean, transport: Transport) {
       alive = false;
       clearInterval(t);
     };
-  }, [running, transport]);
+  }, [running, visible, transport]);
   return { conns, fails };
 }
 

@@ -18,11 +18,11 @@ applyCachedTheme();
 
 createTransport().then((transport) => {
   if (transport.kind === 'tauri') document.body.classList.add('in-tauri');
-  // Окно не в фокусе (сверху игра или другая программа) — бесконечные анимации на паузе:
+  // Окно не в фокусе (сверху игра или другая программа) или спрятано в трей — бесконечные анимации на паузе:
   // иначе они 60 раз в секунду дёргают видеокарту, которая нужна не нам. Разовые (появление
   // экрана, всплывающие уведомления) не трогаем: остановленные на первом кадре, они прозрачны.
   const syncLoops = () => {
-    const idle = !document.hasFocus();
+    const idle = !document.hasFocus() || document.hidden;
     for (const a of document.getAnimations()) {
       if (a.effect?.getTiming().iterations !== Infinity) continue;
       if (idle) a.pause();
@@ -31,6 +31,7 @@ createTransport().then((transport) => {
   };
   window.addEventListener('focus', syncLoops);
   window.addEventListener('blur', syncLoops);
+  document.addEventListener('visibilitychange', syncLoops);
   document.addEventListener('animationstart', syncLoops);
   document.body.classList.add(`os-${PLATFORM}`);
   createRoot(document.getElementById('root')!).render(

@@ -196,7 +196,17 @@
   color: var(--dim);
   transition: all 0.3s ease;
 }
-.power-core.live { background: var(--accent); color: var(--onAccent); border-color: var(--accent); animation: pulse 2.2s ease-out infinite; }
+.power-core.live { background: var(--accent); color: var(--onAccent); border-color: var(--accent); }
+.power-core.live::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: pulse 2.2s ease-out infinite;
+  pointer-events: none;
+}
 .power-core.other { border-color: var(--accent); color: var(--accent); }
 .power-core.busy { border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent); }
 .power-core.busy::after {
@@ -229,16 +239,22 @@
   background-position: center;
   mask-image: radial-gradient(ellipse at center, #000 20%, transparent 72%);
 }
+/* Волна: сетка точек — неподвижная маска, под ней растёт кольцо цвета акцента (transform). */
 .wave .lit {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle, var(--accent) 1.3px, transparent 1.9px);
-  background-size: 14px 14px;
-  background-position: center;
-  mask-image: radial-gradient(circle at center, transparent 0 24%, #000 30%, #000 40%, transparent 48%), radial-gradient(ellipse at center, #000 20%, transparent 72%);
-  mask-composite: intersect;
-  mask-repeat: no-repeat;
+  overflow: hidden;
+  mask-image: radial-gradient(circle, #000 1.3px, transparent 1.9px), radial-gradient(ellipse at center, #000 20%, transparent 72%);
+  mask-size: 14px 14px, 100% 100%;
+  mask-repeat: repeat, no-repeat;
   mask-position: center;
+  mask-composite: intersect;
+}
+.wave .lit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 0 24%, var(--accent) 30%, var(--accent) 40%, transparent 48%);
   animation: wave 5.2s cubic-bezier(0.3, 0.6, 0.4, 1) infinite;
 }
 .wave .ringfx {
@@ -311,10 +327,12 @@
   gap: 6px;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+  isolation: isolate;
 }
 .pchip.on { background: var(--raised); border-color: var(--raised); color: var(--text); }
 .pchip:active { transform: scale(0.96); }
-.pchip .live { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2.2s ease-out infinite; }
+.pchip .live { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.pchip .live::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 50%; background: color-mix(in srgb, var(--accent) 35%, transparent); animation: pulse-dot 2.2s ease-out infinite; }
 
 .card-wrap { position: relative; }
 .pcard { border-radius: 20px; background: var(--card); overflow: hidden; }

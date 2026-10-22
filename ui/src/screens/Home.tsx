@@ -11,7 +11,7 @@ import { errorText, modeName, routingName } from '../lib/i18n';
 import { countryName, parseServer } from '../lib/countries';
 import { isMac } from '../lib/platform';
 import { plural } from '../lib/rules';
-import { useStore } from '../lib/store';
+import { useStore, useTraffic } from '../lib/store';
 import type { Connection, ServerView } from '../lib/types';
 
 export function useNow(active: boolean): number {
@@ -24,15 +24,20 @@ export function useNow(active: boolean): number {
   return now;
 }
 
+/** Время подключения: тикает само раз в секунду и не перерисовывает весь экран. */
+export function Elapsed({ since, format }: { since: number | null; format: (since: number | null, now: number) => string }) {
+  const now = useNow(since != null);
+  return <>{format(since, now)}</>;
+}
+
 export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const store = useStore();
-  const { state, settings, servers, pinging, traffic, isRunning, neighbors, browserProxy } = store;
+  const { state, settings, servers, pinging, isRunning, pending, neighbors, browserProxy } = store;
   const [viewId, setViewId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [switchTo, setSwitchTo] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [browserHelp, setBrowserHelp] = useState(false);
-  const now = useNow(isRunning);
   const { nav, consumeNav } = store;
 
   // Нажали на уведомление: раскрыть серверы или подсказку про соседей.
@@ -67,23 +72,25 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
 
   const vpn = state.vpn;
   const statusLabel =
-    vpn === 'connecting'
+    vpn === 'connecting' || pending === 'on'
       ? 'подключаюсь…'
-      : vpn === 'reconnecting'
-        ? `переподключаюсь… ${state.attempt ? `${state.attempt[0]} из ${state.attempt[1]}` : ''}`
-        : vpn === 'server_down'
-          ? 'сервер не отвечает'
-          : vpn === 'error'
-            ? 'VPN не включился'
-            : !isRunning
-              ? 'не подключено'
-              : viewingLive
-                ? 'время подключения'
-                : 'нажмите, чтобы переключиться сюда';
-  const statusTone = vpn === 'reconnecting' || vpn === 'server_down' ? 'warn' : vpn === 'error' ? 'bad' : '';
+      : pending === 'off'
+        ? 'отключаюсь…'
+        : vpn === 'reconnecting'
+          ? `переподключаюсь… ${state.attempt ? `${state.attempt[0]} из ${state.attempt[1]}` : ''}`
+          : vpn === 'server_down'
+            ? 'сервер не отвечает'
+            : vpn === 'error'
+              ? 'VPN не включился'
+              : !isRunning
+                ? 'не подключено'
+                : viewingLive
+                  ? 'время подключения'
+                  : 'нажмите, чтобы переключиться сюда';
+  const statusTone = pending ? '' : vpn === 'reconnecting' || vpn === 'server_down' ? 'warn' : vpn === 'error' ? 'bad' : '';
 
   let core = '';
-  if (vpn === 'connecting') core = 'busy';
+  if (vpn === 'connecting' || pending) core = 'busy';
   else if (vpn === 'reconnecting') core = viewingLive ? 'busy warn' : 'other';
   else if (vpn === 'server_down') core = viewingLive ? 'warn' : 'other';
   else if (vpn === 'error') core = 'bad';
@@ -92,7 +99,8 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const dot = vpn === 'error' ? 'var(--red)' : vpn === 'reconnecting' || vpn === 'server_down' ? 'var(--orange)' : isRunning ? 'var(--accent)' : 'var(--dim)';
 
   const onPower = async () => {
-    if (vpn === 'connecting') return;
+    // Второе нажатие, пока служба не ответила на первое, — не команда.
+    if (vpn === 'connecting' || pending) return;
     if (isRunning) {
       if (!viewingLive) {
         setSwitchTo(view.id);
@@ -121,18 +129,20 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
     <div className="screen">
       <div className="home-status">
         <div className={`status-label ${statusTone}`}>{statusLabel}</div>
-        <div className="timer">{isRunning ? fmtTimer(state.since, now) : '0:00:00'}</div>
+        <div className="timer">
+          <Elapsed since={isRunning ? state.since : null} format={fmtTimer} />
+        </div>
       </div>
 
       <div className="power-wrap">
-        {viewingLive && vpn === 'connected' ? (
+        {viewingLive && vpn === 'connected' && !pending ? (
           <div className="wave">
             <div className="dots" />
             <div className="lit" />
             <div className="ringfx" />
           </div>
         ) : null}
-        <button className="power-btn" onClick={onPower} aria-label={isRunning ? 'Отключить VPN' : 'Включить VPN'}>
+        <button className="power-btn" onClick={onPower} aria-label={isRunning ? 'Отключить VPN' : 'Включить VPN'} aria-busy={!!pending || vpn === 'connecting'}>
           <span className={`power-core ${core}`}>
             <Icon name="power" size={34} />
           </span>
@@ -213,25 +223,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
         onExpand={() => setExpanded(true)}
       />
 
-      <div className="tiles">
-        <div className="tile">
-          <div className="tile-head">
-            Чтение
-            <Icon name="download" size={22} />
-          </div>
-          <div className="tile-val">{fmtRate(traffic.down)}</div>
-          <div className="tile-sub">всего {fmtBytes(traffic.downSum)}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-head">
-            Загрузка
-            <Icon name="upload" size={22} />
-          </div>
-          <div className="tile-val">{fmtRate(traffic.up)}</div>
-          <div className="tile-sub">всего {fmtBytes(traffic.upSum)}</div>
-        </div>
-      </div>
-      <SpeedGraph down={traffic.downHist} up={traffic.upHist} />
+      <Speed />
 
       {switchTo ? (
         <Sheet onClose={() => setSwitchTo(null)}>
@@ -554,6 +546,34 @@ function ProfileCard(props: {
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Плитки скорости и график: единственное на главной, что меняется раз в секунду от трафика. */
+function Speed() {
+  const traffic = useTraffic();
+  return (
+    <>
+      <div className="tiles">
+        <div className="tile">
+          <div className="tile-head">
+            Чтение
+            <Icon name="download" size={22} />
+          </div>
+          <div className="tile-val">{fmtRate(traffic.down)}</div>
+          <div className="tile-sub">всего {fmtBytes(traffic.downSum)}</div>
+        </div>
+        <div className="tile">
+          <div className="tile-head">
+            Загрузка
+            <Icon name="upload" size={22} />
+          </div>
+          <div className="tile-val">{fmtRate(traffic.up)}</div>
+          <div className="tile-sub">всего {fmtBytes(traffic.upSum)}</div>
+        </div>
+      </div>
+      <SpeedGraph down={traffic.downHist} up={traffic.upHist} />
+    </>
   );
 }
 

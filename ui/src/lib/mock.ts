@@ -29,6 +29,26 @@ export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' |
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
+/** Превью: `?slow=1500` — служба отвечает на каждую команду за 1,5 с; `?fail=connect` — VPN не включается;
+ *  `?many=1` — у подписки 41 сервер (весь набор Mistgate). */
+const PARAMS = new URLSearchParams(location.search);
+
+/** Весь набор Mistgate: 6 стран, у трёх — ещё HY2 · WARP. Только имена и протоколы, без адресов. */
+function mistgate(): ServerView[] {
+  const flag = (cc: string) => String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+  return ['BY', 'DE', 'EE', 'NL', 'RU', 'TR'].flatMap((cc, ci) =>
+    (
+      [
+        ['HY2', 'hysteria2'],
+        ...(['DE', 'EE', 'NL'].includes(cc) ? [['HY2 · WARP', 'hysteria2']] : []),
+        ['VLESS · TCP', 'vless'],
+        ['VLESS · XHTTP', 'vless'],
+        ['AWG2', 'wireguard'],
+        ['AWG3.1', 'wireguard'],
+      ] as [string, string][]
+    ).map(([v, kind], i) => ({ name: `${flag(cc)} ${cc} · ${v}`, kind, delay: (ci * 7 + i * 13) % 11 === 3 ? null : 38 + ((ci * 31 + i * 17) % 90), selected: false })),
+  );
+}
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function seed(): { connections: Connection[]; servers: Record<string, ServerView[]> } {
@@ -61,6 +81,7 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
         { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: false },
         { name: 'США · New York', kind: 'trojan', delay: 142, selected: false },
         { name: 'Турция · Istanbul', kind: 'vless', delay: null, selected: false },
+        ...(PARAMS.get('many') === '1' ? mistgate() : []),
         { name: '🇧🇾 BY · HY2', kind: 'hysteria2', delay: 56, selected: false },
         { name: '🇧🇾 BY · VLESS · TCP', kind: 'vless', delay: null, selected: false },
         { name: '🇧🇾 BY · VLESS · XHTTP', kind: 'vless', delay: 71, selected: false },
@@ -76,7 +97,7 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
         { name: '[FI] Helsinki-2', kind: 'vless', delay: 41, selected: false },
         { name: 'AWG2', kind: 'wireguard', delay: 95, selected: false },
         { name: 'AWG3.1', kind: 'wireguard', delay: null, selected: false },
-      ],
+      ].filter((s, i, all) => all.findIndex((x) => x.name === s.name) === i),
       grpc: [{ name: 'grpc', kind: 'vless', delay: 57, selected: true }],
     },
   };
@@ -324,12 +345,33 @@ class MockService {
 
   onService(cb: (up: boolean) => void) {
     this.service.add(cb);
-    cb(true);
+    cb(this.up);
     return () => this.service.delete(cb);
   }
 
+  /** Служба на связи; `__klickMock.serviceDown(5000)` — пропала на 5 секунд и вернулась. */
+  private up = true;
+  serviceDown(ms: number) {
+    this.up = false;
+    this.service.forEach((cb) => cb(false));
+    setTimeout(() => {
+      this.up = true;
+      this.service.forEach((cb) => cb(true));
+    }, ms);
+  }
+
+  /** Для стресс-проверок превью: событие от «службы» и сколько у неё слушателей. */
+  fire(e: KEvent | 'state') {
+    if (e === 'state') this.emitState();
+    else this.emit(e);
+  }
+  stats() {
+    return { events: this.events.size, service: this.service.size, vpn: this.st.vpn };
+  }
+
   async call(cmd: string, args: any): Promise<unknown> {
-    await wait(120);
+    await wait(Number(PARAMS.get('slow')) || 120);
+    if (!this.up) fail('service.unreachable');
     switch (cmd) {
       case 'status':
       case 'subscribe':
@@ -342,6 +384,11 @@ class MockService {
         this.st = { ...this.st, vpn: 'connecting', error: null };
         this.emitState();
         await wait(900);
+        if (PARAMS.get('fail') === 'connect') {
+          this.st = { ...this.st, vpn: 'error', error: 'core.start_failed' };
+          this.emitState();
+          return fail('core.start_failed');
+        }
         this.st = { ...this.st, vpn: 'connected', since: nowS(), attempt: null };
         this.startTraffic();
         this.emitState();
@@ -634,6 +681,11 @@ export function createMockTransport(): Transport {
   const linkListeners = new Set<() => void>();
   (window as any).__klickMock = {
     setScenario: (s: Scenario) => svc.reset(s),
+    /** Служба пропала на `ms` и вернулась. */
+    serviceDown: (ms = 5000) => svc.serviceDown(ms),
+    /** Событие службы, например `{ ev: 'traffic', up: 1e5, down: 1e6 }`, и число слушателей — для стресс-проверок. */
+    emit: (e: KEvent | 'state') => svc.fire(e),
+    stats: () => svc.stats(),
     /** Ссылка klick://add пришла, пока окно открыто: `__klickMock.openLink('https://…', 'Имя')`. */
     openLink: (url: string, name?: string) => {
       pending = previewLink(url, name ?? null);

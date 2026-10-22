@@ -34,6 +34,9 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
   // Страна выбранного сервера — сверху, но только на момент открытия: выбор в другой стране строки не двигает.
   const [pin] = useState(curKey);
   const [open, setOpen] = useState<Set<string>>(() => (remembered ??= curKey !== null ? new Set([curKey]) : null) ?? new Set());
+  // Серверы страны попадают в DOM при первом раскрытии и остаются (чтобы свернуть плавно): в подписке
+  // на 40+ серверов свёрнутые страны не стоят ничего ни при открытии списка, ни при выборе сервера.
+  const [seen, setSeen] = useState(open);
   const groups = useMemo(() => groupByCountry(list, pin), [list, pin]);
 
   const toggle = (key: string) => {
@@ -41,6 +44,7 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
     if (!next.delete(key)) next.add(key);
     remembered = next;
     setOpen(next);
+    if (!seen.has(key)) setSeen(new Set(seen).add(key));
   };
 
   // Стрелки: вверх-вниз — по строкам, вправо — раскрыть страну, влево — свернуть или вернуться к стране.
@@ -112,7 +116,7 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
             </button>
             <div className="cg-body" id={id} role="group" aria-label={g.name} inert={!isOpen}>
               <div className="cg-inner">
-                {g.items.map(({ server: s, p }) => {
+                {seen.has(g.key) ? g.items.map(({ server: s, p }) => {
                   const on = s.name === current?.name;
                   const title = serverTitle(s, p);
                   const proto = p.title && !p.named ? protocolName(s.kind) : null;
@@ -134,7 +138,7 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
                       <Ping delay={s.delay} pinging={pinging} tested={tested} />
                     </button>
                   );
-                })}
+                }) : null}
               </div>
             </div>
           </div>
