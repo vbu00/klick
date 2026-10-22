@@ -109,8 +109,62 @@ start_server() {
     return 1
 }
 
+stop_server() {
+    if [[ -n "${server_pid:-}" ]]; then
+        kill "$server_pid" 2>/dev/null || true
+        wait "$server_pid" 2>/dev/null || true
+        server_pid=""
+    fi
+}
+guard_probe_count() {
+    grep -Eic 'gstatic|cp\.cloudflare\.com' "$work/server.log" 2>/dev/null || true
+}
+wait_guard_probe() {
+    local before end now
+    before="$(guard_probe_count)"
+    end=$((SECONDS + $1))
+    while (( SECONDS < end )); do
+        now="$(guard_probe_count)"
+        (( now > before )) && return 0
+        sleep 0.25
+    done
+    return 1
+}
+main_core_pid() { cat /var/run/klick/core.sock.pid 2>/dev/null; }
+vpn_state() { cli status | sed -n 's/.*"vpn": "\([^"]*\)".*/\1/p' | head -1; }
+watch_event_count() {
+    local count
+    count="$(grep -Fc "\"code\":\"$1\"" "$2" 2>/dev/null || true)"
+    printf '%s\n' "${count:-0}"
+}
+server_request_count() {
+    grep -Eic 'speed\.cloudflare\.com' "$work/server.log" 2>/dev/null || true
+}
+connection_has() {
+    local path="$1" process="$2" route="$3"
+    cli conns | jq -e --arg path "$path" --arg process "$process" --arg route "$route" '
+      any(.[]; .route == $route and ((.process // "") == $process or (.process_path // "") == $path) and ((.host // "") | test("speed\\.cloudflare\\.com"; "i")))
+    ' >/dev/null
+}
+connection_detail() {
+    local path="$1" process="$2"
+    cli conns | jq -c --arg path "$path" --arg process "$process" '[.[] | select((.process // "") == $process or (.process_path // "") == $path) | {host, process, process_path, route, rule}]'
+}
+wait_connection() {
+    local path="$1" process="$2" route="$3"
+    for _ in $(seq 1 60); do
+        connection_has "$path" "$process" "$route" && return 0
+        sleep 0.25
+    done
+    return 1
+}
+
 cleanup() {
     echo "== уборка"
+    [[ -n "${watch_pid:-}" ]] && kill "$watch_pid" 2>/dev/null
+    [[ -n "${program_pid:-}" ]] && kill "$program_pid" 2>/dev/null
+    [[ -n "${system_pid:-}" ]] && kill "$system_pid" 2>/dev/null
+    [[ -n "${list_pid:-}" ]] && kill "$list_pid" 2>/dev/null
     [[ -n "${server_pid:-}" ]] && kill "$server_pid" 2>/dev/null
     [[ -x "$svc" ]] && "$svc" uninstall --wipe >/dev/null 2>&1
     if [[ -n "${user_service:-}" ]]; then
@@ -118,7 +172,7 @@ cleanup() {
         networksetup -setwebproxystate "$user_service" off
         networksetup -setproxybypassdomains "$user_service" Empty
     fi
-    rm -rf "$work" /Users/Shared/klick-ks /Users/Shared/klick-ks-link
+    rm -rf "$work" /Users/Shared/klick-ks /Users/Shared/klick-ks-link /Users/Shared/KlickTest.app
 }
 trap cleanup EXIT
 
@@ -155,7 +209,7 @@ echo "== тестовый сервер"
 # из DNS kl!ck, и после отключения VPN они никуда не ведут.
 cat > "$work/server.yaml" <<YAML
 mixed-port: 0
-log-level: warning
+log-level: info
 interface-name: ${iface:-en0}
 dns:
   enable: true
@@ -223,6 +277,165 @@ check "адаптер убран" wait_for 10 bash -c '! ifconfig | grep -q "ine
 check "DNS возвращён" wait_for 5 bash -c '! scutil --dns | grep -q "nameserver\[0\] : 198.18.0.2"'
 check "настройки сети как до подключения" netconf_same
 check "страница напрямую после VPN" http_ok
+
+echo "== Страж соединения: fault injection"
+cli mode tun >/dev/null
+cli routing all >/dev/null
+cli connect >/dev/null
+check "VPN подключён в TUN / Всё через VPN" wait_for 25 state_is connected
+watch_log="$work/guard-watch.jsonl"
+watch_err="$work/guard-watch.err"
+"$app/Contents/MacOS/klick-cli" --prod watch >"$watch_log" 2>"$watch_err" &
+watch_pid=$!
+check "klick-cli watch получает события" wait_for 5 test -s "$watch_log"
+guard_core_pid="$(main_core_pid)"
+check "pid основного ядра читается" test -n "$guard_core_pid"
+
+# Короткий сбой начинается за 3 с до следующей пробы: появятся отказ и повтор, но общее окно меньше 20 с.
+if wait_guard_probe 45; then pass "дождались успешной пробы через тестовый сервер"; else fail "не дождались контрольной пробы за 45 с"; fi
+echo "    ждём 27 с до следующей 30-секундной пробы"
+sleep 27
+short_down_before="$(watch_event_count vpn.down "$watch_log")"
+short_start=$SECONDS
+stop_server
+short_bad_states=""
+short_samples=0
+short_pid_stable=1
+while (( SECONDS - short_start < 12 )); do
+    state="$(vpn_state)"
+    short_samples=$((short_samples + 1))
+    if [[ "$state" != connected ]]; then short_bad_states="${short_bad_states:+$short_bad_states,}$state"; fi
+    current_pid="$(main_core_pid)"
+    [[ "$current_pid" == "$guard_core_pid" ]] || short_pid_stable=0
+    sleep 0.5
+done
+short_elapsed=$((SECONDS - short_start))
+short_down_after="$(watch_event_count vpn.down "$watch_log")"
+if [[ -z "$short_bad_states" ]]; then pass "сбой на 12 с: connected все $short_samples проверок (окно ${short_elapsed} с)"; else fail "сбой на 12 с изменил состояние: $short_bad_states"; fi
+if [[ "$short_down_after" == "$short_down_before" ]]; then pass "за короткий сбой не пришёл vpn.down"; else fail "за короткий сбой пришёл vpn.down: $short_down_before -> $short_down_after"; fi
+if [[ $short_pid_stable -eq 1 ]]; then pass "pid ядра не изменился при коротком сбое ($guard_core_pid)"; else fail "pid ядра изменился при коротком сбое: было $guard_core_pid, стало $current_pid"; fi
+if start_server; then pass "тестовый сервер перезапущен на 127.0.0.1:21080"; else fail "тестовый сервер не перезапустился после короткого сбоя"; fi
+check "VPN остался подключён после короткого сбоя" wait_for 30 state_is connected
+short_recovery_pid="$(main_core_pid)"
+if [[ "$short_recovery_pid" == "$guard_core_pid" ]]; then pass "pid ядра прежний после короткого сбоя ($guard_core_pid)"; else fail "pid ядра после короткого сбоя изменился: $guard_core_pid -> $short_recovery_pid"; fi
+
+# Следующий длинный сбой начинаем за 3 с до очередной плановой пробы: первый отказ будет почти сразу.
+if wait_guard_probe 45; then pass "перед длинным сбоем прошла свежая успешная проба"; else fail "не дождались свежей пробы за 45 с"; fi
+echo "    ждём 27 с до следующей 30-секундной пробы, затем выключаем сервер на 75 с"
+sleep 27
+long_core_pid="$(main_core_pid)"
+long_unexpected=""
+long_pid_stable=1
+if [[ "$long_core_pid" != "$guard_core_pid" ]]; then long_pid_stable=0; long_unexpected="core pid между сбоями: $guard_core_pid -> $long_core_pid"; fi
+long_down_before="$(watch_event_count vpn.down "$watch_log")"
+long_restored_before="$(watch_event_count vpn.restored "$watch_log")"
+long_start=$SECONDS
+stop_server
+reconnecting_at=-1
+server_down_at=-1
+down_notice_at=-1
+while (( SECONDS - long_start < 75 )); do
+    elapsed=$((SECONDS - long_start))
+    state="$(vpn_state)"
+    if [[ "$state" == reconnecting && $reconnecting_at -lt 0 ]]; then reconnecting_at=$elapsed; fi
+    if [[ "$state" == server_down && $server_down_at -lt 0 ]]; then server_down_at=$elapsed; fi
+    case "$state" in connected|reconnecting|server_down) ;; *) long_unexpected="${long_unexpected:+$long_unexpected,}$state@$elapsed" ;; esac
+    down_now="$(watch_event_count vpn.down "$watch_log")"
+    if (( down_now > long_down_before && down_notice_at < 0 )); then down_notice_at=$elapsed; fi
+    current_pid="$(main_core_pid)"
+    if [[ "$current_pid" != "$long_core_pid" ]]; then long_pid_stable=0; long_unexpected="${long_unexpected:+$long_unexpected,}pid=$current_pid@$elapsed"; fi
+    sleep 0.5
+done
+long_elapsed=$((SECONDS - long_start))
+if (( reconnecting_at >= 15 )); then pass "reconnecting появился через ${reconnecting_at} с (не раньше 15 с)"; else fail "reconnecting появился слишком рано или не появился: ${reconnecting_at} с"; fi
+if (( server_down_at >= 0 && server_down_at <= 60 )); then pass "server_down появился через ${server_down_at} с"; else fail "server_down не появился к 60 с: ${server_down_at} с"; fi
+if (( down_notice_at >= 0 && down_notice_at <= 60 )); then pass "watch получил vpn.down через ${down_notice_at} с"; else fail "watch не получил vpn.down к 60 с: ${down_notice_at} с"; fi
+if (( long_elapsed >= 74 && long_elapsed <= 82 )); then pass "длинный fault injection длился ${long_elapsed} с"; else fail "длинный сбой длился ${long_elapsed} с вместо примерно 75"; fi
+if [[ -z "$long_unexpected" ]]; then pass "во время сбоя наблюдались только connected/reconnecting/server_down"; else fail "неожиданные состояния или pid во время сбоя: $long_unexpected"; fi
+if start_server; then pass "тестовый сервер перезапущен после длинного сбоя"; else fail "тестовый сервер не перезапустился после длинного сбоя"; fi
+
+restore_start=$SECONDS
+restored_notice_at=-1
+restored_state=""
+while (( SECONDS - restore_start < 90 )); do
+    restored_state="$(vpn_state)"
+    restored_count="$(watch_event_count vpn.restored "$watch_log")"
+    if (( restored_count > long_restored_before && restored_notice_at < 0 )); then restored_notice_at=$((SECONDS - restore_start)); fi
+    current_pid="$(main_core_pid)"
+    if [[ "$current_pid" != "$long_core_pid" ]]; then long_pid_stable=0; long_unexpected="${long_unexpected:+$long_unexpected,}pid=$current_pid@restore"; fi
+    [[ "$restored_state" == connected && $restored_notice_at -ge 0 ]] && break
+    sleep 0.5
+done
+restore_elapsed=$((SECONDS - restore_start))
+long_down_after="$(watch_event_count vpn.down "$watch_log")"
+long_restored_after="$(watch_event_count vpn.restored "$watch_log")"
+if [[ "$restored_state" == connected && $restore_elapsed -le 90 ]]; then pass "после возврата сервера connected за ${restore_elapsed} с"; else fail "после возврата сервера connected не появился за 90 с: $restored_state"; fi
+if (( long_down_after > long_down_before && long_restored_after > long_restored_before )); then pass "watch получил vpn.down и vpn.restored"; else fail "watch: vpn.down $long_down_before->$long_down_after; vpn.restored $long_restored_before->$long_restored_after"; fi
+if [[ $long_pid_stable -eq 1 && "$current_pid" == "$long_core_pid" ]]; then pass "pid основного ядра не менялся во время всего теста ($long_core_pid)"; else fail "pid основного ядра изменился: $long_core_pid -> $current_pid; $long_unexpected"; fi
+echo "    watch tail:"
+tail -12 "$watch_log" 2>/dev/null
+kill "$watch_pid" 2>/dev/null || true
+wait "$watch_pid" 2>/dev/null || true
+watch_pid=""
+
+echo "== TUN: правило программы для Discord"
+cli routing selected >/dev/null
+test_app=/Users/Shared/KlickTest.app
+program_dir="$test_app/Contents/MacOS"
+program_exe="$program_dir/Discord"
+mkdir -p "$program_dir"
+cp /usr/bin/curl "$program_exe"
+chmod 755 "$program_exe"
+check "добавить папку программы в VPN" cli list add selected program "$program_dir" vpn
+check "тот же домен добавлен как direct" cli list add selected domain speed.cloudflare.com direct
+
+download_url='https://speed.cloudflare.com/__down?bytes=20000000'
+program_log_before="$(server_request_count)"
+"$program_exe" -sS --limit-rate 40k --max-time 120 -o "$work/discord-route.bin" "$download_url" 2>"$work/discord-route.err" &
+program_pid=$!
+if wait_connection "$program_exe" Discord vpn; then pass "Discord.exe: process/path через conns имеет route=vpn: $(connection_detail "$program_exe" Discord)"; else fail "Discord.exe не найден в conns как VPN: $(cli conns | jq -c '.'); curl: $(tail -8 "$work/discord-route.err")"; fi
+sleep 1
+program_hits=$(( $(server_request_count) - program_log_before ))
+if (( program_hits > 0 )); then pass "сервер увидел запрос Discord.exe ($program_hits соединений)"; else fail "сервер не увидел запрос Discord.exe: $(tail -15 "$work/server.log")"; fi
+
+system_log_before="$(server_request_count)"
+/usr/bin/curl -sS --limit-rate 40k --max-time 120 -o "$work/system-curl-route.bin" "$download_url" 2>"$work/system-curl-route.err" &
+system_pid=$!
+if wait_connection /usr/bin/curl curl direct; then pass "системный curl: process/path через conns имеет route=direct: $(connection_detail /usr/bin/curl curl)"; else fail "системный curl не найден в conns как direct: $(cli conns | jq -c '.'); curl: $(tail -8 "$work/system-curl-route.err")"; fi
+sleep 1
+system_hits=$(( $(server_request_count) - system_log_before ))
+if (( system_hits == 0 )); then pass "системный curl не появился на тестовом VPN-сервере"; else fail "сервер увидел системный curl как VPN-трафик ($system_hits запросов): $(tail -12 "$work/server.log")"; fi
+kill "$program_pid" "$system_pid" 2>/dev/null || true
+wait "$program_pid" "$system_pid" 2>/dev/null || true
+program_pid=""
+system_pid=""
+
+echo "== INFO: список меняется при активном соединении"
+"$program_exe" -sS --limit-rate 20k --max-time 120 -o "$work/list-change.bin" "$download_url" 2>"$work/list-change.err" &
+list_pid=$!
+bytes_ready=0
+for _ in $(seq 1 25); do
+    bytes_now="$(wc -c < "$work/list-change.bin" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${bytes_now:-0}" =~ ^[0-9]+$ ]] && (( bytes_now > 0 )); then bytes_ready=1; break; fi
+    kill -0 "$list_pid" 2>/dev/null || break
+    sleep 1
+done
+list_conn_active=0
+if connection_has "$program_exe" Discord vpn; then list_conn_active=1; fi
+bytes_before="$(wc -c < "$work/list-change.bin" 2>/dev/null | tr -d '[:space:]' || true)"
+bytes_before="${bytes_before:-0}"
+cli list add selected domain reload-check.klick.test direct >"$work/list-add.out" 2>&1
+reload_rc=$?
+if [[ $reload_rc -eq 0 ]]; then pass "добавлено доменное правило, сервис принял изменение списка"; else fail "не удалось добавить правило для reload: $(cat "$work/list-add.out")"; fi
+sleep 8
+bytes_after="$(wc -c < "$work/list-change.bin" 2>/dev/null | tr -d '[:space:]' || true)"
+bytes_after="${bytes_after:-0}"
+growth=$((bytes_after - bytes_before))
+if kill -0 "$list_pid" 2>/dev/null; then list_outcome='curl всё ещё работает'; else wait "$list_pid"; list_rc=$?; list_outcome="curl завершился с кодом $list_rc"; fi
+echo "  INFO соединение Discord.exe во время reload: активное VPN-соединение до изменения=$list_conn_active; байты $bytes_before -> $bytes_after (+$growth); $list_outcome; curl: $(tail -8 "$work/list-change.err")"
+kill "$list_pid" 2>/dev/null || true
+wait "$list_pid" 2>/dev/null || true
+list_pid=""
 
 echo "== Kill Switch (проверки от имени $user)"
 mkdir -p /Users/Shared/klick-ks/tool

@@ -1,0 +1,49 @@
+{
+  "proxies": [
+    {
+      "alpn": [
+        "h3"
+      ],
+      "hop-interval": "30",
+      "name": "hy2-salamander-hop",
+      "obfs": "salamander",
+      "obfs-password": "DOSOs2KtkfxOQJPZ6ln16S1KIJMTCN2D",
+      "password": "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE",
+      "port": 20000,
+      "ports": "20000-20100",
+      "server": "de1.example.com",
+      "sni": "de1.example.com",
+      "type": "hysteria2"
+    },
+    {
+      "alpn": [
+        "h3"
+      ],
+      "name": "p",
+      "obfs": "salamander",
+      "obfs-password": "muLP9fIUKmMXV8JZf3dgV2NAqjJayZXx",
+      "password": "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE",
+      "port": 443,
+      "server": "de1.example.com",
+      "sni": "de1.example.com",
+      "type": "hysteria2"
+    },
+    {
+      "client-fingerprint": "chrome",
+      "flow": "xtls-rprx-vision",
+      "name": "vless-tcp-vision",
+      "packet-encoding": "xudp",
+      "port": 8446,
+      "reality-opts": {
+        "public-key": "U8FIQNeLvB0SgHvUvuHt9SDSvTWWRNmmCl9s5DHGAG4",
+        "short-id": "4b90a1af"
+      },
+      "server": "de1.example.com",
+      "servername": "www.example.org",
+      "tls": true,
+      "type": "vless",
+      "udp": true,
+      "uuid": "9596e429-ad6c-420a-a366-7b23d13a6207"
+    }
+  ]
+}

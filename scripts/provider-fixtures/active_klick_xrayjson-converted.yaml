@@ -1,0 +1,68 @@
+{
+  "proxies": [
+    {
+      "alpn": [
+        "h3"
+      ],
+      "name": "hy2-salamander-hop",
+      "obfs": "salamander",
+      "obfs-password": "DOSOs2KtkfxOQJPZ6ln16S1KIJMTCN2D",
+      "password": "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE",
+      "port": 8444,
+      "server": "de1.example.com",
+      "sni": "de1.example.com",
+      "type": "hysteria2",
+      "udp": true
+    },
+    {
+      "alpn": [
+        "h3"
+      ],
+      "name": "p",
+      "obfs": "salamander",
+      "obfs-password": "muLP9fIUKmMXV8JZf3dgV2NAqjJayZXx",
+      "password": "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE",
+      "port": 443,
+      "server": "de1.example.com",
+      "sni": "de1.example.com",
+      "type": "hysteria2",
+      "udp": true
+    },
+    {
+      "client-fingerprint": "chrome",
+      "flow": "xtls-rprx-vision",
+      "name": "vless-tcp-vision",
+      "port": 8446,
+      "reality-opts": {
+        "public-key": "U8FIQNeLvB0SgHvUvuHt9SDSvTWWRNmmCl9s5DHGAG4",
+        "short-id": "4b90a1af"
+      },
+      "server": "de1.example.com",
+      "servername": "www.example.org",
+      "tls": true,
+      "type": "vless",
+      "udp": true,
+      "uuid": "9596e429-ad6c-420a-a366-7b23d13a6207"
+    },
+    {
+      "client-fingerprint": "chrome",
+      "name": "vless-xhttp",
+      "network": "xhttp",
+      "port": 443,
+      "reality-opts": {
+        "public-key": "n-3BBAtWQOI2aQXnpu_GxSB_ljHSGS6iDOCpPtuKo3Q",
+        "short-id": "5fb1826a"
+      },
+      "server": "de1.example.com",
+      "servername": "www.example.org",
+      "tls": true,
+      "type": "vless",
+      "udp": true,
+      "uuid": "9596e429-ad6c-420a-a366-7b23d13a6207",
+      "xhttp-opts": {
+        "mode": "auto",
+        "path": "/mS2KKPZf_4"
+      }
+    }
+  ]
+}

@@ -13,6 +13,7 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $report = Join-Path $out 'report.txt'
 Set-Content -Path $report -Value '' -Encoding UTF8
 $script:fails = 0
+$guardWatch = $null
 
 function Log([string]$m) { Add-Content -Path $report -Value ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) -Encoding UTF8 }
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
@@ -73,6 +74,67 @@ function EnsureWebView2 {
 function SrvLines { @(Get-Content "$out\srv.log" -ErrorAction SilentlyContinue) }
 function ProxyReg { Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' }
 function CoreProc { Get-CimInstance Win32_Process -Filter "Name='mihomo.exe'" | Where-Object { $_.CommandLine -like '*ProgramData*' } }
+function CorePid {
+    $p = @(CoreProc)
+    if ($p.Count -eq 1) { return [int]$p[0].ProcessId }
+    return 0
+}
+function WatchText([string]$path) {
+    try { if (Test-Path $path) { return [IO.File]::ReadAllText($path) } } catch {}
+    return ''
+}
+function GuardProbeCount {
+    $lines = @(SrvLines | Where-Object { $_ -match 'gstatic|cp\.cloudflare\.com' })
+    return $lines.Count
+}
+function WaitGuardProbe([int]$seconds) {
+    $before = GuardProbeCount
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+        if ((GuardProbeCount) -gt $before) { return $true }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+function TestSrvListener {
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $pending = $client.BeginConnect('127.0.0.1', 1080, $null, $null)
+        if ($pending.AsyncWaitHandle.WaitOne(250)) {
+            $client.EndConnect($pending)
+            return $true
+        }
+    } catch {} finally { $client.Close() }
+    return $false
+}
+function WaitSrv([int]$seconds) {
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+        if (TestSrvListener) { return $true }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+function FindConn([string]$processName, [string]$route) {
+    $rows = @(KlickJson conns)
+    return $rows | Where-Object {
+        $_.route -eq $route -and $_.host -match 'speed\.cloudflare\.com' -and
+        ($_.process -eq $processName -or $_.process_path -like "*\$processName")
+    } | Select-Object -First 1
+}
+function WaitConn([string]$processName, [string]$route, [int]$seconds = 15) {
+    $end = (Get-Date).AddSeconds($seconds)
+    do {
+        $row = FindConn $processName $route
+        if ($row) { return $row }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $end)
+    return $null
+}
+function StartTestDownload([string]$exe, [string]$file, [string]$err, [string]$rate = '40k') {
+    if (Test-Path $file) { Remove-Item -LiteralPath $file -Force }
+    Start-Process -FilePath $exe -ArgumentList @('-sS', '--limit-rate', $rate, '--max-time', '120', '-o', $file, 'https://speed.cloudflare.com/__down?bytes=20000000') -RedirectStandardError $err -PassThru -WindowStyle Hidden
+}
 
 try {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -203,6 +265,121 @@ try {
     $srvProc = StartSrv
     Start-Sleep 2
 
+    # 4d. Страж: короткий и длинный сбой тестового SOCKS5-сервера без перезапуска ядра
+    KlickCli mode tun | Out-Null
+    KlickCli routing all | Out-Null
+    $st = WaitVpn 'connected' 25
+    Check 'страж: исходное состояние — TUN и «Всё через VPN»' ($st.vpn -eq 'connected') ("vpn=" + $st.vpn)
+    $guardWatchLog = Join-Path $out 'guard-watch.jsonl'
+    $guardWatchErr = Join-Path $out 'guard-watch.err'
+    Remove-Item -LiteralPath $guardWatchLog, $guardWatchErr -Force -ErrorAction SilentlyContinue
+    $guardWatch = Start-Process -FilePath "$inst\klick-cli.exe" -ArgumentList '--prod watch' -RedirectStandardOutput $guardWatchLog -RedirectStandardError $guardWatchErr -PassThru -WindowStyle Hidden
+    Start-Sleep 1
+    Check 'страж: поток событий watch запущен' (-not $guardWatch.HasExited) ("pid=" + $guardWatch.Id)
+    $guardCorePid = CorePid
+    Check 'страж: найден pid основного ядра' ($guardCorePid -gt 0) ("pid=$guardCorePid")
+
+    # Отключаем сервер за 3 с до следующей плановой пробы: один-два отказа и короткие повторы до 12 с.
+    $shortProbe = WaitGuardProbe 45
+    Check 'страж: дождались контрольной пробы через сервер' $shortProbe ("строк сервера: " + (GuardProbeCount))
+    Log 'страж: ждём 27 с, чтобы короткий сбой попал на очередную плановую пробу'
+    Start-Sleep -Seconds 27
+    $watchText = WatchText $guardWatchLog
+    $shortDownBefore = [regex]::Matches($watchText, '"code":"vpn\.down"').Count
+    $shortStart = Get-Date
+    Stop-Process -Id $srvProc.Id -Force -ErrorAction SilentlyContinue
+    $shortEnd = $shortStart.AddSeconds(12)
+    $shortBadStates = @()
+    $shortSamples = 0
+    $shortPidStable = $guardCorePid -gt 0
+    while ((Get-Date) -lt $shortEnd) {
+        $s = KlickJson status
+        $shortSamples++
+        if (-not $s -or $s.vpn -ne 'connected') { $shortBadStates += $(if ($s) { $s.vpn } else { 'нет статуса' }) }
+        if ((CorePid) -ne $guardCorePid) { $shortPidStable = $false }
+        Start-Sleep -Milliseconds 500
+    }
+    $shortElapsed = ((Get-Date) - $shortStart).TotalSeconds
+    $watchText = WatchText $guardWatchLog
+    $shortDownAfter = [regex]::Matches($watchText, '"code":"vpn\.down"').Count
+    Log ("страж watch после короткого сбоя: " + (($watchText -split "`r?`n" | Select-Object -Last 8) -join ' | '))
+    Check 'страж: сбой сервера на 12 с не меняет состояние connected' ($shortBadStates.Count -eq 0) ("наблюдений: $shortSamples; другие состояния: " + (($shortBadStates | Select-Object -Unique) -join ', '))
+    Check 'страж: за короткий сбой нет vpn.down' ($shortDownAfter -eq $shortDownBefore) ("vpn.down: $shortDownBefore -> $shortDownAfter; окно: {0:N1} с" -f $shortElapsed)
+    Check 'страж: короткий сбой не перезапустил ядро' $shortPidStable ("pid=$guardCorePid, теперь $(CorePid)")
+    $srvProc = StartSrv
+    $shortServerReady = WaitSrv 20
+    Check 'страж: тестовый сервер снова слушает порт 1080' $shortServerReady ("pid=$($srvProc.Id)")
+    $st = WaitVpn 'connected' 30
+    Check 'страж: после короткого сбоя VPN подключён' ($st.vpn -eq 'connected') ("vpn=" + $st.vpn)
+    $shortRecoveryPid = CorePid
+    Check 'страж: pid ядра остался прежним после короткого сбоя' ($shortRecoveryPid -eq $guardCorePid) ("было $guardCorePid, стало $shortRecoveryPid")
+
+    # Повторяем после свежей успешной пробы; сервер остаётся выключен 75 с.
+    $longProbe = WaitGuardProbe 45
+    Check 'страж: перед длинным сбоем прошла свежая контрольная проба' $longProbe ("строк сервера: " + (GuardProbeCount))
+    Log 'страж: длинный сбой начнётся перед следующей 30-секундной пробой'
+    Start-Sleep -Seconds 27
+    $longCorePid = CorePid
+    $longUnexpected = @()
+    if ($longCorePid -ne $guardCorePid) { $longUnexpected += "core pid между сбоями: $guardCorePid -> $longCorePid" }
+    $watchText = WatchText $guardWatchLog
+    $longDownBefore = [regex]::Matches($watchText, '"code":"vpn\.down"').Count
+    $longRestoredBefore = [regex]::Matches($watchText, '"code":"vpn\.restored"').Count
+    $longStart = Get-Date
+    Stop-Process -Id $srvProc.Id -Force -ErrorAction SilentlyContinue
+    $longTimer = [Diagnostics.Stopwatch]::StartNew()
+    $reconnectingAt = $null
+    $serverDownAt = $null
+    $downNoticeAt = $null
+    $lastPidSample = 0.0
+    while ($longTimer.Elapsed.TotalSeconds -lt 75) {
+        $elapsed = $longTimer.Elapsed.TotalSeconds
+        $s = KlickJson status
+        if ($s.vpn -eq 'reconnecting' -and $null -eq $reconnectingAt) { $reconnectingAt = $elapsed }
+        if ($s.vpn -eq 'server_down' -and $null -eq $serverDownAt) { $serverDownAt = $elapsed }
+        if ($s.vpn -notin @('connected', 'reconnecting', 'server_down')) { $longUnexpected += "$($s.vpn)@{0:N1}s" -f $elapsed }
+        $watchText = WatchText $guardWatchLog
+        $downCountNow = [regex]::Matches($watchText, '"code":"vpn\.down"').Count
+        if ($null -eq $downNoticeAt -and $downCountNow -gt $longDownBefore) { $downNoticeAt = $elapsed }
+        if ($elapsed -ge $lastPidSample) {
+            if ((CorePid) -ne $longCorePid) { $longUnexpected += "core pid $(CorePid)@$('{0:N1}' -f $elapsed)s" }
+            $lastPidSample = $elapsed + 1.0
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    $longTimer.Stop()
+    $longHeld = $longTimer.Elapsed.TotalSeconds
+    Check 'страж: reconnecting появляется не раньше 15 с' ($null -ne $reconnectingAt -and $reconnectingAt -ge 15) ("момент: {0:N1} с" -f $reconnectingAt)
+    Check 'страж: server_down появляется не позже 60 с' ($null -ne $serverDownAt -and $serverDownAt -le 60) ("момент: {0:N1} с" -f $serverDownAt)
+    Check 'страж: watch получил vpn.down не позже 60 с' ($null -ne $downNoticeAt -and $downNoticeAt -le 60) ("момент: {0:N1} с" -f $downNoticeAt)
+    Check 'страж: длинный сбой длился около 75 с' ($longHeld -ge 74 -and $longHeld -le 85) ("окно: {0:N1} с" -f $longHeld)
+
+    $srvProc = StartSrv
+    $longServerReady = WaitSrv 20
+    Check 'страж: после длинного сбоя тестовый сервер снова слушает порт 1080' $longServerReady ("pid=$($srvProc.Id)")
+    $restoreTimer = [Diagnostics.Stopwatch]::StartNew()
+    $restoredState = $null
+    $restoredNoticeAt = $null
+    while ($restoreTimer.Elapsed.TotalSeconds -lt 90) {
+        $restoredState = KlickJson status
+        $watchText = WatchText $guardWatchLog
+        $restoredCount = [regex]::Matches($watchText, '"code":"vpn\.restored"').Count
+        if ($null -eq $restoredNoticeAt -and $restoredCount -gt $longRestoredBefore) { $restoredNoticeAt = $restoreTimer.Elapsed.TotalSeconds }
+        if ((CorePid) -ne $longCorePid) { $longUnexpected += "core pid $(CorePid) после восстановления" }
+        if ($restoredState.vpn -eq 'connected' -and $null -ne $restoredNoticeAt) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    $restoreTimer.Stop()
+    $watchText = WatchText $guardWatchLog
+    $longDownAfter = [regex]::Matches($watchText, '"code":"vpn\.down"').Count
+    $longRestoredAfter = [regex]::Matches($watchText, '"code":"vpn\.restored"').Count
+    Log ("страж watch после длинного сбоя: " + (($watchText -split "`r?`n" | Select-Object -Last 12) -join ' | '))
+    Check 'страж: после восстановления VPN вернулся в connected за 90 с' ($restoredState.vpn -eq 'connected' -and $restoreTimer.Elapsed.TotalSeconds -le 90) ("vpn=$($restoredState.vpn), время: {0:N1} с" -f $restoreTimer.Elapsed.TotalSeconds)
+    Check 'страж: watch получил vpn.down и vpn.restored' ($longDownAfter -gt $longDownBefore -and $longRestoredAfter -gt $longRestoredBefore) ("vpn.down: $longDownBefore -> $longDownAfter; vpn.restored: $longRestoredBefore -> $longRestoredAfter")
+    Check 'страж: pid основного ядра не менялся во время сбоя и восстановления' ($longCorePid -gt 0 -and $longUnexpected.Count -eq 0 -and (CorePid) -eq $longCorePid) ("pid=$longCorePid; отклонения: " + (($longUnexpected | Select-Object -Unique) -join ', '))
+    if ($guardWatch -and -not $guardWatch.HasExited) { Stop-Process -Id $guardWatch.Id -Force -ErrorAction SilentlyContinue }
+    $guardWatch = $null
+
     # 5. «Только выбранное»: обычный сайт напрямую, заблокированный сервис через VPN
     KlickCli routing selected | Out-Null
     Start-Sleep 1
@@ -218,6 +395,78 @@ try {
     # «Сервер» выходит в интернет отсюда же, а заблокированное в РФ отсюда не открывается:
     # проверяем, что запрос ушёл через «сервер», а не код ответа сайта.
     Check 'сервис из набора заблокированного идёт через VPN' ([bool]($new -match 'youtube')) "код $yt"
+
+    # 5b. TUN, программа через VPN и тот же домен напрямую по правилу программы
+    KlickCli routing selected | Out-Null
+    $discordFolder = 'C:\apptest\Discord\app-1.0.9001'
+    New-Item -ItemType Directory -Force $discordFolder | Out-Null
+    $discordCurl = Join-Path $discordFolder 'Discord.exe'
+    Copy-Item "$env:WINDIR\System32\curl.exe" $discordCurl -Force
+    $programAdd = KlickCli list add selected program $discordFolder vpn
+    $programAddExit = $LASTEXITCODE
+    Check 'правило Discord добавлено в «Только выбранное»' ($programAddExit -eq 0) ($programAdd -replace "`r?`n", ' ')
+    $domainAdd = KlickCli list add selected domain 'speed.cloudflare.com' direct
+    $domainAddExit = $LASTEXITCODE
+    Check 'speed.cloudflare.com добавлен как domain direct' ($domainAddExit -eq 0) ($domainAdd -replace "`r?`n", ' ')
+
+    $programLogStart = (SrvLines).Count
+    $discordDownload = StartTestDownload $discordCurl (Join-Path $out 'discord-route.bin') (Join-Path $out 'discord-route.err')
+    $discordConn = WaitConn 'Discord.exe' 'vpn' 20
+    Start-Sleep 1
+    $programServerHits = @((SrvLines | Select-Object -Skip $programLogStart) | Where-Object { $_ -match 'speed\.cloudflare\.com' }).Count
+    $discordErrTail = ((Get-Content (Join-Path $out 'discord-route.err') -Tail 8 -ErrorAction SilentlyContinue) -join ' | ')
+    $discordDetail = if ($discordConn) { "process=$($discordConn.process); path=$($discordConn.process_path); route=$($discordConn.route); rule=$($discordConn.rule)" } else { "нет соединения; conns=" + ((KlickJson conns | ConvertTo-Json -Depth 5 -Compress)) + "; curl: $discordErrTail" }
+    Check 'TUN: Discord.exe идёт через VPN, несмотря на domain direct' ($null -ne $discordConn) $discordDetail
+    $programServerTail = ((SrvLines | Select-Object -Last 8) -join ' | ')
+    Check 'TUN: тестовый VPN-сервер увидел запрос Discord.exe' ($programServerHits -gt 0) ("запросов speed.cloudflare.com: $programServerHits; журнал: $programServerTail")
+
+    $systemLogStart = (SrvLines).Count
+    $systemDownload = StartTestDownload "$env:WINDIR\System32\curl.exe" (Join-Path $out 'system-curl-route.bin') (Join-Path $out 'system-curl-route.err')
+    $systemConn = WaitConn 'curl.exe' 'direct' 20
+    Start-Sleep 1
+    $systemServerHits = @((SrvLines | Select-Object -Skip $systemLogStart) | Where-Object { $_ -match 'speed\.cloudflare\.com' }).Count
+    $systemErrTail = ((Get-Content (Join-Path $out 'system-curl-route.err') -Tail 8 -ErrorAction SilentlyContinue) -join ' | ')
+    $systemDetail = if ($systemConn) { "process=$($systemConn.process); path=$($systemConn.process_path); route=$($systemConn.route); rule=$($systemConn.rule)" } else { "нет соединения; conns=" + ((KlickJson conns | ConvertTo-Json -Depth 5 -Compress)) + "; curl: $systemErrTail" }
+    Check 'TUN: системный curl.exe идёт напрямую' ($null -ne $systemConn) $systemDetail
+    $systemServerTail = ((SrvLines | Select-Object -Last 8) -join ' | ')
+    Check 'TUN: системный curl.exe не попал на тестовый VPN-сервер' ($systemServerHits -eq 0) ("новых запросов speed.cloudflare.com: $systemServerHits; журнал: $systemServerTail")
+    foreach ($p in @($discordDownload, $systemDownload)) {
+        if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    }
+
+    # Меняем список, пока через программу идёт ограниченная по скорости загрузка.
+    $longDownloadPath = Join-Path $out 'list-change-download.bin'
+    $longDownload = StartTestDownload $discordCurl $longDownloadPath (Join-Path $out 'list-change-download.err') '20k'
+    $bytesReady = $false
+    $bytesDeadline = (Get-Date).AddSeconds(25)
+    while ((Get-Date) -lt $bytesDeadline) {
+        $f = Get-Item -LiteralPath $longDownloadPath -ErrorAction SilentlyContinue
+        if ($f -and $f.Length -gt 0) { $bytesReady = $true; break }
+        $longDownload.Refresh()
+        if ($longDownload.HasExited) { break }
+        Start-Sleep 1
+    }
+    $beforeBytes = [long]0
+    $f = Get-Item -LiteralPath $longDownloadPath -ErrorAction SilentlyContinue
+    if ($f) { $beforeBytes = [long]$f.Length }
+    $reloadRule = KlickCli list add selected domain 'reload-check.klick.test' direct
+    $reloadRuleExit = $LASTEXITCODE
+    Check 'изменение списка для проверки reload принято' ($reloadRuleExit -eq 0) ($reloadRule -replace "`r?`n", ' ')
+    Start-Sleep 8
+    $afterBytes = [long]0
+    $f = Get-Item -LiteralPath $longDownloadPath -ErrorAction SilentlyContinue
+    if ($f) { $afterBytes = [long]$f.Length }
+    $longDownload.Refresh()
+    if ($longDownload.HasExited) {
+        $downloadOutcome = "curl завершился с кодом $($longDownload.ExitCode)"
+    } else {
+        $downloadOutcome = 'curl всё ещё работает'
+    }
+    $growth = $afterBytes - $beforeBytes
+    $longErrTail = ((Get-Content (Join-Path $out 'list-change-download.err') -Tail 8 -ErrorAction SilentlyContinue) -join ' | ')
+    Log ("INFO соединение Discord.exe при reload: поток до reload был {0}; байты {1} -> {2} (+{3}); {4}; curl: {5}" -f $bytesReady, $beforeBytes, $afterBytes, $growth, $downloadOutcome, $longErrTail)
+    if (-not $longDownload.HasExited) { Stop-Process -Id $longDownload.Id -Force -ErrorAction SilentlyContinue }
+    KlickCli routing all | Out-Null
 
     # 6. Kill Switch
     New-Item -ItemType Directory -Force 'C:\kstest' | Out-Null
@@ -378,6 +627,7 @@ catch {
     Log "ОШИБКА СЦЕНАРИЯ: $($_.Exception.Message)"
 }
 finally {
+    if ($guardWatch -and -not $guardWatch.HasExited) { Stop-Process -Id $guardWatch.Id -Force -ErrorAction SilentlyContinue }
     Log ("ИТОГ: провалов {0}" -f $script:fails)
     Copy-Item 'C:\ProgramData\klick\logs\service.log' "$out\service.log" -ErrorAction SilentlyContinue
     Copy-Item 'C:\ProgramData\klick\core\config.yaml' "$out\core-config.yaml" -ErrorAction SilentlyContinue

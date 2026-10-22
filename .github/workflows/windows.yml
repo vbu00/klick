@@ -194,6 +194,14 @@ jobs:
         with:
           node-version: 22
 
+      # Серверы из подписок Mistgate и наших конвертеров на настоящем ядре: `mihomo -t` файлы провайдеров не грузит.
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ matrix.scenario == 'service' && (inputs.only == '' || inputs.only == 'service') }}
+      - name: Серверы провайдера грузятся в ядро
+        if: ${{ matrix.scenario == 'service' && (inputs.only == '' || inputs.only == 'service') }}
+        shell: bash
+        run: bash scripts/check-providers.sh build/resources/core/mihomo.exe
+
       # real и servers — только со ссылкой; only — один сценарий из всех.
       - name: Сценарий ${{ matrix.scenario }}
         if: >-

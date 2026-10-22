@@ -4,6 +4,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 core="$root/resources/core/mihomo"
+if [[ ! -x "$core" && -x "$root/resources/core/mihomo.exe" ]]; then
+    core="$root/resources/core/mihomo.exe"
+fi
 [[ -x "$core" ]] || "$root/scripts/macos/fetch-core.sh"
 
 home="$(mktemp -d)"
@@ -15,6 +18,7 @@ echo 'vless://11111111-2222-3333-4444-555555555555@example.com:443?security=tls&
 
 (cd "$root" && cargo build -q -p klick-core --example dump_config)
 dump="$root/target/debug/examples/dump_config"
+[[ -x "$dump" ]] || dump="$dump.exe"
 bad=0
 for os in macos windows; do
     for mode in tun proxy tester guard; do
@@ -29,4 +33,7 @@ for os in macos windows; do
         done
     done
 done
+if ! bash "$root/scripts/check-providers.sh" "$core"; then
+    bad=1
+fi
 exit $bad
