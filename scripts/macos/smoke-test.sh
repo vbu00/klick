@@ -437,11 +437,11 @@ kill "$list_pid" 2>/dev/null || true
 wait "$list_pid" 2>/dev/null || true
 list_pid=""
 
-# Дальше проверки Kill Switch ждут выключенный VPN и прежнюю маршрутизацию («всё через VPN»).
+# Дальше проверки Kill Switch ждут выключенный VPN и маршрутизацию по умолчанию («только выбранное»).
 cli disconnect >/dev/null
-for _ in $(seq 1 30); do [[ "$(vpn_state)" == off ]] && break; sleep 0.5; done
-cli routing all >/dev/null
-check "после проверок стража и правил VPN выключен" bash -c '[[ "$(cli status | jq -r .vpn)" == off ]]'
+cli routing selected >/dev/null
+vpn_off() { [[ "$(vpn_state)" == off ]]; }
+check "после проверок стража и правил VPN выключен" wait_for 15 vpn_off
 
 echo "== Kill Switch (проверки от имени $user)"
 mkdir -p /Users/Shared/klick-ks/tool
