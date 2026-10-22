@@ -92,12 +92,14 @@ pub async fn service_call(bridge: State<'_, Bridge>, request: Value) -> Result<V
     eprintln!("[bridge] {}", request["cmd"]);
     let mut req = request;
     req["id"] = json!(id);
+    // Локальная проверка серверов идёт до 150 с; остальным командам хватает двух минут.
+    let limit = Duration::from_secs(if req["cmd"] == "probe" { 180 } else { 120 });
     let client = open(&bridge.pipe).await.map_err(|_| unreachable())?;
     let (read, mut write) = tokio::io::split(client);
     write.write_all(format!("{req}\n").as_bytes()).await.map_err(|_| unreachable())?;
     let mut lines = BufReader::new(read).lines();
     loop {
-        let line = tokio::time::timeout(Duration::from_secs(120), lines.next_line())
+        let line = tokio::time::timeout(limit, lines.next_line())
             .await
             .map_err(|_| json!({ "code": "service.timeout" }))?
             .map_err(|_| unreachable())?
