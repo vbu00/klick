@@ -437,10 +437,28 @@ fn unquote(s: &str) -> String {
     match s.chars().next() {
         Some(q @ ('"' | '\'')) => {
             let mut out = String::new();
-            let mut chars = s[1..].chars();
+            let mut chars = s[1..].chars().peekable();
             while let Some(c) = chars.next() {
                 match c {
-                    '\\' if q == '"' => out.extend(chars.next()),
+                    // Экранирование YAML в двойных кавычках: Mistgate пишет флаги как \U0001F1E9\U0001F1EA.
+                    '\\' if q == '"' => match chars.next() {
+                        Some(k @ ('x' | 'u' | 'U')) => {
+                            let len = match k { 'x' => 2, 'u' => 4, _ => 8 };
+                            let hex: String = (0..len).filter_map(|_| chars.next()).collect();
+                            out.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                        }
+                        Some('n') => out.push('\n'),
+                        Some('t') => out.push('\t'),
+                        Some('r') => out.push('\r'),
+                        Some('0') => out.push('\0'),
+                        Some(other) => out.push(other),
+                        None => {}
+                    },
+                    // '' внутри одинарных кавычек — сама кавычка.
+                    '\'' if q == '\'' && chars.peek() == Some(&'\'') => {
+                        chars.next();
+                        out.push('\'');
+                    }
                     c if c == q => break,
                     c => out.push(c),
                 }
@@ -667,6 +685,15 @@ mod tests {
 mod mistgate_compat {
     use super::*;
     use crate::convert::Format;
+
+    #[test]
+    fn yaml_escapes_in_quoted_names() {
+        // Так Mistgate пишет имена серверов с флагами.
+        assert_eq!(unquote(r#""\U0001F1E9\U0001F1EA DE · VLESS · TCP""#), "🇩🇪 DE · VLESS · TCP");
+        assert_eq!(unquote(r#""A\x42 \"q\" a\\b""#), "AB \"q\" a\\b");
+        assert_eq!(unquote("'it''s'"), "it's");
+        assert_eq!(unquote("plain # comment"), "plain");
+    }
 
     macro_rules! fx {
         ($f:expr) => {
