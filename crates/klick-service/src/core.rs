@@ -389,10 +389,24 @@ impl CoreProcess {
             let tail = tail.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stream).lines();
+                // Не больше 20 строк ядра за 10 с: в плохом состоянии (нет интерфейса, петля) ядро пишет
+                // тысячи строк в секунду, и журнал разрастался бы на гигабайты.
+                let (mut window, mut shown, mut skipped) = (Instant::now(), 0u32, 0u32);
                 while let Ok(Some(line)) = lines.next_line().await {
                     let line = if verbose { line } else { redact(&line) };
                     if verbose || line.contains("level=warning") || line.contains("level=error") || line.contains("level=fatal") {
-                        tracing::info!(target: "core", "{line}");
+                        if window.elapsed() >= Duration::from_secs(10) {
+                            if skipped > 0 {
+                                tracing::info!(target: "core", "пропущено строк ядра за 10 с: {skipped}");
+                            }
+                            (window, shown, skipped) = (Instant::now(), 0, 0);
+                        }
+                        if shown < 20 {
+                            shown += 1;
+                            tracing::info!(target: "core", "{line}");
+                        } else {
+                            skipped += 1;
+                        }
                     } else {
                         tracing::debug!(target: "core", "{line}");
                     }

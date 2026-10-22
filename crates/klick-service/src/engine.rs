@@ -183,6 +183,9 @@ pub struct Engine {
     no_network: bool,
     /// Сколько раз менялась сеть: проверка, начатая до смены, не в счёт.
     net_seq: u64,
+    /// С какого момента сервер «не отвечает» и когда страж последний раз перезапускал из-за этого ядро.
+    down_since: Option<Instant>,
+    down_restart_at: Option<Instant>,
     /// Прокси нужен (режим «Системный прокси» работает): желаемое, а не подтверждённое состояние. Подтверждает
     /// отметка на диске: пока она есть, возврат не состоялся и `retry_netconf_leftovers` его повторяет.
     proxy_applied: bool,
@@ -272,8 +275,7 @@ fn program_folder(input: &str) -> Result<String, InputError> {
     program_folder_on(Os::CURRENT, input, Some(is_file))
 }
 
-/// Дождаться адаптера ядра (адрес 198.18.0.1).
-#[cfg(unix)]
+/// Дождаться адаптера ядра (macOS — адрес 198.18.0.1, Windows — адаптер `klick`).
 async fn wait_tun(limit: Duration) -> bool {
     let deadline = Instant::now() + limit;
     while !sys::tun_up() {
@@ -411,6 +413,8 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         probe_soft: false,
         no_network: false,
         net_seq: 0,
+        down_since: None,
+        down_restart_at: None,
         proxy_applied: false,
         #[cfg(windows)]
         user_proxy_saved: None,
@@ -1346,11 +1350,12 @@ impl Engine {
         let traffic = self.spawn_traffic(api.clone());
         let logs = self.spawn_logs(api);
         self.running = Some(Running { process, generation, capture, layout, traffic, logs, started: Instant::now(), config });
-        // macOS: ядро работает и без адаптера, если его не удалось создать, — тогда трафик шёл бы мимо
-        // VPN, а подменённый DNS вёл бы в никуда. Это неудачный запуск: переподключение попробует снова.
-        #[cfg(unix)]
-        if capture == Capture::Tun && !wait_tun(Duration::from_secs(10)).await {
-            tracing::error!("адаптер {TUN_DEVICE} не появился за 10 с");
+        // Ядро работает и без адаптера, если его не удалось создать, — тогда трафик шёл бы мимо VPN при
+        // «Подключено» (а на macOS подменённый DNS вёл бы в никуда). Это неудачный запуск. На Windows ядро
+        // само повторяет создание адаптера примерно через 15 с (занятое имя после прошлого запуска), поэтому ждём дольше.
+        let limit = Duration::from_secs(if cfg!(windows) { 20 } else { 10 });
+        if capture == Capture::Tun && !wait_tun(limit).await {
+            tracing::error!("адаптер {TUN_DEVICE} не появился за {} с", limit.as_secs());
             self.stop_core().await;
             return Err(ErrorInfo::new("core.start_failed"));
         }
@@ -1612,6 +1617,19 @@ impl Engine {
         }
         self.no_network = false;
         match action {
+            // Сервер молчит уже 2 минуты, а сеть есть. У клиентов на mihomo в этом месте помогает только
+            // перезапуск ядра: после сна или смены сети «застревают» адаптер или исходящие сокеты ядра.
+            // Один раз за 10 минут — дальше снова тихая проверка.
+            Action::Probe if self.down_since.is_some_and(|t| t.elapsed() >= Duration::from_secs(120))
+                && self.down_restart_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(600)) =>
+            {
+                self.down_restart_at = Some(Instant::now());
+                tracing::info!("страж: сервер молчит 2 минуты — перезапускаю ядро");
+                if !self.restart_core().await {
+                    tracing::warn!("ядро не перезапустилось");
+                }
+                self.spawn_probe(false);
+            }
             Action::Probe => self.spawn_probe(false),
             Action::Retry => self.spawn_probe(true),
             Action::Reload => {
@@ -1691,6 +1709,10 @@ impl Engine {
         if vpn != self.vpn {
             self.set_state(vpn, None);
         }
+        self.down_since = match health {
+            Health::Down => self.down_since.or_else(|| Some(Instant::now())),
+            _ => None,
+        };
         let server = self.settings.active().and_then(|c| c.selected_server.clone());
         match notice {
             Some(Notice::Down) => self.notice("vpn.down", json!({ "server": server })),
