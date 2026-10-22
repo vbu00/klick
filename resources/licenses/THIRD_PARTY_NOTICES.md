@@ -6,9 +6,9 @@ kl!ck — оболочка и служба. Сетевой туннель дел
 ## mihomo — ядро
 
 - Репозиторий: https://github.com/MetaCubeX/mihomo
-- Версия в kl!ck: v1.19.31, официальный выпуск для Windows (amd64)
+- Версия в kl!ck: v1.19.33, официальный выпуск для Windows (amd64)
 - Лицензия: GNU General Public License v3.0 — полный текст в `GPL-3.0.txt` рядом с этим файлом
-- Исходный код этой версии: https://github.com/MetaCubeX/mihomo/tree/v1.19.31
+- Исходный код этой версии: https://github.com/MetaCubeX/mihomo/tree/v1.19.33
 
 ## Country.mmdb — база стран
 

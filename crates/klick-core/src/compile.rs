@@ -29,6 +29,22 @@ pub const SET_RU_DOMAINS: &str = "klick-ru-domains";
 const DNS_RU: [&str; 2] = ["tls://77.88.8.8:853", "77.88.8.8"];
 const DNS_FOREIGN: [&str; 2] = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"];
 
+/// Поправки к серверам из любого источника (подписка Clash, ссылки, файлы) — ядро применяет их к каждому
+/// серверу провайдера, только если сервер не задал своё значение.
+const SERVER_FIXES: [&str; 5] = [
+    // Hysteria2: одно рукопожатие на все соединения. Без срока каждое новое соединение после сна или смены
+    // сети ждёт рукопожатия первого под замком, и страница открывается по очереди, по нескольку секунд.
+    r#"(select(.type == "hysteria2" and .handshake-timeout == null) | .handshake-timeout) = 10"#,
+    // WireGuard и AmneziaWG: без keepalive NAT роутера и оператора забывает сопоставление, и сервер молчит.
+    r#"(select(.type == "wireguard" and .persistent-keepalive == null) | .persistent-keepalive) = 25"#,
+    // Ядро 1.19.33 перевело WireGuard на новый стек mips; остаёмся на проверенном gVisor.
+    r#"(select(.type == "wireguard" and .ip-stack.mode == null) | .ip-stack.mode) = "gvisor""#,
+    // Имена сайтов для WireGuard — через туннель: иначе сайт программы из списка «через VPN» ищется
+    // российским DNS напрямую (утечка, а заблокированный сайт может получить негодный адрес).
+    r#"(select(.type == "wireguard" and .dns == null) | .dns) = ["1.1.1.1", "8.8.8.8"]"#,
+    r#"(select(.type == "wireguard" and .remote-dns-resolve == null) | .remote-dns-resolve) = true"#,
+];
+
 /// Как трафик попадает в ядро.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Capture {
@@ -206,7 +222,7 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
         "secret": layout.secret,
         "profile": { "store-selected": false, "store-fake-ip": true },
         "proxy-providers": {
-            PROVIDER: { "type": "file", "path": provider_path, "health-check": { "enable": false } }
+            PROVIDER: { "type": "file", "path": provider_path, "health-check": { "enable": false }, "override": { "override-expr": SERVER_FIXES } }
         },
         "proxy-groups": [
             { "name": VPN_GROUP, "type": "select", "use": [PROVIDER] }

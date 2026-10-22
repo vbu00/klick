@@ -154,7 +154,7 @@ function mockApi(scenario: string): Api {
       : null;
   const info: Info = {
     version: '0.4.0',
-    core_version: 'v1.19.31',
+    core_version: 'v1.19.33',
     default_path: installed?.path ?? 'C:\\Program Files\\klick',
     size: 142 * 1024 * 1024,
     installed,

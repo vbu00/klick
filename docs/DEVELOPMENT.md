@@ -13,7 +13,7 @@
 | `crates/klick-ui` | Окно на Tauri 2: мост к службе через канал управления, значок в трее (exe называется `klick.exe`) |
 | `crates/klick-setup` | Установщик на Tauri 2: ставит, обновляет, переустанавливает и удаляет kl!ck, убирает прежнюю kl!ck 0.2–0.3. Программа вшита в exe |
 | `ui` | Интерфейс окна и установщика (`setup.html`): React + Vite + TypeScript, по макетам Димы |
-| `resources` | Ядро mihomo 1.19.31, база стран, стартовые наборы, каталог сервисов |
+| `resources` | Ядро mihomo 1.19.33, база стран, стартовые наборы, каталог сервисов |
 | `sandbox` | Автоматическая проверка в Песочнице Windows (и на раннерах GitHub — `sandbox\ci.ps1`) |
 | `scripts/macos` | macOS: сборка `.app` и `.pkg`, удаление, сквозные проверки на Mac |
 
@@ -33,7 +33,7 @@ cargo build
 
 | Файл | SHA-256 |
 |---|---|
-| `mihomo.exe` (v1.19.31, windows amd64, with_gvisor) | `1fa8055e03596fc35167f70e9ecd1890517d38d960a39177445746a1b0defc2b` |
+| `mihomo.exe` (v1.19.33, windows amd64, with_gvisor) | `926bfea2ce48a247d6a7ce4cf641980e416202d5e40fe4ee5c949089ace0e197` |
 | `Country.mmdb` | `21606dfffd4ec39542ec40782bebd37b71310471816e1338b6f6430190cbc85d` |
 
 Нужны Rust (stable, MSVC) и Node.js 20.19+ или 22.12+ (для Vite 8); перед первой сборкой — `npm install` в `ui`.
