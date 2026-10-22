@@ -117,12 +117,7 @@ fn clocks() -> Clocks {
     }
 }
 
-/// Между двумя замерами компьютер спал: время с учётом сна ушло вперёд сильнее, чем время бодрствования.
-fn slept(before: Clocks, after: Clocks) -> bool {
-    sleep_gap(before, after) > SLEPT
-}
-
-/// Сколько компьютер проспал между замерами.
+/// Сколько компьютер проспал между замерами: время с учётом сна ушло вперёд сильнее, чем время бодрствования.
 fn sleep_gap(before: Clocks, after: Clocks) -> Duration {
     let total = after.0.saturating_sub(before.0);
     let awake = after.1.saturating_sub(before.1);
@@ -180,10 +175,10 @@ mod tests {
     fn sleep_is_the_gap_between_clocks_not_a_clock_jump() {
         let s = Duration::from_secs;
         // Обычные 2 с: оба идут одинаково.
-        assert!(!slept((s(100), s(50)), (s(102), s(52))));
+        assert!(!(sleep_gap((s(100), s(50)), (s(102), s(52))) > SLEPT));
         // Сон на час: с учётом сна — вперёд на час, бодрствование — на 2 с.
-        assert!(slept((s(100), s(50)), (s(3702), s(52))));
+        assert!((sleep_gap((s(100), s(50)), (s(3702), s(52))) > SLEPT));
         // Небольшая разница не считается.
-        assert!(!slept((s(100), s(50)), (s(109), s(52))));
+        assert!(!(sleep_gap((s(100), s(50)), (s(109), s(52))) > SLEPT));
     }
 }

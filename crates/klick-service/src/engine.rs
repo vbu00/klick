@@ -133,6 +133,8 @@ struct Running {
     traffic: tokio::task::JoinHandle<()>,
     logs: tokio::task::JoinHandle<()>,
     started: Instant,
+    /// Конфиг, который сейчас у ядра: правка списков, от которой он не меняется, обходится без перечитывания.
+    config: Vec<u8>,
 }
 
 impl Running {
@@ -1306,7 +1308,7 @@ impl Engine {
                 self.server_dns = found;
             }
         }
-        let config_path = self.write_config(&layout, capture, &conn_id)?;
+        let (config_path, config) = self.write_config(&layout, capture, &conn_id)?;
         self.generation += 1;
         let generation = self.generation;
         let tx = self.tx.clone();
@@ -1322,7 +1324,7 @@ impl Engine {
         tracing::info!("ядро запущено (pid {:?}, {:?})", process.pid, capture);
         let traffic = self.spawn_traffic(api.clone());
         let logs = self.spawn_logs(api);
-        self.running = Some(Running { process, generation, capture, layout, traffic, logs, started: Instant::now() });
+        self.running = Some(Running { process, generation, capture, layout, traffic, logs, started: Instant::now(), config });
         // macOS: ядро работает и без адаптера, если его не удалось создать, — тогда трафик шёл бы мимо
         // VPN, а подменённый DNS вёл бы в никуда. Это неудачный запуск: переподключение попробует снова.
         #[cfg(unix)]
@@ -1334,7 +1336,22 @@ impl Engine {
         Ok(())
     }
 
-    fn write_config(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<PathBuf, ErrorInfo> {
+    /// Конфиг ядра и рядом — файлы правил со своими списками (если их можно так держать, `compile::user_sets`).
+    /// Возвращает путь и текст: по тексту видно, поменяет ли правка списка сам конфиг.
+    fn write_config(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<(PathBuf, Vec<u8>), ErrorInfo> {
+        if let Some(sets) = compile::user_sets(&self.settings, &self.catalog, layout.os) {
+            std::fs::create_dir_all(self.paths.core_home.join("user")).map_err(internal)?;
+            for u in sets {
+                storage::write_atomic(&self.paths.core_home.join(&u.path), u.body.as_bytes()).map_err(internal)?;
+            }
+        }
+        let text = self.config_text(layout, capture, conn_id)?;
+        let path = self.paths.core_home.join("config.yaml");
+        storage::write_atomic(&path, &text).map_err(internal)?;
+        Ok((path, text))
+    }
+
+    fn config_text(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<Vec<u8>, ErrorInfo> {
         let provider = Paths::provider_rel(conn_id);
         let sets = self.set_files();
         let cfg = compile::compile(&CompileInput {
@@ -1346,10 +1363,7 @@ impl Engine {
             sets: &sets,
             server_dns: &self.server_dns,
         });
-        let path = self.paths.core_home.join("config.yaml");
-        let text = serde_json::to_vec_pretty(&cfg).map_err(internal)?;
-        storage::write_atomic(&path, &text).map_err(internal)?;
-        Ok(path)
+        serde_json::to_vec_pretty(&cfg).map_err(internal)
     }
 
     fn spawn_traffic(&self, api: CoreApi) -> tokio::task::JoinHandle<()> {
@@ -1521,12 +1535,17 @@ impl Engine {
         let Some((layout, capture)) = self.running.as_ref().map(|r| (r.layout.clone(), r.capture)) else { return };
         let Some(conn_id) = self.settings.active_connection.clone() else { return };
         let Some(api) = self.api() else { return };
-        let path = match self.write_config(&layout, capture, &conn_id) {
+        let (path, text) = match self.write_config(&layout, capture, &conn_id) {
             Ok(p) => p,
             Err(_) => return,
         };
         match api.reload(&path).await {
-            Ok(()) => self.apply_selected_server().await,
+            Ok(()) => {
+                if let Some(r) = self.running.as_mut() {
+                    r.config = text;
+                }
+                self.apply_selected_server().await
+            }
             Err(e) => {
                 tracing::warn!("ядро не перечитало конфиг ({e:#}), перезапускаю");
                 if !self.restart_core().await {
@@ -2122,9 +2141,34 @@ impl Engine {
     async fn lists_changed(&mut self, position: Routing) -> Result<Value, ErrorInfo> {
         self.save()?;
         if position == self.settings.routing {
-            self.reload_rules().await;
+            self.apply_lists().await;
         }
         serde_json::to_value(self.settings.lists.get(position)).map_err(internal)
+    }
+
+    /// Правка своих списков. Конфиг ядра от неё не меняется (поменялось только содержимое файлов правил) —
+    /// ядро перечитывает эти файлы и ничего не обрывает. Иначе — весь конфиг, а с ним и соединения через VPN.
+    async fn apply_lists(&mut self) {
+        let Some((layout, capture, running)) = self.running.as_ref().map(|r| (r.layout.clone(), r.capture, r.config.clone())) else { return };
+        let Some(conn_id) = self.settings.active_connection.clone() else { return };
+        let same = self.config_text(&layout, capture, &conn_id).is_ok_and(|t| t == running);
+        let sets = compile::user_sets(&self.settings, &self.catalog, layout.os);
+        let (true, Some(sets), Some(api)) = (same, sets, self.api()) else { return self.reload_rules().await };
+        for u in sets {
+            let path = self.paths.core_home.join(&u.path);
+            if std::fs::read(&path).is_ok_and(|b| b == u.body.as_bytes()) {
+                continue;
+            }
+            if let Err(e) = storage::write_atomic(&path, u.body.as_bytes()).map_err(anyhow::Error::from) {
+                tracing::warn!("файл правил {} не записался ({e:#}), перечитываю конфиг", u.name);
+                return self.reload_rules().await;
+            }
+            if let Err(e) = api.refresh_rule_provider(&u.name).await {
+                tracing::warn!("ядро не перечитало {} ({e:#}), перечитываю конфиг", u.name);
+                return self.reload_rules().await;
+            }
+        }
+        tracing::info!("списки применены без перечитывания конфига");
     }
 
     // ── Подключения ────────────────────────────────────────────────────────
