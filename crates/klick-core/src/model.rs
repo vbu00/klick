@@ -292,7 +292,7 @@ impl Default for Settings {
             restore_on_logon: false,
             auto_update: true,
             notify: true,
-            servers_by_country: false,
+            servers_by_country: true,
             appearance: Appearance::default(),
             on_exit: ExitAction::Ask,
             language: "ru".into(),
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(s.routing, Routing::Selected);
         assert!(s.kill_switch.enabled);
         assert!(s.auto_update && s.notify);
-        assert!(!s.servers_by_country);
+        assert!(s.servers_by_country, "по странам — по умолчанию");
         assert_eq!(s.appearance, Appearance::default());
     }
 

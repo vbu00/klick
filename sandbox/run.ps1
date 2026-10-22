@@ -80,7 +80,13 @@ function CorePid {
     return 0
 }
 function WatchText([string]$path) {
-    try { if (Test-Path $path) { return [IO.File]::ReadAllText($path) } } catch {}
+    # klick-cli watch ещё пишет в файл: читать с разрешением на чужую запись, иначе ReadAllText падает.
+    try {
+        if (Test-Path $path) {
+            $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+            try { return (New-Object IO.StreamReader($fs, [Text.Encoding]::UTF8)).ReadToEnd() } finally { $fs.Dispose() }
+        }
+    } catch {}
     return ''
 }
 function GuardProbeCount {
