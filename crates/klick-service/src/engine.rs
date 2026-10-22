@@ -90,6 +90,12 @@ impl EngineHandle {
         rx.await.map_err(|_| ErrorInfo::new("service.stopping"))?
     }
 
+    /// Компьютер проснулся: проверить связь, как после смены сети.
+    #[cfg(windows)]
+    pub async fn network_changed(&self) {
+        let _ = self.tx.send(Msg::NetworkChanged).await;
+    }
+
     pub async fn shutdown(&self) {
         let (tx, rx) = oneshot::channel();
         if self.tx.send(Msg::Shutdown(tx)).await.is_ok() {
