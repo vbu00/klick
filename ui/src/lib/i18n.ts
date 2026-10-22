@@ -161,6 +161,14 @@ export function errorText(code: string, params?: Params): string {
       return 'Такого языка нет';
     case 'storage.write_failed':
       return 'Не удалось сохранить настройки. Подробности — в журнале';
+    case 'probe.start_failed':
+      return 'Проверка не запустилась. Подробности — в журнале';
+    case 'probe.timeout':
+      return 'Проверка не уложилась в полторы минуты — попробуйте ещё раз';
+    case 'probe.network_changed':
+      return 'Во время проверки поменялась сеть или VPN — запустите её заново';
+    case 'probe.share_unavailable':
+      return 'Панель этой подписки не принимает итоги проверки';
     case 'service.timeout':
       return 'Служба kl!ck долго не отвечает — попробуйте ещё раз';
     case 'proto.bad_request':

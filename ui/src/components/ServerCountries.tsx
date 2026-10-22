@@ -5,8 +5,10 @@
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { groupByCountry, groupTags, parseServer, type ParsedServer } from '../lib/countries';
 import { pingColor, protocolName } from '../lib/format';
+import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import type { ServerView } from '../lib/types';
+import { ProbeMark } from './Controls';
 import { Flag } from './Flag';
 import { Icon } from './Icon';
 
@@ -135,7 +137,9 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
                       </span>
                       <span className="cs-title">{title}</span>
                       {proto ? <span className="cg-tag">{proto}</span> : null}
-                      <Ping delay={s.delay} pinging={pinging} tested={tested} />
+                      <ProbeMark probe={s.probe} />
+                      {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
+                      {!pinging && s.delay == null && probeMark(s.probe) ? null : <Ping delay={s.delay} pinging={pinging} tested={tested} />}
                     </button>
                   );
                 }) : null}

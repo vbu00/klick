@@ -1,5 +1,5 @@
 // «Соединение» по макету v4: режим, «Куда направлять» с готовыми наборами, «Мой список» карточкой,
-// «Сейчас в сети» сводкой; ниже — живая схема и «Как вас видят сайты».
+// «Сейчас в сети» сводкой; ниже — живая схема, «Проверка серверов» и «Как вас видят сайты».
 // Подэкраны: «Мой список», «Сейчас в сети», «Не открывается?». Везде один тумблер — «через VPN»:
 // в списке он включает и выключает правило, в «Сейчас в сети» сам пишет правило в мой список.
 
@@ -10,6 +10,7 @@ import { Icon } from '../components/Icon';
 import { IpCard } from '../components/IpCard';
 import { LiveSchema } from '../components/LiveSchema';
 import { ModeInfo } from '../components/ModeInfo';
+import { ProbeCard } from '../components/ProbeCard';
 import { failureReason, routeName, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget, siteRule, siteTarget, type AppRow, type SiteRow } from '../lib/live';
 import { defaultRoute, plural, ruleTitle, unicodeDomain } from '../lib/rules';
@@ -234,6 +235,7 @@ function Main({
       </div>
       <LiveSchema running={isRunning} mode={mode} server={state.server} conns={conns} catalog={catalog} />
 
+      <ProbeCard />
       <IpCard />
     </>
   );

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "tsc --noEmit",
-    "test": "node --test scripts/countries.test.mjs",
+    "test": "node --test scripts/countries.test.mjs scripts/probe.test.mjs",
     "screenshots": "node scripts/screenshots.mjs",
     "video": "node scripts/video.mjs full",
     "video:gif": "node scripts/video.mjs gif",

@@ -19,12 +19,55 @@ export interface SubInfo {
   support_url?: string | null;
   /** Страница подписки, только https. */
   page_url?: string | null;
+  /** Панель принимает итоги проверки серверов: тогда можно включить отправку. */
+  probe_report?: number;
 }
 
 export interface ConnectionView {
   id: string;
   name: string;
   info: SubInfo | null;
+  /** Отправлять итоги проверки серверов панели подписки. */
+  probe_share?: boolean;
+  /** Последняя проверка серверов: живёт до смены сети или перезапуска службы. */
+  probe_last?: { checked_at: number; report: ProbeReport } | null;
+}
+
+/** Проверка серверов из этой сети: работают ли они или провайдер их режет. */
+export type ProbeVerdict = 'ok' | 'freeze' | 'tcp_blocked' | 'handshake_failed' | 'no_answer';
+
+/** Итог проверки одного сервера; необязательных полей нет, если их не мерили. */
+export interface ServerProbe {
+  verdict: ProbeVerdict;
+  /** Нестабильно: часть попыток прошла. */
+  flaky: boolean;
+  tcp_ok?: number;
+  tcp_tries?: number;
+  tcp_ms?: number;
+  delay_ms?: number;
+  dl_bytes?: number;
+  dl_stalled?: boolean;
+  /** Ответ DNS провайдера против настоящего: different — подменён, bogus — подставной адрес. */
+  dns?: 'same' | 'different' | 'bogus' | 'nxdomain';
+}
+
+export interface ProbeReport {
+  network: {
+    /** Шла ли проверка при включённом VPN (TUN). */
+    vpn: boolean;
+    /** Прямые проверки TCP и DNS сделаны (без VPN (TUN)). */
+    direct_checked: boolean;
+    asn?: number;
+    /** Оператор и регион — только когда включена отправка панели. */
+    operator?: string;
+    country?: string;
+    region?: string;
+    net_type?: string;
+  };
+  /** Сколько серверов проверено. */
+  servers: number;
+  /** Отправка панели; нет поля — не отправляли. */
+  shared?: 'sent' | 'off' | 'later' | 'failed';
 }
 
 export interface StateView {
@@ -49,6 +92,8 @@ export interface Connection {
   updated_at: number | null;
   update_interval_hours: number | null;
   selected_server: string | null;
+  /** Отправлять итоги проверки серверов панели подписки. */
+  probe_share?: boolean;
 }
 
 export type Target =
@@ -160,6 +205,8 @@ export interface ServerView {
   /** Задержка через сервер, мс; null — не проверяли или нет ответа. */
   delay: number | null;
   selected: boolean;
+  /** Итог последней проверки серверов; нет — не проверяли. */
+  probe?: ServerProbe;
 }
 
 /** Сервис из каталога: понятное имя для набора доменов и подсетей. */

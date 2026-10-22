@@ -7,10 +7,12 @@ import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNod
 import mark from '../assets/mark.png';
 import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
+import { ProbeMark } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { parseServer } from '../lib/countries';
 import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
 import { errorText } from '../lib/i18n';
+import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import { isMac } from '../lib/platform';
 import { useStore, useTraffic } from '../lib/store';
@@ -247,6 +249,7 @@ export function Tray() {
                   <span className="t">{current ? plainName(current.name) : conn.name}</span>
                   <span className="s mono">{current ? protocolName(current.kind) : 'список появится после обновления'}</span>
                 </span>
+                <ProbeMark probe={current?.probe} />
                 <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
                   {pinging ? '…' : pingLabel(current?.delay, !!conn && !!tested[conn.id])}
                 </span>
@@ -416,9 +419,13 @@ function ServerRow({ s, active, pinging, tested, onPick }: { s: ServerView; acti
       </span>
       {code ? <span className="tr-code">{code}</span> : null}
       <span className="tr-server-name">{plainName(s.name)}</span>
-      <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
-        {pinging ? '…' : pingLabel(s.delay, tested)}
-      </span>
+      <ProbeMark probe={s.probe} />
+      {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
+      {!pinging && s.delay == null && probeMark(s.probe) ? null : (
+        <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
+          {pinging ? '…' : pingLabel(s.delay, tested)}
+        </span>
+      )}
     </button>
   );
 }

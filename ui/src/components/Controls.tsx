@@ -1,7 +1,9 @@
 // Общие элементы из макета: переключатель, сегменты, кнопка «назад», заголовок раздела, плитка с буквой.
 
 import type { ReactNode } from 'react';
+import { probeMark } from '../lib/probe';
 import { tint } from '../lib/rules';
+import type { ServerProbe } from '../lib/types';
 import { Icon, type IconName } from './Icon';
 
 export function Toggle({ on, onChange, label, disabled, big }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; big?: boolean }) {
@@ -22,6 +24,16 @@ export function Seg<T extends string>({ value, options, onChange, className }: {
       ))}
     </div>
   );
+}
+
+/** Отметка проверки серверов рядом с задержкой: заморозка, блокировка, нестабильно. Рабочий сервер — без отметки. */
+export function ProbeMark({ probe }: { probe: ServerProbe | undefined }) {
+  const m = probeMark(probe);
+  return m ? (
+    <span className={`pr-mark ${m.tone}`} title={m.title}>
+      {m.text}
+    </span>
+  ) : null;
 }
 
 /** Пилюля «‹ Соединение» в начале подэкрана. */

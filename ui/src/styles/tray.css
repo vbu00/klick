@@ -190,3 +190,5 @@
 .check-row.on .check { background: var(--accent); border-color: var(--accent); }
 .check-row.on .check i { border-color: var(--onAccent); }
 .preview-bar button.view { border-style: dashed; }
+.tr-server .pr-mark,
+.tr-direct .pr-mark { height: 16px; padding: 0 6px; font-size: 10px; }

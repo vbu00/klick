@@ -15,7 +15,9 @@ import type {
   KsProgramView,
   LogLine,
   PendingLink,
+  ProbeReport,
   ProgramView,
+  ServerProbe,
   Routing,
   Rule,
   ServerView,
@@ -30,6 +32,7 @@ export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' |
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
 /** Превью: `?slow=1500` — служба отвечает на каждую команду за 1,5 с; `?fail=connect` — VPN не включается;
+ *  `?fail=probe` — проверка серверов прерывается сменой сети; `?partial=1` — за отведённое время проверены не все;
  *  `?many=1` — у подписки 41 сервер (весь набор Mistgate). */
 const PARAMS = new URLSearchParams(location.search);
 
@@ -51,15 +54,42 @@ function mistgate(): ServerView[] {
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Итог проверки сервера в превью: часть VLESS «заморожена», TR · VLESS · TCP заблокирован, Trojan не проходит,
+ *  AWG и HY2 работают, EE · HY2 и Helsinki-2 — нестабильно. Задержку проверка не меняет: её и не выдумываем. */
+function mockProbe(s: ServerView, direct: boolean): ServerProbe {
+  const n = s.name;
+  const verdict: ServerProbe['verdict'] = /TR · VLESS · TCP/.test(n)
+    ? 'tcp_blocked'
+    : s.kind === 'trojan'
+      ? 'handshake_failed'
+      : s.kind === 'vless' && /Amsterdam|Frankfurt|· TCP|(DE|RU|NL) · VLESS · XHTTP/.test(n)
+        ? 'freeze'
+        : s.delay == null
+          ? 'no_answer'
+          : 'ok';
+  const flaky = /EE · HY2$|Helsinki-2/.test(n);
+  const answered = verdict === 'ok' || verdict === 'freeze';
+  return {
+    verdict,
+    flaky,
+    ...(answered && s.delay != null ? { delay_ms: s.delay } : {}),
+    ...(answered ? { dl_bytes: verdict === 'freeze' ? 10985 : 131072, dl_stalled: verdict === 'freeze' } : {}),
+    ...(direct
+      ? { tcp_ok: verdict === 'tcp_blocked' ? 0 : flaky ? 2 : 3, tcp_tries: 3, ...(verdict === 'tcp_blocked' ? {} : { tcp_ms: 28 + (n.length % 40) }), dns: /RU ·/.test(n) ? ('different' as const) : ('same' as const) }
+      : {}),
+  };
+}
+
 function seed(): { connections: Connection[]; servers: Record<string, ServerView[]> } {
   const sub: Connection = {
     id: 'alex',
     name: 'Remnawave · Alex',
     kind: 'subscription',
-    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex' },
+    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex', probe_report: 1 },
     updated_at: nowS() - 3600,
     update_interval_hours: 12,
     selected_server: 'Нидерланды · Amsterdam',
+    probe_share: false,
   };
   const link: Connection = {
     id: 'grpc',
@@ -219,6 +249,12 @@ class MockService {
   private level = 4;
   private flowsSince = Date.now();
   private log: LogLine[] = [];
+  /** Проверка серверов: последняя по подключениям, идущая сейчас и когда итоги последний раз ушли панели. */
+  private probeLast: Record<string, { checked_at: number; report: ProbeReport }> = {};
+  private probing: Promise<ProbeReport> | null = null;
+  private sharedAt = 0;
+  /** Меняется, когда включают и выключают VPN или меняют режим: идущая проверка тогда прерывается. */
+  private netEpoch = 0;
 
   constructor(scenario: Scenario) {
     this.reset(scenario);
@@ -226,6 +262,8 @@ class MockService {
 
   reset(sc: Scenario) {
     clearInterval(this.timer);
+    this.probeLast = {};
+    this.netEpoch++;
     const { connections, servers } = seed();
     this.servers = servers;
     const empty = sc === 'empty';
@@ -297,7 +335,30 @@ class MockService {
 
   private view(): ConnectionView | null {
     const c = this.active();
-    return c ? { id: c.id, name: c.name, info: c.info } : null;
+    return c ? { id: c.id, name: c.name, info: c.info, probe_share: !!c.probe_share, probe_last: this.probeLast[c.id] ?? null } : null;
+  }
+
+  /** Проверка серверов активного подключения отдельным ядром: 2–4 секунды в превью, с `?slow` дольше. */
+  private async runProbe(id: string, list: ServerView[]): Promise<ProbeReport> {
+    const epoch = this.netEpoch;
+    const tun = this.st.mode === 'tun' && this.running();
+    await wait(Math.max(2000 + Math.random() * 2000, (Number(PARAMS.get('slow')) || 0) * 8));
+    if (PARAMS.get('fail') === 'probe' || epoch !== this.netEpoch) fail('probe.network_changed');
+    const n = PARAMS.get('partial') ? Math.min(list.length, Math.ceil(list.length * 0.8)) : list.length;
+    list.forEach((s, i) => (s.probe = i < n ? mockProbe(s, !tun) : undefined));
+    const share = !!this.active()?.probe_share;
+    const recent = Date.now() - this.sharedAt < 600_000;
+    if (share && !recent) this.sharedAt = Date.now();
+    const report: ProbeReport = {
+      // Оператор и регион служба узнаёт, только когда включена отправка панели.
+      network: { vpn: tun, direct_checked: !tun, asn: 8359, country: 'RU', net_type: 'mobile', ...(share ? { operator: 'MTS PJSC', region: 'Moscow' } : {}) },
+      servers: n,
+      ...(share ? { shared: recent ? ('later' as const) : ('sent' as const) } : {}),
+    };
+    this.probeLast[id] = { checked_at: nowS(), report };
+    this.emit({ ev: 'servers', connection: id });
+    this.emitState();
+    return report;
   }
 
   /** Куда ядро превью отправит соединение: Kill Switch, правила списка, готовые наборы. */
@@ -382,6 +443,7 @@ class MockService {
         if (!this.active()) fail('vpn.no_connection');
         if (this.running()) return this.st;
         this.st = { ...this.st, vpn: 'connecting', error: null };
+        this.netEpoch++;
         this.emitState();
         await wait(900);
         if (PARAMS.get('fail') === 'connect') {
@@ -396,10 +458,12 @@ class MockService {
       }
       case 'disconnect':
         clearInterval(this.timer);
+        this.netEpoch++;
         this.st = { ...this.st, vpn: 'off', since: null, attempt: null, error: null };
         this.emitState();
         return this.st;
       case 'set_mode':
+        if (this.settings.mode !== args.mode) this.netEpoch++;
         this.settings.mode = args.mode;
         this.st = { ...this.st, mode: args.mode };
         this.emitState();
@@ -419,6 +483,23 @@ class MockService {
           s.delay = Math.random() < 0.12 ? null : Math.max(18, Math.round(base * (0.85 + Math.random() * 0.3)));
         });
         return list;
+      }
+      case 'probe': {
+        const id = this.settings.active_connection;
+        if (!id) return fail('vpn.no_connection');
+        const list = this.servers[id] ?? [];
+        if (!list.length) fail('sub.no_servers');
+        // Вторая проверка, пока идёт первая, присоединяется к ней.
+        this.probing ??= this.runProbe(id, list).finally(() => (this.probing = null));
+        return this.probing;
+      }
+      case 'probe_share': {
+        const c = this.settings.connections.find((x) => x.id === args.id);
+        if (!c) return fail('conn.not_found');
+        if (!c.info?.probe_report) fail('probe.share_unavailable');
+        c.probe_share = !!args.enabled;
+        this.emitState();
+        return { id: c.id, name: c.name, info: c.info, probe_share: c.probe_share, probe_last: this.probeLast[c.id] ?? null };
       }
       case 'select_server': {
         const list = this.servers[this.settings.active_connection ?? ''] ?? [];
@@ -686,6 +767,8 @@ export function createMockTransport(): Transport {
     /** Событие службы, например `{ ev: 'traffic', up: 1e5, down: 1e6 }`, и число слушателей — для стресс-проверок. */
     emit: (e: KEvent | 'state') => svc.fire(e),
     stats: () => svc.stats(),
+    /** Проверка серверов из консоли — например, в окне трея, где своей кнопки нет. */
+    probe: () => svc.call('probe', undefined),
     /** Ссылка klick://add пришла, пока окно открыто: `__klickMock.openLink('https://…', 'Имя')`. */
     openLink: (url: string, name?: string) => {
       pending = previewLink(url, name ?? null);

@@ -1,6 +1,7 @@
 // Главная: как в макете — статус, кнопка, чип режима, подключения с серверами, скорость.
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import { ProbeMark } from '../components/Controls';
 import { Flag } from '../components/Flag';
 import { Icon } from '../components/Icon';
 import { ServerCountries } from '../components/ServerCountries';
@@ -10,6 +11,7 @@ import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, 
 import { errorText, modeName, routingName } from '../lib/i18n';
 import { countryName, parseServer } from '../lib/countries';
 import { isMac } from '../lib/platform';
+import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import { useStore, useTraffic } from '../lib/store';
 import type { Connection, ServerView } from '../lib/types';
@@ -371,7 +373,10 @@ function ProfileCard(props: {
               <span className="name">
                 {current && curP?.code ? `${countryName(curP.code)} · ${curP.title || protocolName(current.kind)}` : current?.name ?? conn.selected_server ?? (isSub ? 'Подписка' : 'Одиночная конфигурация')}
               </span>
-              {ping ? (
+              {/* Сервер не работает в этой сети — отметка важнее задержки, а места в строке мало. */}
+              {!pinging && probeMark(current?.probe) ? (
+                <ProbeMark probe={current?.probe} />
+              ) : ping ? (
                 <>
                   <span className="sep" />
                   <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
@@ -470,9 +475,13 @@ function ProfileCard(props: {
                         {protocolName(s.kind)}
                       </span>
                     </span>
-                    <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
-                      {pinging ? '…' : pingText(s.delay)}
-                    </span>
+                    <ProbeMark probe={s.probe} />
+                    {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
+                    {!pinging && s.delay == null && probeMark(s.probe) ? null : (
+                      <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
+                        {pinging ? '…' : pingText(s.delay)}
+                      </span>
+                    )}
                   </button>
                 ))}
               </>

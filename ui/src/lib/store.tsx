@@ -3,9 +3,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { DROP_NOTICES, errorText, noticeTarget, noticeText } from './i18n';
 import { planToggle, positionVerb } from './live';
+import { probeCounts } from './probe';
 import type { Transport } from './transport';
 import { applyTheme, resolveTheme, systemDark } from './theme';
-import type { ConnectionView, ErrorInfo, KEvent, KillSwitch, Mode, Preferences, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target, VpnState } from './types';
+import type { ConnectionView, ErrorInfo, KEvent, KillSwitch, Mode, Preferences, ProbeReport, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target, VpnState } from './types';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'dim';
 
@@ -43,6 +44,10 @@ interface S {
   pinging: boolean;
   /** Подключения, чьи серверы уже проверяли на задержку: только у них null значит «нет ответа». */
   tested: Record<string, boolean>;
+  /** Идёт проверка серверов: с какой секунды (Unix). Живёт в состоянии окна, а не экрана: вкладку можно сменить. */
+  probing: number | null;
+  /** Проверка серверов подключения `id` не удалась. */
+  probeError: { id: string; error: ErrorInfo } | null;
   toasts: Toast[];
   /** Нажали «включить» или «выключить», а служба ещё не ответила: `from` — состояние VPN в момент нажатия. */
   power: { want: 'on' | 'off'; from: VpnState; id: number } | null;
@@ -69,6 +74,8 @@ type A =
   | { t: 'servers'; id: string; list: ServerView[] }
   | { t: 'pinging'; on: boolean }
   | { t: 'tested'; id: string }
+  | { t: 'probing'; since: number | null }
+  | { t: 'probeError'; id: string; error: ErrorInfo }
   | { t: 'power'; power: S['power'] }
   | { t: 'powerDone'; id: number }
   | { t: 'toast'; toast: Toast }
@@ -95,6 +102,8 @@ const initial: S = {
   servers: {},
   pinging: false,
   tested: {},
+  probing: null,
+  probeError: null,
   toasts: [],
   power: null,
   neighbors: [],
@@ -122,6 +131,10 @@ function reducer(s: S, a: A): S {
       return { ...s, pinging: a.on };
     case 'tested':
       return { ...s, tested: { ...s.tested, [a.id]: true } };
+    case 'probing':
+      return { ...s, probing: a.since, probeError: a.since ? null : s.probeError };
+    case 'probeError':
+      return { ...s, probeError: { id: a.id, error: a.error } };
     case 'power':
       return { ...s, power: a.power };
     case 'powerDone':
@@ -176,6 +189,10 @@ export interface Store extends S {
   selectConnection(id: string): Promise<boolean>;
   selectServer(name: string): Promise<void>;
   testLatency(): Promise<void>;
+  /** Проверить серверы активного подключения из этой сети: до полутора минут. */
+  probe(): Promise<void>;
+  /** Отправлять итоги проверки панели подписки. */
+  probeShare(enabled: boolean): Promise<void>;
   refresh(id: string): Promise<void>;
   remove(id: string): Promise<void>;
   addLink(source: string, name?: string): Promise<boolean>;
@@ -468,6 +485,36 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
           dispatch({ t: 'tested', id });
         }
         dispatch({ t: 'pinging', on: false });
+      },
+      probe: async () => {
+        const id = ref.current.state?.connection?.id;
+        if (!id || ref.current.probing) return;
+        dispatch({ t: 'probing', since: Math.floor(Date.now() / 1000) });
+        try {
+          await transport.call<ProbeReport>('probe');
+        } catch (e) {
+          dispatch({ t: 'probeError', id, error: (e as ErrorInfo) ?? { code: 'unknown' } });
+          dispatch({ t: 'probing', since: null });
+          return;
+        }
+        // Итоги — в состоянии подключения (probe_last) и у серверов: служба пришлёт их и сама, но ответ может обогнать события.
+        const [st, list] = await Promise.all([transport.call<StateView>('status').catch(() => null), transport.call<ServerView[]>('servers').catch(() => null)]);
+        if (st) setState(st);
+        if (list) {
+          dispatch({ t: 'servers', id, list });
+          dispatch({ t: 'tested', id });
+          const c = probeCounts(list);
+          const bad = c.freeze + c.down;
+          toast('Серверы проверены', `Работают ${c.ok} из ${c.checked}${c.freeze ? ` · заморозка ${c.freeze}` : ''}${c.down ? ` · недоступны ${c.down}` : ''}`, bad ? 'warn' : 'ok');
+        }
+        dispatch({ t: 'probing', since: null });
+      },
+      probeShare: async (enabled) => {
+        const id = ref.current.state?.connection?.id;
+        if (!id) return;
+        const view = await call<ConnectionView>('probe_share', { id, enabled });
+        const st = ref.current.state;
+        if (view && st?.connection?.id === id) setState({ ...st, connection: { ...st.connection, ...view } });
       },
       refresh: async (id) => {
         const r = await call('refresh_connection', { id });
