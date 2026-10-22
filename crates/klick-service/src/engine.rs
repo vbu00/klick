@@ -308,8 +308,14 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     #[cfg(unix)]
     sys::private_dir(&profile.run_dir())?;
     storage::install_core_files(&paths)?;
-    let settings = storage::load_settings(&paths);
+    let mut settings = storage::load_settings(&paths);
     let secrets = Secrets::load(&paths);
+    // Адрес страницы подписки хранится в секретах, а окну он нужен в сведениях подключения.
+    for c in &mut settings.connections {
+        if let (Some(i), Some(page)) = (c.info.as_mut(), secrets.0.get(&page_key(&c.id))) {
+            i.page_url = Some(page.clone());
+        }
+    }
     let catalog = storage::load_catalog(&paths);
     tracing::info!(
         "данные: {} · подключений: {} · сервисов в каталоге: {}",
@@ -1141,7 +1147,12 @@ impl Engine {
     }
 
     fn save(&self) -> Result<(), ErrorInfo> {
-        storage::save_settings(&self.paths, &self.settings).map_err(|e| {
+        // Адрес страницы подписки несёт её ключ: в settings.json его нет, он — в зашифрованных секретах.
+        let mut disk = self.settings.clone();
+        for i in disk.connections.iter_mut().filter_map(|c| c.info.as_mut()) {
+            i.page_url = None;
+        }
+        storage::save_settings(&self.paths, &disk).map_err(|e| {
             tracing::error!("настройки не сохранились: {e:#}");
             ErrorInfo::new("storage.write_failed")
         })?;
@@ -2216,6 +2227,9 @@ impl Engine {
             }
         };
         self.secrets.0.insert(id.clone(), source);
+        if let Some(page) = conn.info.as_ref().and_then(|i| i.page_url.clone()) {
+            self.secrets.0.insert(page_key(&id), page);
+        }
         self.secrets.save(&self.paths).map_err(internal)?;
         self.push_connection(conn)
     }
@@ -2253,6 +2267,21 @@ impl Engine {
         serde_json::to_value(view).map_err(internal)
     }
 
+    /// Адрес страницы подписки — в секреты (на диск он пишется только туда, см. `save`).
+    fn keep_page_secret(&mut self, id: &str) {
+        let page = self.settings.connections.iter().find(|c| c.id == id).and_then(|c| c.info.as_ref()?.page_url.clone());
+        let key = page_key(id);
+        let changed = match page {
+            Some(p) => self.secrets.0.insert(key, p.clone()).as_deref() != Some(p.as_str()),
+            None => self.secrets.0.remove(&key).is_some(),
+        };
+        if changed {
+            if let Err(e) = self.secrets.save(&self.paths) {
+                tracing::warn!("секреты не сохранились: {e:#}");
+            }
+        }
+    }
+
     fn write_provider(&self, id: &str, body: &str) -> Result<(), ErrorInfo> {
         storage::write_atomic(&self.paths.provider_file(id), body.as_bytes()).map_err(internal)
     }
@@ -2274,6 +2303,7 @@ impl Engine {
                                 c.updated_at = Some(unix_now());
                                 c.update_interval_hours = r.interval_hours.or(c.update_interval_hours);
                             }
+                            self.keep_page_secret(id);
                             self.save()?;
                         }
                         return Err(e.error);
@@ -2287,6 +2317,7 @@ impl Engine {
                 }
                 self.servers.remove(id);
                 self.warned.remove(&(id.to_string(), "refused"));
+                self.keep_page_secret(id);
                 self.save()
             }
             ConnectionKind::Link => {
@@ -2331,6 +2362,7 @@ impl Engine {
             self.settings.active_connection = self.settings.connections.first().map(|c| c.id.clone());
         }
         self.secrets.0.remove(id);
+        self.secrets.0.remove(&page_key(id));
         self.secrets.save(&self.paths).map_err(internal)?;
         let _ = std::fs::remove_file(self.paths.provider_file(id));
         self.servers.remove(id);
@@ -2473,6 +2505,11 @@ impl Engine {
 }
 
 /// Подключение, добавленное по этой же ссылке. Ссылки сравниваются как есть: токен в них точный.
+/// Ключ адреса страницы подписки в секретах (рядом с самой ссылкой, у которой ключ — id подключения).
+fn page_key(id: &str) -> String {
+    format!("page:{id}")
+}
+
 fn added_by_source<'a>(connections: &'a [Connection], secrets: &HashMap<String, String>, source: &str) -> Option<&'a Connection> {
     let source = source.trim();
     connections.iter().find(|c| secrets.get(&c.id).is_some_and(|s| s.trim() == source))
