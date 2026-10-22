@@ -153,6 +153,19 @@ export function errorText(code: string, params?: Params): string {
       return 'Подключение не найдено';
     case 'conn.exists':
       return 'Уже добавлено';
+    case 'conn.secret_missing':
+      return 'Ссылка подключения потерялась — добавьте его заново';
+    case 'conn.file_missing':
+      return 'Файл подключения пропал — импортируйте его заново';
+    case 'input.bad_language':
+      return 'Такого языка нет';
+    case 'storage.write_failed':
+      return 'Не удалось сохранить настройки. Подробности — в журнале';
+    case 'service.timeout':
+      return 'Служба kl!ck долго не отвечает — попробуйте ещё раз';
+    case 'proto.bad_request':
+    case 'service.internal':
+      return 'Внутренняя ошибка службы. Подробности — в журнале';
     case 'service.stopping':
     case 'service.unreachable':
       return 'Служба kl!ck не отвечает';

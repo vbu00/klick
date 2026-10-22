@@ -7,7 +7,9 @@ use serde_json::json;
 use std::time::Duration;
 
 /// Так панели вроде Remnawave и Marzban отдают конфиг в формате mihomo.
-pub const USER_AGENT: &str = "mihomo/1.19.31";
+pub const USER_AGENT: &str = "mihomo/1.19.33";
+/// Подписка — десятки килобайт; больше — не подписка, а память службы не резиновая.
+const BODY_LIMIT: usize = 16 << 20;
 
 pub struct Fetched {
     pub body: String,
@@ -58,7 +60,7 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, FetchErr
     for (name, value) in crate::hwid::headers(&target) {
         req = req.header(name, value);
     }
-    let res = req.send().await.map_err(|e| {
+    let mut res = req.send().await.map_err(|e| {
         tracing::warn!("подписка не скачалась: {}", without_url(&e));
         ErrorInfo::with("sub.fetch_failed", json!({ "reason": if e.is_timeout() { "timeout" } else if e.is_connect() { "connect" } else { "other" } }))
     })?;
@@ -80,7 +82,14 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, FetchErr
     let title = header("profile-title")
         .and_then(|h| sub::parse_title(&h))
         .or_else(|| header("content-disposition").and_then(|h| sub::filename_from_disposition(&h)));
-    let body = res.text().await.map_err(|_| ErrorInfo::new("sub.fetch_failed"))?;
+    let mut raw = Vec::new();
+    while let Some(chunk) = res.chunk().await.map_err(|_| ErrorInfo::new("sub.fetch_failed"))? {
+        raw.extend_from_slice(&chunk);
+        if raw.len() > BODY_LIMIT {
+            return Err(ErrorInfo::with("sub.fetch_failed", json!({ "reason": "too_large" })).into());
+        }
+    }
+    let body = String::from_utf8_lossy(&raw).into_owned();
     let content = match check(&body) {
         Ok(c) => c,
         Err(mut error) if error.code == "sub.refused" => {

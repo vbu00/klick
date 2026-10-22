@@ -883,7 +883,7 @@ impl Engine {
                 }
                 _ => {}
             }
-            if info.total > 0 && info.upload + info.download >= info.total && self.warned.insert((c.id.clone(), "traffic")) {
+            if info.total > 0 && info.upload.saturating_add(info.download) >= info.total && self.warned.insert((c.id.clone(), "traffic")) {
                 notices.push(("sub.traffic_out", c.name.clone()));
             }
         }
@@ -1188,7 +1188,9 @@ impl Engine {
         #[cfg(windows)]
         self.reset_ks_drops();
         self.save_runtime(true);
-        let found = neighbors::scan(&self.paths.core_exe);
+        // Обход процессов и профилей браузеров — мимо потоков движка: это диск, а не миллисекунды.
+        let exe = self.paths.core_exe.clone();
+        let found = tokio::task::spawn_blocking(move || neighbors::scan(&exe)).await.unwrap_or_default();
         if capture == Capture::Tun {
             let conflicts: Vec<String> = found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect();
             if !conflicts.is_empty() {
@@ -1684,7 +1686,14 @@ impl Engine {
         if !ks.enabled {
             return Vec::new();
         }
-        ks.programs.iter().filter(|p| p.enabled).map(|p| (p.folder.clone(), killswitch::scan_folder(Path::new(&p.folder)))).collect()
+        // Само ядро и служба — никогда: закрытое ядро не дотянется до сервера VPN, и сети не будет ни у кого.
+        let own = [self.paths.core_exe.clone(), std::env::current_exe().unwrap_or_default()];
+        let ours = |e: &PathBuf| own.iter().any(|o| e.to_string_lossy().eq_ignore_ascii_case(&o.to_string_lossy()));
+        ks.programs
+            .iter()
+            .filter(|p| p.enabled)
+            .map(|p| (p.folder.clone(), killswitch::scan_folder(Path::new(&p.folder)).into_iter().filter(|e| !ours(e)).collect()))
+            .collect()
     }
 
     async fn apply_killswitch(&mut self) {
@@ -2250,6 +2259,7 @@ impl Engine {
         self.secrets.save(&self.paths).map_err(internal)?;
         let _ = std::fs::remove_file(self.paths.provider_file(id));
         self.servers.remove(id);
+        self.warned.retain(|(conn, _)| conn != id);
         self.save()?;
         self.emit_state();
         Ok(self.view_json())
