@@ -9,8 +9,10 @@ body.os-ios {
   /* Без задержки и увеличения по двойному касанию. */
   touch-action: manipulation;
 }
-/* По краям от колонки на iPad — цвет страницы. */
-body.os-ios.in-tauri { background: var(--page); }
+/* Фон — цвет окна (`--page` — тёмная подложка превью в браузере): им же закрашено всё, куда окно
+   не дотянулось, и поля по краям от колонки на iPad. */
+html:has(body.os-ios.in-tauri),
+body.os-ios.in-tauri { background: var(--win); }
 /* `user-select: none` у body в WebKit мешает печатать в полях; шрифт меньше 16px заставил бы iOS увеличивать страницу при фокусе. */
 body.os-ios input,
 body.os-ios textarea {
@@ -21,11 +23,14 @@ body.os-ios textarea {
 
 /* Окно: весь экран; на iPad и в ландшафте — колонка до 560px по центру. */
 body.os-ios.in-tauri .window {
-  width: 100%;
+  /* Прибито к краям экрана, а не 100dvh: в WKWebView это высота без строки состояния, и внизу
+     оставалась полоса. */
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
   max-width: 560px;
   margin: 0 auto;
-  height: 100vh;
-  height: 100dvh;
   padding-top: env(safe-area-inset-top);
 }
 @media (min-width: 600px) {
