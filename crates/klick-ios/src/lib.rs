@@ -12,7 +12,7 @@ use klick_service::paths::{Paths, Profile};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Движок службы. Поднимается в фоне: до этого окно видит «служба не отвечает» и ждёт `klick://service`.
 static ENGINE: OnceLock<EngineHandle> = OnceLock::new();
@@ -135,6 +135,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, deeplink::take_pending_link])
         .setup(|app| {
             klick_service::ios::init(host::host());
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.with_webview(|webview| host::setup_webview(webview.inner()));
+            }
             // Не на главном потоке: Swift ждёт ответов NetworkExtension, а они приходят через главный поток.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {

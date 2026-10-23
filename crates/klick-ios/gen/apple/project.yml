@@ -53,7 +53,8 @@ targets:
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64]
-        UIStatusBarStyle: UIStatusBarStyleLightContent
+        # Цвет строки состояния — по теме системы (окно по умолчанию тоже следует ей).
+        UIStatusBarStyle: UIStatusBarStyleDefault
         UIViewControllerBasedStatusBarAppearance: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

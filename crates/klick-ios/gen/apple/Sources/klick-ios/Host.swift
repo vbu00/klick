@@ -1,6 +1,7 @@
 import Foundation
 import NetworkExtension
 import UIKit
+import WebKit
 
 // Функции C для движка kl!ck (Rust, crates/klick-ios/src/host.rs). Движок зовёт их со своих фоновых
 // потоков и ждёт ответа; NetworkExtension отвечает через главный поток — поэтому ждать здесь можно,
@@ -19,6 +20,14 @@ func klickDeviceId() -> UnsafeMutablePointer<CChar>? {
 @_cdecl("klick_clipboard")
 func klickClipboard() -> UnsafeMutablePointer<CChar>? {
     onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
+}
+
+/// Окно на весь экран: без автоматических отступов прокрутки WKWebView. Вырез, строку состояния и
+/// полоску «домой» обходит сама страница (`env(safe-area-inset-*)`), иначе внизу оставалась полоса.
+@_cdecl("klick_setup_webview")
+func klickSetupWebview(_ webview: UnsafeMutableRawPointer) {
+    let view = Unmanaged<WKWebView>.fromOpaque(webview).takeUnretainedValue()
+    view.scrollView.contentInsetAdjustmentBehavior = .never
 }
 
 @_cdecl("klick_tunnel_start")
