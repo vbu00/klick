@@ -5,11 +5,11 @@
   <img src="docs/logo/wordmark-light.svg" width="360" alt="kl!ck" />
 </picture>
 
-**VPN-клиент для Windows и macOS на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
+**VPN-клиент для Windows, macOS и iOS на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
 
 Подписки Remnawave · Marzban · 3x-ui · VLESS/Reality · Hysteria2 · TUIC · Trojan · Shadowsocks · WireGuard
 
-[Скачать](https://github.com/limeflash/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
+[Скачать](https://github.com/limeflash/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [iOS](#ios) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
 </div>
 
@@ -164,6 +164,19 @@ sudo '/Applications/kl!ck.app/Contents/Resources/uninstall.sh' --wipe # удал
 
 Как устроен порт и чем macOS отличается от Windows — в [docs/macos-port.md](docs/macos-port.md).
 
+## iOS
+
+kl!ck для iPhone и iPad (iOS 15+) — то же окно, подписки, правила и проверка серверов; VPN держит
+системное расширение, поэтому он работает и с закрытым kl!ck. В App Store его нет: файл
+[`klick-ios.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) нужно
+подписать самому, и для VPN в подписи нужны права Network Extension и App Groups — их даёт только
+**платный** аккаунт разработчика Apple (свой сертификат через ESign/Feather, SideStore или Sideloadly).
+С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для AltStore, SideStore,
+Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
+
+Как поставить — [docs/ios-install.md](docs/ios-install.md); как устроен порт и чего на iOS нет
+(Kill Switch по программам, системный прокси) — [docs/ios-port.md](docs/ios-port.md).
+
 ## Сборка
 
 Нужны Rust (stable, MSVC), Node.js 20.19+ и PowerShell.
@@ -177,6 +190,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 
 ```sh
 scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
+scripts/ios/build.sh               # dist/klick-ios.ipa (ещё Xcode, Go, brew install xcodegen ldid)
 ```
 
 Ядро mihomo и база стран в git не хранятся: `build.ps1` скачивает
@@ -190,13 +204,14 @@ scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>
 
 - [**vbu00**](https://github.com/vbu00) — разработка
 - [**Dmitriy Medvedev**](https://github.com/aleuuu) — дизайн интерфейса и логотип
-- [**limeflash**](https://github.com/limeflash) — порт на macOS
+- [**limeflash**](https://github.com/limeflash) — порт на macOS и iOS
 
 Логотип-клавиша в пяти цветах и вордмарк — в [`docs/logo`](docs/logo).
 
 ## Лицензия
 
 kl!ck — [MIT](LICENSE). mihomo — GPL-3.0, поставляется отдельным файлом
-без изменений. Подробности — [THIRD_PARTY_NOTICES.md](resources/licenses/THIRD_PARTY_NOTICES.md).
+без изменений. На iOS отдельных программ не бывает: там mihomo собран в приложение библиотекой, поэтому
+`klick-ios.ipa` целиком распространяется на условиях GPL-3.0 (исходники — этот репозиторий). Подробности — [THIRD_PARTY_NOTICES.md](resources/licenses/THIRD_PARTY_NOTICES.md).
 
 Спасибо [MetaCubeX](https://github.com/MetaCubeX) за mihomo.
