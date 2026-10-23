@@ -566,8 +566,12 @@ mv "$svc" "$work/klick-service.away"
 svc_pid="$(launchctl print system/app.klick.service | awk '/pid =/ {print $3}')"
 check "служба убита" kill -9 "$svc_pid"
 sleep 2
-# Иначе uninstall.sh остановит живую службу штатно, и запасной путь не проверится.
-check "службы нет, ядро без неё осталось" bash -c "! kill -0 '$svc_pid' 2>/dev/null && pgrep -f '^/Library/PrivilegedHelperTools/klick/mihomo' >/dev/null"
+# Иначе uninstall.sh остановил бы живую службу штатно, и запасной путь не проверился бы.
+check "службы нет" bash -c "! kill -0 '$svc_pid' 2>/dev/null"
+# Ядро без службы то живёт, то само выходит (закрылся канал журнала) — поэтому сирота ещё и подставной.
+if pgrep -f '^/Library/PrivilegedHelperTools/klick/mihomo' >/dev/null; then echo "  INFO ядро пережило службу"; else echo "  INFO ядро вышло вместе со службой"; fi
+cp /bin/sleep /Library/PrivilegedHelperTools/klick/orphan
+/Library/PrivilegedHelperTools/klick/orphan 600 &
 check "DNS kl!ck остался" dns_ours
 "$(dirname "${BASH_SOURCE[0]}")/uninstall.sh" >/dev/null 2>&1
 check "служба убрана из launchd" bash -c '! launchctl print system/app.klick.service'
