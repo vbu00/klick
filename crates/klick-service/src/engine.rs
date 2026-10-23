@@ -62,7 +62,8 @@ pub(crate) enum Msg {
     NetworkChanged { moved: bool },
     CoreExited { generation: u64, code: Option<i32> },
     /// Итог проверки сервера, которую страж связи запустил в фоне; `net` — счётчик смен сети на её начало.
-    Probed { generation: u64, retry: bool, ok: bool, net: u64 },
+    /// `flowing` — пока шла проверка, соединения через VPN что-то скачали; `rx` — скачанное ими к концу проверки.
+    Probed { generation: u64, retry: bool, ok: bool, flowing: bool, rx: HashMap<String, u64>, net: u64 },
     /// Задержка серверов подключения измерена в фоне.
     Measured { conn: String, net: u64, result: Result<Measured, ErrorInfo> },
     ProbeDone { conn: String, net: u64, result: Result<ProbeOutcome, ErrorInfo> },
@@ -566,6 +567,11 @@ async fn run_tester(paths: Paths, pipe: String, conn_id: String, measure: bool) 
     Ok((list, delays))
 }
 
+/// Сколько скачало каждое соединение через VPN (по id соединения в ядре).
+async fn vpn_rx(api: &CoreApi) -> HashMap<String, u64> {
+    api.get_json("/connections").await.map(|v| ipcheck::vpn_downloads(&v)).unwrap_or_default()
+}
+
 /// Связь через сервер: ответил хоть один из двух адресов. Один адрес бывает недоступен сам по себе.
 async fn server_alive(api: &CoreApi) -> bool {
     let mut checks = tokio::task::JoinSet::new();
@@ -669,13 +675,14 @@ impl Engine {
                             self.ks_rescan_at.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
                         }
                         Msg::CoreExited { generation, code } => self.on_core_exit(generation, code).await,
-                        Msg::Probed { generation, retry, ok, net } => {
+                        Msg::Probed { generation, retry, ok, flowing, rx, net } => {
                             if self.probing == Some(generation) {
                                 self.probing = None;
                             }
                             if self.guard.is_some() && self.running.as_ref().map(|r| r.generation) == Some(generation) {
                                 if net == self.net_seq {
-                                    self.probed(retry, ok).await;
+                                    self.vpn_rx = rx;
+                                    self.probed(retry, ok, flowing).await;
                                 } else {
                                     // Сеть сменилась, пока шла проверка: её итог ни о чём не говорит — проверить заново.
                                     self.spawn_probe(retry);
@@ -1676,7 +1683,7 @@ impl Engine {
             Action::Reload => {
                 // Перечитать конфиг — значит оборвать соединения через VPN. Пока данные идут, сервер жив.
                 if self.traffic_through_vpn().await {
-                    self.probed(true, true).await;
+                    self.probed(true, true, false).await;
                     return;
                 }
                 tracing::info!("страж: связи через сервер нет 20 с, перечитываю конфиг");
@@ -1705,16 +1712,20 @@ impl Engine {
         self.probing = Some(generation);
         let (tx, net) = (self.tx.clone(), self.net_seq);
         tokio::spawn(async move {
+            // Данные через сервер считаем только за время самой проверки: скачанное до неё (за прошлые 30 с)
+            // сервер, умерший сразу после прошлой проверки, «оживляло» — и страж замечал сбой на 30 с позже.
+            let before = vpn_rx(&api).await;
             let ok = server_alive(&api).await;
-            let _ = tx.send(Msg::Probed { generation, retry, ok, net }).await;
+            let rx = vpn_rx(&api).await;
+            let flowing = rx.iter().any(|(id, d)| *d > before.get(id).copied().unwrap_or(0));
+            let _ = tx.send(Msg::Probed { generation, retry, ok, flowing, rx, net }).await;
         });
     }
 
     /// Итог проверки: обычной (`retry = false`) или повторной после неудачи.
-    async fn probed(&mut self, retry: bool, mut ok: bool) {
-        // Проверка не успела, а соединения через сервер с прошлого раза скачали ещё — сервер жив.
+    async fn probed(&mut self, retry: bool, mut ok: bool, flowing: bool) {
+        // Проверка не успела, а соединения через сервер за это время скачали ещё — сервер жив.
         // Так у людей, у кого VPN работал, страж не рвал связь и не писал «Сервер не отвечает».
-        let flowing = self.traffic_through_vpn().await;
         let soft = !ok && flowing;
         if soft && !self.probe_soft {
             tracing::info!("проверка сервера не прошла, но данные через него идут — связь не трогаю");
