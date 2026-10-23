@@ -2,6 +2,7 @@
 // а какие «замораживает» ТСПУ (сервер отвечает, но загрузка через него встаёт). Запускается только по кнопке
 // и идёт до полутора минут; итоги хранит служба (probe_last), отметки у серверов — в списках на главной и в трее.
 
+import { useState } from 'react';
 import { countryName, parseServer } from '../lib/countries';
 import { protocolName } from '../lib/format';
 import { errorText } from '../lib/i18n';
@@ -26,6 +27,20 @@ function serverLabel(s: ServerView): { code: string | null; head: string; sub: s
   const head = p.code ? countryName(p.code) : s.name;
   const sub = p.code ? [p.title || proto, ...(p.title && !p.named ? [proto] : [])].join(' · ') : proto;
   return { code: p.code, head, sub, text: `${head} · ${sub}` };
+}
+
+type Group = 'ok' | 'freeze' | 'down';
+const GROUP_LABEL: Record<Group, string> = { ok: 'Работают', freeze: 'Заморозка', down: 'Недоступны' };
+
+/** Серверы пункта легенды: рабочие — сначала стабильные и быстрые, остальные — по имени. */
+function groupMembers(list: ServerView[], g: Group): ServerView[] {
+  const group = (s: ServerView): Group | null => {
+    const v = s.probe?.verdict;
+    return !v ? null : v === 'ok' ? 'ok' : v === 'freeze' ? 'freeze' : 'down';
+  };
+  const ms = (s: ServerView) => s.probe?.delay_ms ?? s.delay ?? Infinity;
+  const members = list.filter((s) => group(s) === g);
+  return g === 'ok' ? members.sort((a, b) => Number(!!a.probe?.flaky) - Number(!!b.probe?.flaky) || ms(a) - ms(b)) : members.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Тип сети по базе proxycheck (служба: ipcheck::fill); незнакомое не показываем. */
@@ -151,6 +166,15 @@ function Result({ report, checkedAt, list }: { report: ProbeReport; checkedAt: n
   const cur = current ? serverLabel(current) : null;
   const alt = better ? serverLabel(better) : null;
   const altMs = better ? better.probe?.delay_ms ?? better.delay : null;
+  // Нажали на пункт легенды — список этих серверов; рабочий можно выбрать прямо отсюда.
+  const [open, setOpen] = useState<Group | null>(null);
+  const members = open ? groupMembers(list, open) : [];
+  const legend = (g: Group, count: number, label: string, title?: string) => (
+    <button className={open === g ? 'pr-leg on' : 'pr-leg'} title={title} disabled={!count} aria-expanded={open === g} aria-controls="pr-group" onClick={() => setOpen(open === g ? null : g)}>
+      <i className={g === 'ok' ? 'ok' : g === 'freeze' ? 'warn' : 'bad'} />
+      {label} <b>{count}</b>
+    </button>
+  );
 
   return (
     <>
@@ -176,19 +200,40 @@ function Result({ report, checkedAt, list }: { report: ProbeReport; checkedAt: n
             {c.down ? <i className="bad" style={{ flexGrow: c.down }} /> : null}
           </div>
           <div className="pr-legend">
-            <span>
-              <i className="ok" />
-              Работают <b>{c.ok}</b>
-            </span>
-            <span title="Сервер отвечает, но загрузка через него встаёт после нескольких килобайт">
-              <i className="warn" />
-              Заморозка <b>{c.freeze}</b>
-            </span>
-            <span title="Провайдер не пускает к серверу, протокол не проходит или сервер молчит">
-              <i className="bad" />
-              Недоступны <b>{c.down}</b>
-            </span>
+            {legend('ok', c.ok, 'Работают')}
+            {legend('freeze', c.freeze, 'Заморозка', 'Сервер отвечает, но загрузка через него встаёт после нескольких килобайт')}
+            {legend('down', c.down, 'Недоступны', 'Провайдер не пускает к серверу, протокол не проходит или сервер молчит')}
           </div>
+          {open && members.length ? (
+            <ul className="pr-group" id="pr-group" aria-label={GROUP_LABEL[open]}>
+              {members.map((s) => {
+                const l = serverLabel(s);
+                const now = s.name === current?.name;
+                const ms = s.probe?.delay_ms ?? s.delay;
+                const row = (
+                  <>
+                    {l.code ? <Flag code={l.code} /> : null}
+                    <span className="grow ellipsis" title={s.name}>
+                      {l.text}
+                    </span>
+                    {now ? <span className="pr-now">сейчас</span> : null}
+                    {open === 'ok' && !s.probe?.flaky ? ms != null ? <span className="pr-ms">{ms} мс</span> : null : <ProbeMark probe={s.probe} />}
+                  </>
+                );
+                return (
+                  <li key={s.name}>
+                    {open === 'ok' && !now ? (
+                      <button className="pr-row" title={`Переключиться на ${l.text}`} onClick={() => void store.selectServer(s.name)}>
+                        {row}
+                      </button>
+                    ) : (
+                      <div className="pr-row">{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
         </>
       ) : null}
 

@@ -355,10 +355,19 @@
 .pr-legend .warn { background: var(--orange); }
 .pr-bar .bad,
 .pr-legend .bad { background: var(--red); }
-.pr-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 12px; color: var(--dim); }
-.pr-legend span { display: flex; align-items: center; gap: 6px; }
+.pr-legend { display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 6px -6px 0; font-size: 12px; color: var(--dim); }
+.pr-leg { display: flex; align-items: center; gap: 6px; padding: 3px 7px; border: 0; border-radius: 9px; background: none; color: inherit; font: inherit; cursor: pointer; transition: background 0.15s ease; }
+.pr-leg:hover:not(:disabled), .pr-leg.on { background: var(--elem); }
+.pr-leg:disabled { cursor: default; }
 .pr-legend i { width: 7px; height: 7px; border-radius: 50%; }
 .pr-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pr-group { margin: 8px 0 0; padding: 4px; list-style: none; border-radius: 12px; background: var(--elem); animation: expandin 0.2s ease; }
+.pr-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 9px; background: none; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; }
+button.pr-row { cursor: pointer; transition: background 0.15s ease; }
+button.pr-row:hover { background: var(--card); }
+.pr-row .flag { flex: none; width: 18px; height: 18px; font-size: 7px; }
+.pr-ms { flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pr-now { flex: none; font-size: 11px; color: var(--accent); }
 .pr-tip { margin-top: 14px; padding: 11px 12px 12px; border-radius: 14px; background: color-mix(in srgb, var(--orange) 13%, var(--card)); }
 .pr-tip.bad { background: color-mix(in srgb, var(--red) 12%, var(--card)); }
 .pr-tip-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
