@@ -1,7 +1,6 @@
 import Foundation
 import NetworkExtension
 import UIKit
-import WebKit
 
 // Функции C для движка kl!ck (Rust, crates/klick-ios/src/host.rs). Движок зовёт их со своих фоновых
 // потоков и ждёт ответа; NetworkExtension отвечает через главный поток — поэтому ждать здесь можно,
@@ -20,33 +19,6 @@ func klickDeviceId() -> UnsafeMutablePointer<CChar>? {
 @_cdecl("klick_clipboard")
 func klickClipboard() -> UnsafeMutablePointer<CChar>? {
     onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
-}
-
-/// Цвет окна kl!ck — от страницы, при каждой смене темы. Им закрашены WKWebView и окно: WebKit не рисует
-/// полосу высотой со строку состояния внизу экрана, и там был виден тёмный фон из конфига.
-/// Звать можно с любого потока.
-@_cdecl("klick_set_background")
-func klickSetBackground(_ red: Double, _ green: Double, _ blue: Double) {
-    DispatchQueue.main.async {
-        let color = UIColor(red: red, green: green, blue: blue, alpha: 1)
-        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-            for window in scene.windows {
-                window.backgroundColor = color
-                guard let view = findWebView(in: window) else { continue }
-                view.backgroundColor = color
-                view.scrollView.backgroundColor = color
-                view.underPageBackgroundColor = color
-            }
-        }
-    }
-}
-
-private func findWebView(in view: UIView) -> WKWebView? {
-    if let web = view as? WKWebView { return web }
-    for sub in view.subviews {
-        if let web = findWebView(in: sub) { return web }
-    }
-    return nil
 }
 
 @_cdecl("klick_tunnel_start")

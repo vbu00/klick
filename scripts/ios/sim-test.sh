@@ -72,6 +72,21 @@ if [[ -n "${KLICK_TEST_SUB:-}" ]]; then
     fi
 fi
 
+# Смена темы (самопроверка переключает тёмную, свою и системную): страница должна перерисоваться, а не
+# остаться пустым экраном цвета темы. Пустой экран одного цвета в PNG весит в разы меньше настоящего.
+if [[ -n "${KLICK_TEST_SUB:-}" ]]; then
+    for theme in dark custom system; do
+        if wait_for "самопроверка темы: $theme" 60; then
+            shot="$root/dist/ios-sim-theme-$theme.png"
+            xcrun simctl io "$device" screenshot "$shot" >/dev/null 2>&1 || true
+            size="$(wc -c <"$shot" 2>/dev/null | tr -d ' ')"
+            if [[ "${size:-0}" -gt 60000 ]]; then echo "ok   тема $theme: страница видна"; else echo "FAIL тема $theme: пустой экран (${size:-0} байт)"; bad=1; fi
+        else
+            echo "FAIL самопроверка темы $theme не дошла"; bad=1
+        fi
+    done
+fi
+
 echo
 echo "журнал движка:"
 tail -40 "$log" 2>/dev/null || true

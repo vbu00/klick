@@ -24,7 +24,7 @@ klick-proto = { path = "../klick-proto" }
 klick-service = { path = "../klick-service" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time"] }
 tracing = "0.1"
 libc = "0.2"
 

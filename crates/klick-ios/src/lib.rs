@@ -51,10 +51,16 @@ async fn scan_qr() -> Option<String> {
     })
 }
 
-/// Страница сменила тему: цвет окна — фону WKWebView и окна iOS (`#rrggbb`).
+/// Страница сменила тему: цвет окна (`#rrggbb`) — фону окна и WKWebView. Внизу экрана WebKit оставляет
+/// полосу высотой со строку состояния незакрашенной, там виден этот фон. Красит Tauri (wry) — теми же
+/// свойствами, что при создании окна: своя покраска WKWebView (scrollView, underPage) ломала отрисовку
+/// страницы при смене темы.
 #[tauri::command]
-fn set_background(color: String) {
-    host::set_background(&color);
+fn set_background(window: tauri::WebviewWindow, color: String) {
+    let hex = color.trim_start_matches('#');
+    let (Ok(rgb), 6) = (u32::from_str_radix(hex, 16), hex.len()) else { return };
+    let [_, r, g, b] = rgb.to_be_bytes();
+    let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
 }
 
 /// Для `deeplink.rs`: на iOS главное окно и так на экране.
@@ -126,6 +132,17 @@ async fn self_test(sub: String) {
         }
         Ok(other) => tracing::warn!("самопроверка: неожиданный ответ {other}"),
         Err(e) => tracing::warn!("самопроверка: ошибка {}", e.code),
+    }
+    // Смена темы — как из настроек окна: страница перерисовывается в новых цветах. sim-test.sh снимает
+    // экран после каждой строки «самопроверка темы».
+    for theme in ["dark", "custom", "system"] {
+        let prefs = serde_json::from_value(json!({ "appearance": { "theme": theme, "base": "midnight", "accent": "#30d158" } }));
+        if let Ok(prefs) = prefs {
+            let _ = engine.call(Command::SetPreferences { prefs }).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tracing::info!("самопроверка темы: {theme}");
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
 
