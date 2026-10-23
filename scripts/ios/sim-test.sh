@@ -41,7 +41,9 @@ fi
 mkdir -p "$root/dist"
 sleep 3
 xcrun simctl io "$device" screenshot "$root/dist/ios-sim-start.png" >/dev/null 2>&1 || true
-[[ -n "${KLICK_TEST_SUB:-}" ]] && wait_for "самопроверка:" 180 || sleep 7
+[[ -n "${KLICK_TEST_SUB:-}" ]] && wait_for "самопроверка:" 180 || true
+# Страница грузится несколько секунд; снимок и проверка «жив ли kl!ck» — после неё.
+sleep 8
 xcrun simctl io "$device" screenshot "$root/dist/ios-sim.png" >/dev/null 2>&1 && echo "снимок: dist/ios-sim.png"
 if xcrun simctl spawn "$device" launchctl list | grep -q "$bundle_id"; then
     echo "ok   приложение работает"
@@ -73,6 +75,8 @@ echo
 echo "журнал движка:"
 tail -40 "$log" 2>/dev/null || true
 cp "$log" "$root/dist/ios-sim-service.log" 2>/dev/null || true
+# Отчёты о сбоях kl!ck в симуляторе (Mac пишет их к себе).
+find "$HOME/Library/Logs/DiagnosticReports" -name 'klick*' -newer "$app" -exec cp {} "$root/dist/" \; 2>/dev/null || true
 # Журнал системы о приложении (WebKit, Tauri, Swift) — на случай, если окно не нарисовалось.
 xcrun simctl spawn "$device" log show --last 5m --style compact --predicate 'process == "klick"' >"$root/dist/ios-sim-system.log" 2>/dev/null || true
 exit $bad

@@ -133,10 +133,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(deeplink::Pending::default())
         .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, deeplink::take_pending_link])
-        // Окно на весь экран — когда страница загрузилась и WKWebView точно есть.
+        // Окно на весь экран — когда страница загрузилась и WKWebView точно есть. Не прямо отсюда:
+        // изнутри обработчика загрузки Tauri выполнил бы просьбу сразу и упал бы на занятом окне.
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished {
-                let _ = webview.with_webview(|w| host::setup_webview(w.inner()));
+                let webview = webview.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = webview.with_webview(|w| host::setup_webview(w.inner()));
+                });
             }
         })
         .setup(|app| {

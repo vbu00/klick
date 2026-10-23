@@ -123,6 +123,7 @@ jobs:
             dist/ios-sim*.png
             dist/ios-sim-service.log
             dist/ios-sim-system.log
+            dist/klick*.ips
           if-no-files-found: ignore
 
   release:
