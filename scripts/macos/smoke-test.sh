@@ -326,8 +326,11 @@ short_recovery_pid="$(main_core_pid)"
 if [[ "$short_recovery_pid" == "$guard_core_pid" ]]; then pass "pid ядра прежний после короткого сбоя ($guard_core_pid)"; else fail "pid ядра после короткого сбоя изменился: $guard_core_pid -> $short_recovery_pid"; fi
 
 # Следующий длинный сбой начинаем за 3 с до очередной плановой пробы: первый отказ будет почти сразу.
+# Внеплановая проверка (событие сети или сна на виртуальном Mac) сдвигает расписание на 30 с, поэтому сбой
+# длится 110 с, а «Сервер не отвечает» ждём до 95 с: одна лишняя проверка тест не валит, а задержка стража
+# больше одной проверки — валит.
 if wait_guard_probe 45; then pass "перед длинным сбоем прошла свежая успешная проба"; else fail "не дождались свежей пробы за 45 с"; fi
-echo "    ждём 27 с до следующей 30-секундной пробы, затем выключаем сервер на 75 с"
+echo "    ждём 27 с до следующей 30-секундной пробы, затем выключаем сервер на 110 с"
 sleep 27
 long_core_pid="$(main_core_pid)"
 long_unexpected=""
@@ -340,7 +343,7 @@ stop_server
 reconnecting_at=-1
 server_down_at=-1
 down_notice_at=-1
-while (( SECONDS - long_start < 75 )); do
+while (( SECONDS - long_start < 110 )); do
     elapsed=$((SECONDS - long_start))
     state="$(vpn_state)"
     if [[ "$state" == reconnecting && $reconnecting_at -lt 0 ]]; then reconnecting_at=$elapsed; fi
@@ -354,9 +357,9 @@ while (( SECONDS - long_start < 75 )); do
 done
 long_elapsed=$((SECONDS - long_start))
 if (( reconnecting_at >= 15 )); then pass "reconnecting появился через ${reconnecting_at} с (не раньше 15 с)"; else fail "reconnecting появился слишком рано или не появился: ${reconnecting_at} с"; fi
-if (( server_down_at >= 0 && server_down_at <= 60 )); then pass "server_down появился через ${server_down_at} с"; else fail "server_down не появился к 60 с: ${server_down_at} с"; fi
-if (( down_notice_at >= 0 && down_notice_at <= 60 )); then pass "watch получил vpn.down через ${down_notice_at} с"; else fail "watch не получил vpn.down к 60 с: ${down_notice_at} с"; fi
-if (( long_elapsed >= 74 && long_elapsed <= 82 )); then pass "длинный fault injection длился ${long_elapsed} с"; else fail "длинный сбой длился ${long_elapsed} с вместо примерно 75"; fi
+if (( server_down_at >= 0 && server_down_at <= 95 )); then pass "server_down появился через ${server_down_at} с"; else fail "server_down не появился к 95 с: ${server_down_at} с"; fi
+if (( down_notice_at >= 0 && down_notice_at <= 95 )); then pass "watch получил vpn.down через ${down_notice_at} с"; else fail "watch не получил vpn.down к 95 с: ${down_notice_at} с"; fi
+if (( long_elapsed >= 109 && long_elapsed <= 117 )); then pass "длинный fault injection длился ${long_elapsed} с"; else fail "длинный сбой длился ${long_elapsed} с вместо примерно 110"; fi
 if [[ -z "$long_unexpected" ]]; then pass "во время сбоя наблюдались только connected/reconnecting/server_down"; else fail "неожиданные состояния или pid во время сбоя: $long_unexpected"; fi
 if start_server; then pass "тестовый сервер перезапущен после длинного сбоя"; else fail "тестовый сервер не перезапустился после длинного сбоя"; fi
 
