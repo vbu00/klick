@@ -45,6 +45,8 @@ enum Cmd {
     Latency,
     /// Локально проверить серверы активного подключения.
     Probe,
+    /// Отправлять итоги проверки панели подписки (если панель их принимает): on или off.
+    ProbeShare { id: String, enabled: Toggle },
     /// Выбрать сервер по имени.
     Server { name: String },
     Connect,
@@ -206,6 +208,7 @@ fn command(cmd: Cmd) -> Result<Command> {
         Cmd::Servers => Command::Servers,
         Cmd::Latency => Command::TestLatency,
         Cmd::Probe => Command::Probe,
+        Cmd::ProbeShare { id, enabled } => Command::ProbeShare { id, enabled: matches!(enabled, Toggle::On) },
         Cmd::Server { name } => Command::SelectServer { name },
         Cmd::Connect => Command::Connect,
         Cmd::Disconnect => Command::Disconnect,
