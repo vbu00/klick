@@ -203,7 +203,9 @@ jobs:
         run: bash scripts/check-providers.sh build/resources/core/mihomo.exe
 
       # real и servers — только со ссылкой; only — один сценарий из всех.
+      # Свой предел короче, чем у задания: при зависании задание не снимается целиком, и отчёты ниже выгружаются.
       - name: Сценарий ${{ matrix.scenario }}
+        timeout-minutes: 30
         if: >-
           (inputs.only == '' || inputs.only == matrix.scenario) &&
           ((matrix.scenario != 'real' && matrix.scenario != 'servers') || (github.event_name == 'workflow_dispatch' && inputs.sub != ''))
