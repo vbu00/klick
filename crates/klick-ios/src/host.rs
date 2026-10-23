@@ -10,7 +10,7 @@ extern "C" {
     fn klick_group_dir() -> *mut c_char;
     fn klick_device_id() -> *mut c_char;
     fn klick_clipboard() -> *mut c_char;
-    fn klick_setup_webview(webview: *mut std::ffi::c_void);
+    fn klick_full_screen();
     fn klick_tunnel_start() -> *mut c_char;
     fn klick_tunnel_reload() -> *mut c_char;
     fn klick_tunnel_stop();
@@ -39,9 +39,9 @@ pub fn group_dir() -> Option<PathBuf> {
     take(unsafe { klick_group_dir() }).map(PathBuf::from)
 }
 
-/// Окно на весь экран (WKWebView без автоматических отступов). Зовётся на главном потоке.
-pub fn setup_webview(webview: *mut std::ffi::c_void) {
-    unsafe { klick_setup_webview(webview) }
+/// Окно на весь экран (WKWebView по размеру окна). Swift делает это на главном потоке, звать можно отовсюду.
+pub fn full_screen() {
+    unsafe { klick_full_screen() }
 }
 
 pub fn clipboard() -> String {

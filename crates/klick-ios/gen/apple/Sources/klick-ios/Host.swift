@@ -22,16 +22,30 @@ func klickClipboard() -> UnsafeMutablePointer<CChar>? {
     onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
 }
 
-/// Окно на весь экран: WKWebView по размеру окна и без автоматических отступов прокрутки. Вырез, строку состояния и
-/// полоску «домой» обходит сама страница (`env(safe-area-inset-*)`), иначе внизу оставалась полоса.
-@_cdecl("klick_setup_webview")
-func klickSetupWebview(_ webview: UnsafeMutableRawPointer) {
-    let view = Unmanaged<WKWebView>.fromOpaque(webview).takeUnretainedValue()
-    view.scrollView.contentInsetAdjustmentBehavior = .never
-    // WKWebView создаётся по размеру корневого вида без строки состояния — растянуть на всё окно.
-    if let window = view.window, let parent = view.superview {
-        view.frame = parent.convert(window.bounds, from: window)
+/// Окно на весь экран: WKWebView по размеру окна и без автоматических отступов прокрутки. Вырез, строку
+/// состояния и полоску «домой» обходит сама страница (`env(safe-area-inset-*)`), иначе внизу оставалась
+/// полоса. Можно звать с любого потока: работа — на главном.
+@_cdecl("klick_full_screen")
+func klickFullScreen() {
+    DispatchQueue.main.async {
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows {
+                guard let view = findWebView(in: window), let parent = view.superview else { continue }
+                let before = view.frame
+                view.scrollView.contentInsetAdjustmentBehavior = .never
+                view.frame = parent.convert(window.bounds, from: window)
+                NSLog("kl!ck: окно %@, WebView %@ → %@", NSCoder.string(for: window.bounds), NSCoder.string(for: before), NSCoder.string(for: view.frame))
+            }
+        }
     }
+}
+
+private func findWebView(in view: UIView) -> WKWebView? {
+    if let web = view as? WKWebView { return web }
+    for sub in view.subviews {
+        if let web = findWebView(in: sub) { return web }
+    }
+    return nil
 }
 
 @_cdecl("klick_tunnel_start")
