@@ -120,8 +120,9 @@ jobs:
           path: |
             dist/klick-ios.ipa
             dist/klick-altstore.json
-            dist/ios-sim.png
+            dist/ios-sim*.png
             dist/ios-sim-service.log
+            dist/ios-sim-system.log
           if-no-files-found: ignore
 
   release:

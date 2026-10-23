@@ -37,9 +37,12 @@ if wait_for "данные:" 60; then
 else
     echo "FAIL движок службы не запустился за 60 с"; bad=1
 fi
-sleep 3
+# Снимок, когда страница точно успела загрузиться (и самопроверка, если она есть, закончилась).
 mkdir -p "$root/dist"
-xcrun simctl io "$device" screenshot "$root/dist/ios-sim.png" >/dev/null && echo "снимок: dist/ios-sim.png"
+sleep 3
+xcrun simctl io "$device" screenshot "$root/dist/ios-sim-start.png" >/dev/null 2>&1 || true
+[[ -n "${KLICK_TEST_SUB:-}" ]] && wait_for "самопроверка:" 180 || sleep 7
+xcrun simctl io "$device" screenshot "$root/dist/ios-sim.png" >/dev/null 2>&1 && echo "снимок: dist/ios-sim.png"
 if xcrun simctl spawn "$device" launchctl list | grep -q "$bundle_id"; then
     echo "ok   приложение работает"
 else
@@ -70,4 +73,6 @@ echo
 echo "журнал движка:"
 tail -40 "$log" 2>/dev/null || true
 cp "$log" "$root/dist/ios-sim-service.log" 2>/dev/null || true
+# Журнал системы о приложении (WebKit, Tauri, Swift) — на случай, если окно не нарисовалось.
+xcrun simctl spawn "$device" log show --last 5m --style compact --predicate 'process == "klick"' >"$root/dist/ios-sim-system.log" 2>/dev/null || true
 exit $bad
