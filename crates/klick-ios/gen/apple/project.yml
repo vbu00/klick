@@ -1,0 +1,136 @@
+# Проект Xcode для kl!ck на iOS: из него `xcodegen` собирает klick-ios.xcodeproj (scripts/ios/build.sh).
+# Основа — шаблон `tauri ios init` (Tauri 2.11); добавлены расширение VPN KlickTunnel, общая папка
+# App Group, ядро mihomo (core/build, библиотека Go) и ссылки klick://.
+# KLICK_VERSION и KLICK_BUILD задаёт scripts/ios/build.sh.
+name: klick-ios
+options:
+  bundleIdPrefix: app.klick
+  deploymentTarget:
+    iOS: "15.0"
+fileGroups: [../../src]
+configs:
+  debug: debug
+  release: release
+settingGroups:
+  app:
+    base:
+      PRODUCT_NAME: klick
+      PRODUCT_BUNDLE_IDENTIFIER: app.klick.ios
+  common:
+    base:
+      MARKETING_VERSION: ${KLICK_VERSION}
+      CURRENT_PROJECT_VERSION: ${KLICK_BUILD}
+      ENABLE_BITCODE: false
+      ARCHS: [arm64]
+      VALID_ARCHS: arm64
+      TARGETED_DEVICE_FAMILY: "1,2"
+      SWIFT_VERSION: "5.0"
+      # Ядро mihomo — статическая библиотека Go для устройства или симулятора.
+      KLICK_CORE_DIR: $(PROJECT_DIR)/../../core/build/$(PLATFORM_NAME)
+      OTHER_LDFLAGS: $(inherited) -L$(KLICK_CORE_DIR) -lklickcore -lresolv
+targets:
+  klick-ios_iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Shared
+      - path: Assets.xcassets
+      - path: Externals
+      - path: klick-ios_iOS
+      - path: assets
+        buildPhase: resources
+        type: folder
+      # Наборы правил, каталог сервисов и база стран (кладёт scripts/ios/build.sh).
+      - path: klick-resources
+        buildPhase: resources
+        type: folder
+      - path: LaunchScreen.storyboard
+    info:
+      path: klick-ios_iOS/Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck
+        LSRequiresIPhoneOS: true
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiredDeviceCapabilities: [arm64]
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        # Имя общей папки в этой сборке; подписчики переписывают его — см. Shared/AppGroup.swift.
+        KlickAppGroup: group.app.klick.ios
+        # Ссылки klick://add со страниц подписок открывают kl!ck.
+        CFBundleURLTypes:
+          - CFBundleURLName: app.klick.ios
+            CFBundleURLSchemes: [klick]
+    entitlements:
+      path: klick-ios_iOS/klick-ios_iOS.entitlements
+    scheme:
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
+    settings:
+      base:
+        LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+        EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
+        SWIFT_OBJC_BRIDGING_HEADER: klick-ios_iOS/Bridging.h
+      groups: [app, common]
+    dependencies:
+      - framework: libapp.a
+        embed: false
+      - target: KlickTunnel
+      - sdk: CoreGraphics.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: WebKit.framework
+      - sdk: NetworkExtension.framework
+    preBuildScripts:
+      - script: '"${SRCROOT}/../../../../ui/node_modules/.bin/tauri" ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}'
+        name: Build Rust Code
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
+          - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a
+
+  # Расширение VPN: в нём работает ядро, пока туннель включён, — и с закрытым приложением.
+  KlickTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: KlickTunnel
+      - path: Shared
+    info:
+      path: KlickTunnel/Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        KlickAppGroup: group.app.klick.ios
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: KlickTunnel/KlickTunnel.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: KlickTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: app.klick.ios.tunnel
+        SWIFT_OBJC_BRIDGING_HEADER: KlickTunnel/KlickCore.h
+        APPLICATION_EXTENSION_API_ONLY: true
+        DEAD_CODE_STRIPPING: true
+      groups: [common]
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework

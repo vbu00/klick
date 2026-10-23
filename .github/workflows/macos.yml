@@ -9,12 +9,12 @@
 # если выпуск с этим тегом уже есть — например, с установщиком для Windows, — пакет добавляется в него).
 name: macOS
 
-# Правки только документации и проверок Windows сборку на Mac не запускают.
+# Правки только документации, проверок Windows и сборки для iOS сборку на Mac не запускают.
 on:
   push:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml', 'crates/klick-ios/**', 'scripts/ios/**', '.github/workflows/ios.yml']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml', 'crates/klick-ios/**', 'scripts/ios/**', '.github/workflows/ios.yml']
   workflow_dispatch:
     inputs:
       sub:

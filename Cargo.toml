@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/klick-core", "crates/klick-proto", "crates/klick-service", "crates/klick-cli", "crates/klick-ui", "crates/klick-setup"]
+# iOS — своё рабочее пространство (Tauri для iOS собирается только на Mac): crates/klick-ios.
+exclude = ["crates/klick-ios"]
 
 [workspace.package]
 version = "0.5.1"
