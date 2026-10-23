@@ -11,7 +11,10 @@ func klickScanQr() -> UnsafeMutablePointer<CChar>? {
     let done = DispatchSemaphore(value: 0)
     var text: String?
     DispatchQueue.main.async {
-        guard let top = topController() else { return done.signal() }
+        guard let top = topController() else {
+            done.signal()
+            return
+        }
         let scanner = QRScanner { result in
             text = result
             done.signal()
