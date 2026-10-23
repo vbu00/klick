@@ -60,8 +60,8 @@ var (
 func start(home, cfg string, tunFd int) error {
 	mu.Lock()
 	defer mu.Unlock()
-	stop()
 	mc.SetHomeDir(home)
+	stop()
 	mc.SetConfig(cfg)
 	config = cfg
 	if tunFd >= 0 {
@@ -124,8 +124,10 @@ func stop() {
 	closeConnections()
 	route.ReCreateServer(&route.Config{})
 	executor.Shutdown()
-	// Пустой конфиг: серверы, правила и входы прежнего ядра закрываются и не держат память.
-	if empty, err := executor.ParseWithBytes([]byte("mode: direct\n")); err == nil {
+	// Пустой конфиг: серверы, правила и входы прежнего ядра закрываются и не держат память. Без
+	// запоминания выбора и подменных адресов: иначе ядро откроет cache.db в папке, общей с расширением, и
+	// займёт его до конца процесса.
+	if empty, err := executor.ParseWithBytes([]byte("mode: direct\nprofile: {store-selected: false, store-fake-ip: false}\n")); err == nil {
 		executor.ApplyConfig(empty, true)
 	}
 	// Папка ядра общая у приложения и расширения: копию применённого конфига убирает только ядро туннеля.

@@ -17,7 +17,7 @@ func TestStartStopAgain(t *testing.T) {
 	cfg := filepath.Join(home, tunnelConfig)
 	for round := 1; round <= 2; round++ {
 		port := freePort(t)
-		body := fmt.Sprintf("mode: rule\nexternal-controller: 127.0.0.1:%d\nsecret: s%d\nrules: [MATCH,DIRECT]\n", port, round)
+		body := fmt.Sprintf("mode: rule\nexternal-controller: 127.0.0.1:%d\nsecret: s%d\nrules: [\"MATCH,DIRECT\"]\n", port, round)
 		if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
