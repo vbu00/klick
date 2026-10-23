@@ -24,7 +24,7 @@ kl!ck для Windows, перенесённый на macOS, iPhone и iPad, пл�
 
 | | Windows | macOS | iPhone и iPad |
 |---|---|---|---|
-| **Скачать** | [`klick-x.y.z-x64-setup.exe`](https://github.com/limeflash/klick/releases/latest) | [`klick-macos.pkg`](https://github.com/limeflash/klick/releases/latest/download/klick-macos.pkg) | [`klick-ios.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) |
+| **Скачать** | [установщик `.exe`](https://github.com/limeflash/klick/releases/latest) | [пакет `.pkg`](https://github.com/limeflash/klick/releases/latest/download/klick-macos.pkg) | [приложение `.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) |
 | **Система** | Windows 10/11 x64 | macOS 12+, Apple Silicon и Intel | iOS 15+ |
 | **VPN держит** | служба Windows | служба launchd | системное расширение VPN |
 | **Kill Switch** | фильтры Windows (WFP) | брандмауэр pf | — |
