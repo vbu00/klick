@@ -53,7 +53,7 @@ const PROBE_URL_ALT: &str = "https://cp.cloudflare.com/generate_204";
 const LATENCY_TIMEOUT_MS: u32 = 8_000;
 const LATENCY_PARALLEL: usize = 6;
 
-pub enum Msg {
+pub(crate) enum Msg {
     Cmd(Command, oneshot::Sender<Result<Value, ErrorInfo>>),
     /// Что нужно проверке IP: сама проверка идёт вне очереди, чтобы не задерживать команды.
     IpPlan(oneshot::Sender<Plan>),
@@ -300,7 +300,11 @@ fn read_runtime(paths: &Paths) -> Option<Runtime> {
 }
 
 /// VPN был включён, и Windows с тех пор не перезагружалась: значит, упала служба.
+/// iOS: туннель работает, а приложение только открыли — подключиться к нему.
 fn should_restore(paths: &Paths) -> bool {
+    if cfg!(target_os = "ios") {
+        return sys::tun_up();
+    }
     read_runtime(paths).is_some_and(|rt| rt.connected && (boot_time() - rt.boot).abs() < 120)
 }
 
@@ -1348,6 +1352,13 @@ impl Engine {
             log_level: self.profile.core_log_level.clone(),
             core_exe: std::fs::canonicalize(&self.paths.core_exe).unwrap_or_else(|_| self.paths.core_exe.clone()).to_string_lossy().into_owned(),
         };
+        // iOS: туннель уже работает (приложение открыли снова, VPN включили в Настройках) — те же вход
+        // управления, пароль и порты: конфиг совпадёт с тем, что у ядра, и движок подключится к нему как есть.
+        #[cfg(target_os = "ios")]
+        let layout = match crate::ios::applied_controller(&self.paths.core_home).filter(|_| sys::tun_up()) {
+            Some((controller, secret, check_vpn_port, check_direct_port)) => CoreLayout { controller, secret, check_vpn_port, check_direct_port, ..layout },
+            None => layout,
+        };
         #[cfg(unix)]
         if !self.dns_overridden {
             let found = tokio::task::spawn_blocking(sys::system_dns_servers).await.unwrap_or_default();
@@ -1786,6 +1797,14 @@ impl Engine {
         let capture = self.running.as_ref().map(|r| r.capture).unwrap_or(Capture::Proxy);
         if let Some(r) = self.running.take() {
             r.abort_tasks();
+        }
+        // iOS: VPN выключили в Настройках или его место занял другой VPN — наперекор человеку не включаем.
+        if cfg!(target_os = "ios") && code == Some(0) {
+            self.guard = None;
+            self.since = None;
+            self.set_state(VpnState::Off, None);
+            self.save_runtime(false);
+            return;
         }
         if self.restarts < 3 {
             self.restarts += 1;
