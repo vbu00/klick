@@ -1,6 +1,7 @@
 #!/bin/bash
-# Свои серверы для проверки kl!ck в симуляторе: Hysteria2 и VLESS Reality на 127.0.0.1 (сервером
-# работает mihomo для Mac) и подписка с ними — http://127.0.0.1:24480/sub. Симулятор живёт в сети Mac,
+# Свои серверы для проверки kl!ck в симуляторе: Hysteria2 и VLESS Reality на 127.0.0.2 (сервером
+# работает mihomo для Mac) и подписка с ними — http://127.0.0.1:24480/sub. Не 127.0.0.1: сервер на нём
+# kl!ck считает заглушкой панели («лимит устройств»), а такую подписку — отказом. Симулятор живёт в сети Mac,
 # поэтому kl!ck в нём подключается к этим серверам по-настоящему: рукопожатие QUIC и Reality, а через
 # сервер — в интернет. Печатает ссылку подписки; серверы работают, пока не завершится CI.
 #   KLICK_TEST_SUB="$(scripts/ios/test-servers.sh)" scripts/ios/sim-test.sh dist/klick-ios-sim.app
@@ -9,6 +10,8 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$root/resources/core/mihomo"
 [[ -x "$core" ]] || "$root/scripts/macos/fetch-core.sh" >&2
 work="$(mktemp -d)"
+host=127.0.0.2
+ifconfig lo0 | grep -q "inet $host " || sudo ifconfig lo0 alias "$host" up
 
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=localhost \
     -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1
@@ -30,14 +33,14 @@ listeners:
   - name: hy2
     type: hysteria2
     port: 24443
-    listen: 127.0.0.1
+    listen: $host
     users: { ci: "$password" }
     certificate: $work/cert.pem
     private-key: $work/key.pem
   - name: vless
     type: vless
     port: 24444
-    listen: 127.0.0.1
+    listen: $host
     users: [{ username: ci, uuid: "$uuid", flow: xtls-rprx-vision }]
     reality-config:
       dest: www.apple.com:443
@@ -50,13 +53,13 @@ YAML
 nohup "$core" -d "$work" -f "$work/server.yaml" >"$work/server.log" 2>&1 &
 
 printf '%s\n' \
-    "hysteria2://$password@127.0.0.1:24443?insecure=1&sni=localhost#CI%20Hysteria2" \
-    "vless://$uuid@127.0.0.1:24444?encryption=none&security=reality&pbk=$public&sid=$short_id&sni=www.apple.com&fp=chrome&type=tcp&flow=xtls-rprx-vision#CI%20VLESS" \
+    "hysteria2://$password@$host:24443?insecure=1&sni=localhost#CI%20Hysteria2" \
+    "vless://$uuid@$host:24444?encryption=none&security=reality&pbk=$public&sid=$short_id&sni=www.apple.com&fp=chrome&type=tcp&flow=xtls-rprx-vision#CI%20VLESS" \
     >"$work/sub"
 (cd "$work" && nohup python3 -m http.server 24480 --bind 127.0.0.1 >/dev/null 2>&1 &)
 
 for _ in $(seq 1 50); do
-    if nc -z 127.0.0.1 24444 && nc -z 127.0.0.1 24480; then
+    if nc -z "$host" 24444 && nc -z 127.0.0.1 24480; then
         echo "http://127.0.0.1:24480/sub"
         exit 0
     fi
