@@ -5,6 +5,7 @@ Externals/
 *.xcodeproj/
 # Ресурсы kl!ck (наборы, каталог, база стран) кладёт scripts/ios/build.sh.
 klick-resources/
-# Info.plist обоих таргетов xcodegen пишет из project.yml (info.properties).
+# Info.plist и права обоих таргетов xcodegen пишет из project.yml (info.properties, entitlements.properties).
 klick-ios_iOS/Info.plist
 KlickTunnel/Info.plist
+*.entitlements

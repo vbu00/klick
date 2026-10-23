@@ -3,8 +3,9 @@
 # работает mihomo для Mac) и подписка с ними — http://127.0.0.1:24480/sub. Не 127.0.0.1: сервер на нём
 # kl!ck считает заглушкой панели («лимит устройств»), а такую подписку — отказом. Симулятор живёт в сети Mac,
 # поэтому kl!ck в нём подключается к этим серверам по-настоящему: рукопожатие QUIC и Reality, а через
-# сервер — в интернет. Печатает ссылку подписки; серверы работают, пока не завершится CI.
-#   KLICK_TEST_SUB="$(scripts/ios/test-servers.sh)" scripts/ios/sim-test.sh dist/klick-ios-sim.app
+# сервер — в интернет. Печатает ссылку подписки; серверы работают, пока не завершится CI. Вывод — в файл,
+# а не в $(…): подстановка ждала бы, пока закроют вывод все процессы, а серверы работают дальше.
+#   scripts/ios/test-servers.sh >sub.txt && KLICK_TEST_SUB="$(cat sub.txt)" scripts/ios/sim-test.sh …
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 core="$root/resources/core/mihomo"
@@ -50,16 +51,16 @@ listeners:
 mode: rule
 rules: ["MATCH,DIRECT"]
 YAML
-nohup "$core" -d "$work" -f "$work/server.yaml" >"$work/server.log" 2>&1 &
+nohup "$core" -d "$work" -f "$work/server.yaml" </dev/null >"$work/server.log" 2>&1 &
 
 printf '%s\n' \
     "hysteria2://$password@$host:24443?insecure=1&sni=localhost#CI%20Hysteria2" \
     "vless://$uuid@$host:24444?encryption=none&security=reality&pbk=$public&sid=$short_id&sni=www.apple.com&fp=chrome&type=tcp&flow=xtls-rprx-vision#CI%20VLESS" \
     >"$work/sub"
-(cd "$work" && nohup python3 -m http.server 24480 --bind 127.0.0.1 >/dev/null 2>&1 &)
+(cd "$work" && nohup python3 -m http.server 24480 --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &)
 
 for _ in $(seq 1 50); do
-    if nc -z "$host" 24444 && nc -z 127.0.0.1 24480; then
+    if nc -z -G 1 "$host" 24444 2>/dev/null && nc -z -G 1 127.0.0.1 24480 2>/dev/null; then
         echo "http://127.0.0.1:24480/sub"
         exit 0
     fi

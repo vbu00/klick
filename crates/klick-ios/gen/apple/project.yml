@@ -71,8 +71,13 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: app.klick.ios
             CFBundleURLSchemes: [klick]
+    # Файл прав пишет xcodegen из properties (без них он пишет пустой); по нему же scripts/ios/build.sh
+    # подписывает .ipa.
     entitlements:
       path: klick-ios_iOS/klick-ios_iOS.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.app.klick.ios]
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -121,8 +126,13 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    # Файл прав пишет xcodegen из properties (без них он пишет пустой); по нему же scripts/ios/build.sh
+    # подписывает .ipa.
     entitlements:
       path: KlickTunnel/KlickTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.app.klick.ios]
     settings:
       base:
         PRODUCT_NAME: KlickTunnel

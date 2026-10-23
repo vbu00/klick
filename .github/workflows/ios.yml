@@ -99,10 +99,12 @@ jobs:
       # kl!ck в симуляторе подключается к ним по-настоящему ядром mihomo, собранным для iOS.
       - name: Запуск в симуляторе
         if: ${{ !cancelled() }}
+        timeout-minutes: 15
         run: |
           sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
           if [ -z "$sub" ]; then
-            sub="$(scripts/ios/test-servers.sh)"
+            scripts/ios/test-servers.sh >"$RUNNER_TEMP/sub.txt"
+            sub="$(cat "$RUNNER_TEMP/sub.txt")"
             export KLICK_TEST_EXPECT="hysteria2 1/1;vless 1/1"
           fi
           KLICK_TEST_SUB="$sub" scripts/ios/sim-test.sh dist/klick-ios-sim.app
