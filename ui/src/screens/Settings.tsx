@@ -17,9 +17,6 @@ import type { AboutView, Appearance, ErrorInfo, ExitAction, KsProgramView, LogLi
 /** «Запускать с Windows»; на Mac — как называет это сама система. */
 const autostartTitle = isMac ? 'Открывать при входе в систему' : 'Запускать с Windows';
 
-/** На iOS «восстановить подключение» делает система: это Connect On Demand у сетевого расширения. */
-const restoreTitle = isIos ? 'Connect On Demand' : 'Восстанавливать подключение';
-
 type Sub = null | 'ks' | 'down' | 'theme' | 'log' | 'about';
 
 const REPO = 'https://github.com/vbu00/klick';
@@ -142,9 +139,9 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
         <Row title="Если сервер недоступен" sub={serverDown[settings.on_server_down].title} onClick={() => onSub('down')} chevron />
         <Row
           wrap
-          title={restoreTitle}
+          title="Восстанавливать подключение"
           sub={isIos ? 'Система сама включит VPN после перезагрузки и при сбое' : 'Если VPN был включён, после перезагрузки он включится сам'}
-          right={<Toggle label={restoreTitle} on={settings.restore_on_logon} onChange={(v) => void store.setPrefs({ restore_on_logon: v })} />}
+          right={<Toggle label="Восстанавливать подключение" on={settings.restore_on_logon} onChange={(v) => void store.setPrefs({ restore_on_logon: v })} />}
         />
       </div>
 
