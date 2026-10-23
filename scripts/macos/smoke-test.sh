@@ -167,6 +167,12 @@ cleanup() {
     [[ -n "${list_pid:-}" ]] && kill "$list_pid" 2>/dev/null
     [[ -n "${server_pid:-}" ]] && kill "$server_pid" 2>/dev/null
     [[ -x "$svc" ]] && "$svc" uninstall --wipe >/dev/null 2>&1
+    # Проверка удаления без службы прервалась: службы нет, а её ядра могли остаться.
+    if [[ -e "$work/klick-service.away" ]]; then
+        launchctl bootout system/app.klick.service 2>/dev/null
+        pkill -9 -f '^/Library/PrivilegedHelperTools/klick/' 2>/dev/null
+        rm -rf /Library/PrivilegedHelperTools/klick /Library/LaunchDaemons/app.klick.service.plist
+    fi
     if [[ -n "${user_service:-}" ]]; then
         networksetup -setdnsservers "$user_service" ${user_dns:-Empty}
         networksetup -setwebproxystate "$user_service" off
@@ -557,9 +563,12 @@ cli connect >/dev/null
 check "VPN подключён" wait_for 25 state_is connected
 check "DNS kl!ck стоит" wait_for 10 dns_ours
 mv "$svc" "$work/klick-service.away"
-kill -9 "$(launchctl print system/app.klick.service | awk '/pid =/ {print $3}')" 2>/dev/null
+svc_pid="$(launchctl print system/app.klick.service | awk '/pid =/ {print $3}')"
+check "служба убита" kill -9 "$svc_pid"
 sleep 2
-check "служба упала, DNS kl!ck остался" dns_ours
+# Иначе uninstall.sh остановит живую службу штатно, и запасной путь не проверится.
+check "службы нет, ядро без неё осталось" bash -c "! kill -0 '$svc_pid' 2>/dev/null && pgrep -f '^/Library/PrivilegedHelperTools/klick/mihomo' >/dev/null"
+check "DNS kl!ck остался" dns_ours
 "$(dirname "${BASH_SOURCE[0]}")/uninstall.sh" >/dev/null 2>&1
 check "служба убрана из launchd" bash -c '! launchctl print system/app.klick.service'
 check "ядра упавшей службы остановлены" bash -c '! pgrep -f "^/Library/PrivilegedHelperTools/klick/"'

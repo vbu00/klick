@@ -282,7 +282,9 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     if (!id) return;
     try {
       const list = await transport.call<ServerView[]>('servers');
-      dispatch({ t: 'servers', id, list });
+      // `servers` отдаёт список активного подключения: если его сменили, пока шёл запрос, — это уже чужой список.
+      const st = await transport.call<StateView>('status');
+      if (st.connection?.id === id) dispatch({ t: 'servers', id, list });
     } catch {
       /* подписка без серверов — список останется пустым */
     }
@@ -501,7 +503,9 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
           return;
         }
         // Итоги — в состоянии подключения (probe_last) и у серверов: служба пришлёт их и сама, но ответ может обогнать события.
-        const [st, list] = await Promise.all([transport.call<StateView>('status').catch(() => null), transport.call<ServerView[]>('servers').catch(() => null)]);
+        // Статус — после списка: если подключение сменили до или во время запроса, статус это покажет.
+        const list = await transport.call<ServerView[]>('servers').catch(() => null);
+        const st = await transport.call<StateView>('status').catch(() => null);
         if (st) setState(st);
         // Пока шла проверка, выбрали другое подключение — `servers` вернул уже его список.
         if (list && st?.connection?.id === id) {

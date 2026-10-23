@@ -947,8 +947,10 @@ impl Engine {
             if let Some(api) = self.api() {
                 // Hysteria2 и TUIC держат одну QUIC-сессию с сервером на все соединения; после смены сети
                 // она умирает молча, и всё висит до её тайм-аута (~30 с). Перечитать конфиг — новая сессия сразу
-                // (соединения при этом закрываются так же).
-                if matches!(self.active_kind(&api).await.as_deref(), Some("hysteria2" | "hysteria" | "tuic")) {
+                // (соединения при этом закрываются так же). Страж уже перепроверяет сервер — перечитает он сам,
+                // второй раз подряд не надо.
+                let guard_calm = matches!(self.guard.as_ref().map(Guard::health), Some(Health::Healthy | Health::Down));
+                if guard_calm && matches!(self.active_kind(&api).await.as_deref(), Some("hysteria2" | "hysteria" | "tuic")) {
                     tracing::info!("сеть сменилась: сервер на QUIC — перечитываю конфиг ради новой сессии");
                     self.reload_rules().await;
                 } else {
