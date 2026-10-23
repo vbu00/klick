@@ -9,9 +9,50 @@
 
 Подписки Remnawave · Marzban · 3x-ui · VLESS/Reality · Hysteria2 · TUIC · Trojan · Shadowsocks · WireGuard
 
-[Скачать](https://github.com/limeflash/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [iOS](#ios) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
+[Скачать](https://github.com/limeflash/klick/releases/latest) · [Что в этой сборке](#что-в-этой-сборке) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [iOS](#ios) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
 </div>
+
+---
+
+## Что в этой сборке
+
+Это [limeflash/klick](https://github.com/limeflash/klick) — форк [vbu00/klick](https://github.com/vbu00/klick):
+kl!ck для Windows, перенесённый на macOS, iPhone и iPad, плюс исправления стабильности. Сделанное здесь
+уходит в vbu00/klick пулл-реквестами: порт на macOS уже там, версия 0.5 — в
+[vbu00/klick#12](https://github.com/vbu00/klick/pull/12), iOS пока есть только здесь.
+
+| | Windows | macOS | iPhone и iPad |
+|---|---|---|---|
+| **Скачать** | [`klick-x.y.z-x64-setup.exe`](https://github.com/limeflash/klick/releases/latest) | [`klick-macos.pkg`](https://github.com/limeflash/klick/releases/latest/download/klick-macos.pkg) | [`klick-ios.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) |
+| **Система** | Windows 10/11 x64 | macOS 12+, Apple Silicon и Intel | iOS 15+ |
+| **VPN держит** | служба Windows | служба launchd | системное расширение VPN |
+| **Kill Switch** | фильтры Windows (WFP) | брандмауэр pf | — |
+| **Как поставить** | [установщик](#установка) | [из Терминала](#macos) | [подписать и поставить](https://github.com/limeflash/klick/blob/ios/docs/ios-install.md) |
+
+**iPhone и iPad — новое.** Тот же kl!ck: подписки, серверы по странам, «VPN для всего / для выбранного»,
+проверка серверов, темы. VPN держит системное расширение, поэтому он работает и с закрытым kl!ck,
+включается в Настройках → VPN и, если попросить, сам поднимается после перезагрузки. Ядро mihomo собрано из
+исходников прямо в расширение и настроено под лимит памяти iOS. Подписку можно добавить по QR-коду — камерой или из фото. Есть
+источник для AltStore, SideStore, Feather и ESign: kl!ck появляется в их списке и обновляется оттуда.
+
+**macOS.** То же окно и те же функции, что на Windows: служба, TUN и системный прокси, Kill Switch, ссылки
+`klick://`, обновление пакетом поверх. DNS и прокси возвращаются как были — при смене «Размещения»,
+после сбоя и при удалении.
+
+**VPN не переподключается сам (0.5).** Одна неудачная проверка сервера больше ничего не трогает: kl!ck
+перепроверяет молча и переподключает, только если связи нет 20 секунд. Смена сети — только когда меняется
+выход в интернет, после сна связь проверяется сразу. Добавили сайт или программу в список — загрузки и
+звонки не рвутся. Смена сервера срабатывает сразу. Отказ панели или пустая подписка не стирают рабочие
+серверы и не пускают трафик мимо VPN.
+
+**Проверка серверов из своей сети (0.5).** Какие серверы работают, какие провайдер блокирует, а какие
+«замораживает» ТСПУ (сервер отвечает, а загрузка встаёт), подменяет ли он DNS — и на какой сервер перейти.
+Итоги можно отправлять в панель Mistgate: по согласию, через VPN, без IP и имени устройства.
+
+**Каждое изменение проверяет CI** на Windows Server 2022/2025, macOS 15 и в симуляторе iOS: служба,
+установщик, Kill Switch, страж под сбоями сети, конфиги на настоящем ядре mihomo, подключение через
+серверы Hysteria2 и VLESS Reality.
 
 ---
 
@@ -174,8 +215,10 @@ kl!ck для iPhone и iPad (iOS 15+) — то же окно, подписки, 
 С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для AltStore, SideStore,
 Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
 
-Как поставить — [docs/ios-install.md](docs/ios-install.md); как устроен порт и чего на iOS нет
-(Kill Switch по программам, системный прокси) — [docs/ios-port.md](docs/ios-port.md).
+Как поставить — [docs/ios-install.md](https://github.com/limeflash/klick/blob/ios/docs/ios-install.md);
+как устроен порт и чего на iOS нет (Kill Switch по программам, системный прокси) —
+[docs/ios-port.md](https://github.com/limeflash/klick/blob/ios/docs/ios-port.md). Код iOS — в ветке
+[`ios`](https://github.com/limeflash/klick/tree/ios).
 
 ## Сборка
 
@@ -190,7 +233,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 
 ```sh
 scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
-scripts/ios/build.sh               # dist/klick-ios.ipa (ещё Xcode, Go, brew install xcodegen)
+scripts/ios/build.sh               # dist/klick-ios.ipa (ветка ios; ещё Xcode, Go, brew install xcodegen)
 ```
 
 Ядро mihomo и база стран в git не хранятся: `build.ps1` скачивает
