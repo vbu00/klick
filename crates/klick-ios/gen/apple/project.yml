@@ -66,6 +66,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Камера нужна, чтобы отсканировать QR-код подписки.
         # Имя общей папки в этой сборке; подписчики переписывают его — см. Shared/AppGroup.swift.
         KlickAppGroup: group.app.klick.ios
         # Ссылки klick://add со страниц подписок открывают kl!ck.

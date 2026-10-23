@@ -51,6 +51,7 @@ export function createTauriTransport(): Transport {
     hideTray: () => (isIos ? undefined : void invoke('hide_tray')),
     fitTray: (height) => (isIos ? undefined : void invoke('fit_tray', { height })),
     clipboardText: () => invoke<string>('clipboard_text'),
+    scanQr: async () => (isIos ? invoke<string | null>('scan_qr') : null),
     repairService: async () => (isIos ? undefined : invoke('repair_service')),
     exit: async (clearProxy) => (isIos ? undefined : invoke('app_exit', { clearProxy })),
     // iOS: окно одно, на экране оно, пока страница видна.

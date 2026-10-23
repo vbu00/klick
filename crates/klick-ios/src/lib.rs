@@ -40,6 +40,17 @@ fn clipboard_text() -> String {
     host::clipboard()
 }
 
+/// «Сканировать QR-код» на экране «Добавить»: камера или фото. `None` — закрыли без кода. QR со
+/// страницы подписки бывает ссылкой klick://add — в поле нужна сама подписка.
+#[tauri::command]
+async fn scan_qr() -> Option<String> {
+    let text = tauri::async_runtime::spawn_blocking(host::scan_qr).await.ok().flatten()?;
+    Some(match klick_core::deeplink::parse(&text, false) {
+        Ok(Some(link)) => link.url,
+        _ => text,
+    })
+}
+
 /// Страница сменила тему: цвет окна — фону WKWebView и окна iOS (`#rrggbb`).
 #[tauri::command]
 fn set_background(color: String) {
@@ -138,7 +149,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(deeplink::Pending::default())
-        .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, set_background, deeplink::take_pending_link])
+        .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, scan_qr, set_background, deeplink::take_pending_link])
         .setup(|app| {
             klick_service::ios::init(host::host());
             // Не на главном потоке: Swift ждёт ответов NetworkExtension, а они приходят через главный поток.

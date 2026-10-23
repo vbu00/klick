@@ -8,6 +8,7 @@ import home from '../assets/icons/home.svg';
 import info from '../assets/icons/info.svg';
 import plus from '../assets/icons/plus.svg';
 import power from '../assets/icons/power.svg';
+import qr from '../assets/icons/qr.svg';
 import refresh from '../assets/icons/refresh.svg';
 import rules from '../assets/icons/rules.svg';
 import server from '../assets/icons/server.svg';
@@ -17,7 +18,7 @@ import upload from '../assets/icons/upload.svg';
 import winClose from '../assets/icons/win-close.svg';
 import winMin from '../assets/icons/win-min.svg';
 
-const ICONS = { chevron, copy, dots, download, globe, home, info, plus, power, refresh, rules, server, settings, trash, upload, winClose, winMin };
+const ICONS = { chevron, copy, dots, download, globe, home, info, plus, power, qr, refresh, rules, server, settings, trash, upload, winClose, winMin };
 export type IconName = keyof typeof ICONS;
 
 /** Иконка из макета: SVG как маска, цвет берётся из currentColor. */

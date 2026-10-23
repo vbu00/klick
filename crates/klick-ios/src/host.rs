@@ -11,6 +11,7 @@ extern "C" {
     fn klick_device_id() -> *mut c_char;
     fn klick_clipboard() -> *mut c_char;
     fn klick_set_background(red: f64, green: f64, blue: f64);
+    fn klick_scan_qr() -> *mut c_char;
     fn klick_tunnel_start() -> *mut c_char;
     fn klick_tunnel_reload() -> *mut c_char;
     fn klick_tunnel_stop();
@@ -48,6 +49,12 @@ pub fn set_background(color: &str) {
     }
     let part = |shift: u32| f64::from((rgb >> shift) & 0xff) / 255.0;
     unsafe { klick_set_background(part(16), part(8), part(0)) }
+}
+
+/// Сканер QR-кода (`gen/apple/Sources/klick-ios/QRScanner.swift`): ждёт, пока человек отсканирует
+/// или закроет. `None` — закрыли без кода. Не с главного потока.
+pub fn scan_qr() -> Option<String> {
+    take(unsafe { klick_scan_qr() })
 }
 
 pub fn clipboard() -> String {

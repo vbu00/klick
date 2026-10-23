@@ -22,6 +22,8 @@ export interface Transport {
   fitTray(height: number): void;
   /** Текст из буфера обмена: «Вставить из буфера». */
   clipboardText(): Promise<string>;
+  /** iOS: QR-код подписки — камерой или из фото; null — закрыли без кода. */
+  scanQr(): Promise<string | null>;
   /** macOS: переустановить и запустить службу (спросит пароль администратора); `cancelled` — пароль не ввели. */
   repairService(): Promise<void>;
   /** Закрыть kl!ck; `clearProxy` — VPN выключили, снять и системный прокси. */
