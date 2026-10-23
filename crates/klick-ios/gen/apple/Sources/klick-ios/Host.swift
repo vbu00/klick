@@ -22,12 +22,16 @@ func klickClipboard() -> UnsafeMutablePointer<CChar>? {
     onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
 }
 
-/// Окно на весь экран: без автоматических отступов прокрутки WKWebView. Вырез, строку состояния и
+/// Окно на весь экран: WKWebView по размеру окна и без автоматических отступов прокрутки. Вырез, строку состояния и
 /// полоску «домой» обходит сама страница (`env(safe-area-inset-*)`), иначе внизу оставалась полоса.
 @_cdecl("klick_setup_webview")
 func klickSetupWebview(_ webview: UnsafeMutableRawPointer) {
     let view = Unmanaged<WKWebView>.fromOpaque(webview).takeUnretainedValue()
     view.scrollView.contentInsetAdjustmentBehavior = .never
+    // WKWebView создаётся по размеру корневого вида без строки состояния — растянуть на всё окно.
+    if let window = view.window, let parent = view.superview {
+        view.frame = parent.convert(window.bounds, from: window)
+    }
 }
 
 @_cdecl("klick_tunnel_start")
