@@ -10,7 +10,7 @@ extern "C" {
     fn klick_group_dir() -> *mut c_char;
     fn klick_device_id() -> *mut c_char;
     fn klick_clipboard() -> *mut c_char;
-    fn klick_full_screen();
+    fn klick_set_background(red: f64, green: f64, blue: f64);
     fn klick_tunnel_start() -> *mut c_char;
     fn klick_tunnel_reload() -> *mut c_char;
     fn klick_tunnel_stop();
@@ -39,9 +39,15 @@ pub fn group_dir() -> Option<PathBuf> {
     take(unsafe { klick_group_dir() }).map(PathBuf::from)
 }
 
-/// Окно на весь экран (WKWebView по размеру окна). Swift делает это на главном потоке, звать можно отовсюду.
-pub fn full_screen() {
-    unsafe { klick_full_screen() }
+/// Цвет окна (`#rrggbb`) — фону WKWebView и окна iOS.
+pub fn set_background(color: &str) {
+    let hex = color.trim_start_matches('#');
+    let Ok(rgb) = u32::from_str_radix(hex, 16) else { return };
+    if hex.len() != 6 {
+        return;
+    }
+    let part = |shift: u32| f64::from((rgb >> shift) & 0xff) / 255.0;
+    unsafe { klick_set_background(part(16), part(8), part(0)) }
 }
 
 pub fn clipboard() -> String {

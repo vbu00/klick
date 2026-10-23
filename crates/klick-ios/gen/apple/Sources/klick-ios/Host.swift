@@ -22,22 +22,20 @@ func klickClipboard() -> UnsafeMutablePointer<CChar>? {
     onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
 }
 
-/// Окно на весь экран: WKWebView по размеру окна и без автоматических отступов прокрутки. Вырез, строку
-/// состояния и полоску «домой» обходит сама страница (`env(safe-area-inset-*)`), иначе внизу оставалась
-/// полоса. Можно звать с любого потока: работа — на главном.
-@_cdecl("klick_full_screen")
-func klickFullScreen() {
+/// Цвет окна kl!ck — от страницы, при каждой смене темы. Им закрашены WKWebView и окно: WebKit не рисует
+/// полосу высотой со строку состояния внизу экрана, и там был виден тёмный фон из конфига.
+/// Звать можно с любого потока.
+@_cdecl("klick_set_background")
+func klickSetBackground(_ red: Double, _ green: Double, _ blue: Double) {
     DispatchQueue.main.async {
+        let color = UIColor(red: red, green: green, blue: blue, alpha: 1)
         for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
             for window in scene.windows {
-                guard let view = findWebView(in: window), let parent = view.superview else { continue }
-                let before = view.frame
-                view.scrollView.contentInsetAdjustmentBehavior = .never
-                view.frame = parent.convert(window.bounds, from: window)
-                // Под страницей WebKit красит цветом окна (тёмным) — пусть красит фоном самой страницы,
-                // светлым или тёмным по теме.
-                view.underPageBackgroundColor = nil
-                NSLog("kl!ck: окно %@, WebView %@ → %@", NSCoder.string(for: window.bounds), NSCoder.string(for: before), NSCoder.string(for: view.frame))
+                window.backgroundColor = color
+                guard let view = findWebView(in: window) else { continue }
+                view.backgroundColor = color
+                view.scrollView.backgroundColor = color
+                view.underPageBackgroundColor = color
             }
         }
     }

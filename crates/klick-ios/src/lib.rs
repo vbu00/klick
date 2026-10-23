@@ -40,6 +40,12 @@ fn clipboard_text() -> String {
     host::clipboard()
 }
 
+/// Страница сменила тему: цвет окна — фону WKWebView и окна iOS (`#rrggbb`).
+#[tauri::command]
+fn set_background(color: String) {
+    host::set_background(&color);
+}
+
 /// Для `deeplink.rs`: на iOS главное окно и так на экране.
 fn show_main(_app: &AppHandle) {}
 
@@ -132,13 +138,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(deeplink::Pending::default())
-        .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, deeplink::take_pending_link])
-        // Окно на весь экран — когда страница загрузилась и WKWebView точно есть в окне.
-        .on_page_load(|_, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Finished {
-                host::full_screen();
-            }
-        })
+        .invoke_handler(tauri::generate_handler![service_call, service_up, clipboard_text, set_background, deeplink::take_pending_link])
         .setup(|app| {
             klick_service::ios::init(host::host());
             // Не на главном потоке: Swift ждёт ответов NetworkExtension, а они приходят через главный поток.

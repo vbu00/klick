@@ -80,5 +80,4 @@ cp "$log" "$root/dist/ios-sim-service.log" 2>/dev/null || true
 find "$HOME/Library/Logs/DiagnosticReports" -name 'klick*' -newer "$app" -exec cp {} "$root/dist/" \; 2>/dev/null || true
 # Журнал системы о приложении (WebKit, Tauri, Swift) — на случай, если окно не нарисовалось.
 xcrun simctl spawn "$device" log show --last 5m --style compact --predicate 'process == "klick"' >"$root/dist/ios-sim-system.log" 2>/dev/null || true
-grep 'kl!ck:' "$root/dist/ios-sim-system.log" | tail -3 || true
 exit $bad
