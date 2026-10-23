@@ -8,7 +8,12 @@ set -euo pipefail
 ipa="${1:?путь к .ipa}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 repo="${GITHUB_REPOSITORY:-limeflash/klick}"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
+# Версии — из самого .ipa: AltStore и SideStore сверяют их с источником.
+plist="$(mktemp)"
+trap 'rm -f "$plist"' EXIT
+unzip -p "$ipa" 'Payload/*.app/Info.plist' >"$plist"
+version="$(plutil -extract CFBundleShortVersionString raw "$plist")"
+build="$(plutil -extract CFBundleVersion raw "$plist")"
 size="$(wc -c <"$ipa" | tr -d ' ')"
 sha="$(shasum -a 256 "$ipa" | cut -d' ' -f1)"
 date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -19,7 +24,7 @@ notes="kl!ck $version для iPhone и iPad."
 
 mkdir -p "$root/dist"
 jq -n \
-    --arg version "$version" --arg date "$date" --arg url "$url" --arg icon "$icon" --arg about "$about" \
+    --arg version "$version" --arg build "$build" --arg date "$date" --arg url "$url" --arg icon "$icon" --arg about "$about" \
     --arg notes "$notes" --arg sha "$sha" --arg repo "$repo" --argjson size "$size" '
 {
   name: "kl!ck",
@@ -42,7 +47,7 @@ jq -n \
     screenshots: [],
     versions: [{
       version: $version,
-      buildVersion: "1",
+      buildVersion: $build,
       date: $date,
       localizedDescription: $notes,
       downloadURL: $url,
