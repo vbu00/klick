@@ -4,9 +4,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { isMac } from './platform';
+import { isIos, isMac } from './platform';
 import type { Transport } from './transport';
 import type { KEvent, PendingLink } from './types';
+
+/** iOS: Rust-часть знает только `service_call`, `service_up`, `clipboard_text`, `take_pending_link` и opener —
+ *  остальное ничего не делает, а не падает. */
+const none = () => undefined;
 
 /** Окно внутри Tauri: команды и события идут через Rust-часть к службе. */
 export function createTauriTransport(): Transport {
@@ -22,7 +26,7 @@ export function createTauriTransport(): Transport {
   };
   return {
     kind: 'tauri',
-    window: win.label === 'tray' ? 'tray' : 'main',
+    window: !isIos && win.label === 'tray' ? 'tray' : 'main',
     call: <T>(cmd: string, args?: unknown) => invoke<T>('service_call', { request: args === undefined ? { cmd } : { cmd, args } }),
     onEvent: (cb) => subscribe<KEvent>('klick://event', cb),
     onService: (cb) => {
@@ -30,11 +34,12 @@ export function createTauriTransport(): Transport {
       return subscribe<{ up: boolean }>('klick://service', (p) => cb(p.up));
     },
     win: {
-      minimize: () => void win.minimize(),
+      minimize: () => (isIos ? undefined : void win.minimize()),
       // Через Rust: заодно перестаёт рисоваться страница скрытого окна.
-      hide: () => void invoke('hide_self'),
+      hide: () => (isIos ? undefined : void invoke('hide_self')),
     },
     pickExe: async () => {
+      if (isIos) return null;
       // macOS: программа — пакет .app, по умолчанию из папки «Программы».
       const path = isMac
         ? await open({ title: 'Выберите программу', multiple: false, directory: false, defaultPath: '/Applications', filters: [{ name: 'Программы', extensions: ['app'] }] })
@@ -42,21 +47,22 @@ export function createTauriTransport(): Transport {
       return typeof path === 'string' ? path : null;
     },
     openUrl: (url) => openUrl(url),
-    openMain: (target) => void invoke('open_main', { target: target ?? null }),
-    hideTray: () => void invoke('hide_tray'),
-    fitTray: (height) => void invoke('fit_tray', { height }),
+    openMain: (target) => (isIos ? undefined : void invoke('open_main', { target: target ?? null })),
+    hideTray: () => (isIos ? undefined : void invoke('hide_tray')),
+    fitTray: (height) => (isIos ? undefined : void invoke('fit_tray', { height })),
     clipboardText: () => invoke<string>('clipboard_text'),
-    repairService: () => invoke('repair_service'),
-    exit: (clearProxy) => invoke('app_exit', { clearProxy }),
-    isActive: async () => (await win.isVisible()) && (await win.isFocused()) && !(await win.isMinimized()),
-    notify: (title, text, target) => invoke('notify', { title, text, target: target ?? null }),
-    onNavigate: (cb) => subscribe<string>('klick://navigate', cb),
-    onExitRequest: (cb) => subscribe<null>('klick://exit-request', () => cb()),
+    repairService: async () => (isIos ? undefined : invoke('repair_service')),
+    exit: async (clearProxy) => (isIos ? undefined : invoke('app_exit', { clearProxy })),
+    // iOS: окно одно, на экране оно, пока страница видна.
+    isActive: async () => (isIos ? !document.hidden : (await win.isVisible()) && (await win.isFocused()) && !(await win.isMinimized())),
+    notify: async (title, text, target) => (isIos ? undefined : invoke('notify', { title, text, target: target ?? null })),
+    onNavigate: (cb) => (isIos ? none : subscribe<string>('klick://navigate', cb)),
+    onExitRequest: (cb) => (isIos ? none : subscribe<null>('klick://exit-request', () => cb())),
     takePendingLink: () => invoke<PendingLink | null>('take_pending_link'),
     onAddLink: (cb) => subscribe<null>('klick://add-link', () => cb()),
     autostart: {
-      get: () => isEnabled(),
-      set: (on) => (on ? enable() : disable()),
+      get: async () => (isIos ? false : isEnabled()),
+      set: async (on) => (isIos ? undefined : on ? enable() : disable()),
     },
   };
 }

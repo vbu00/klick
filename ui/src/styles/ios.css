@@ -1,0 +1,65 @@
+/* iOS: то же окно, но во весь экран телефона и по центру на iPad. Всё — под `body.os-ios` (класс ставит main.tsx),
+   Windows и macOS эти правила не видят. Вырез и полоска «домой» — через env(safe-area-inset-*): нужен
+   `viewport-fit=cover` в index.html. */
+
+body.os-ios {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  /* Без задержки и увеличения по двойному касанию. */
+  touch-action: manipulation;
+}
+/* По краям от колонки на iPad — цвет страницы. */
+body.os-ios.in-tauri { background: var(--page); }
+/* `user-select: none` у body в WebKit мешает печатать в полях; шрифт меньше 16px заставил бы iOS увеличивать страницу при фокусе. */
+body.os-ios input,
+body.os-ios textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  font-size: 16px;
+}
+
+/* Окно: весь экран; на iPad и в ландшафте — колонка до 560px по центру. */
+body.os-ios.in-tauri .window {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  height: 100vh;
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+}
+@media (min-width: 600px) {
+  body.os-ios.in-tauri .window { border-inline: 1px solid var(--line); }
+}
+/* Превью в браузере (`?os=ios`): рамка размером с телефон. */
+body.os-ios .preview .window {
+  width: min(390px, calc(100vw - 32px));
+  height: min(844px, calc(100dvh - 120px));
+}
+
+/* Прокрутка внутри экранов; низ — под нижнюю панель и полоску «домой». */
+body.os-ios .content {
+  padding-bottom: calc(82px + env(safe-area-inset-bottom));
+  overscroll-behavior-y: contain;
+}
+body.os-ios .nav { bottom: calc(8px + env(safe-area-inset-bottom)); }
+body.os-ios .nav-fade { height: calc(100px + env(safe-area-inset-bottom)); }
+body.os-ios .toasts { bottom: calc(82px + env(safe-area-inset-bottom)); }
+body.os-ios .offline { top: calc(44px + env(safe-area-inset-top)); }
+
+/* Листы: поля под полоску «домой», высота — не больше экрана. */
+body.os-ios .sheet:not(.tall) { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+body.os-ios .sheet.tall { height: min(612px, calc(100dvh - env(safe-area-inset-top) - 28px)); }
+body.os-ios .sheet-foot { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+body.os-ios .ax-foot { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+
+/* Палец: зона нажатия мелких кнопок — не меньше 44pt, вид тот же. */
+body.os-ios :is(.info-btn, .icon-x, .cx-x, .sheet-close, .ax-close, .menu-btn, .back, .pill-btn, .copy-chip, .cx-chip, .cx-pill, .sec-act) { position: relative; }
+body.os-ios :is(.info-btn, .icon-x, .cx-x, .sheet-close, .ax-close, .menu-btn, .back, .pill-btn, .copy-chip, .cx-chip, .cx-pill, .sec-act)::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+body.os-ios .toggle::after { content: ''; position: absolute; inset: -9px -4px; }
+body.os-ios .pchip { height: 36px; }
+body.os-ios .menu button { height: 44px; }

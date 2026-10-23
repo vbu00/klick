@@ -13,6 +13,7 @@ import { ModeInfo } from '../components/ModeInfo';
 import { ProbeCard } from '../components/ProbeCard';
 import { failureReason, routeName, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget, siteRule, siteTarget, type AppRow, type SiteRow } from '../lib/live';
+import { isIos } from '../lib/platform';
 import { defaultRoute, plural, ruleTitle, unicodeDomain } from '../lib/rules';
 import { useStore, useVisible } from '../lib/store';
 import type { Transport } from '../lib/transport';
@@ -131,7 +132,7 @@ function Main({
   const count = (kinds: Target['kind'][]) => list.filter((r) => kinds.includes(r.target.kind)).length;
   const parts = [
     [count(['service']), ['сервис', 'сервиса', 'сервисов']],
-    [count(['program']), ['программа', 'программы', 'программ']],
+    [isIos ? 0 : count(['program']), ['программа', 'программы', 'программ']],
     [count(['domain', 'ip']), ['сайт', 'сайта', 'сайтов']],
   ] as const;
   const summary = parts.filter(([n]) => n > 0).map(([n, forms]) => plural(n, [...forms] as [string, string, string]));
@@ -141,28 +142,33 @@ function Main({
     <>
       <div className="screen-title xl">Соединение</div>
 
-      <div className="cx-head">
-        <span>Режим</span>
-        <button className="info-btn" aria-label="Как это работает" title="Как это работает" onClick={onModeInfo}>
-          <Icon name="info" size={16} />
-        </button>
-      </div>
-      <Seg
-        className="cx-seg"
-        value={mode}
-        options={[
-          ['tun', 'VPN (TUN)'],
-          ['sys_proxy', 'Системный прокси'],
-        ]}
-        onChange={(m) => void store.setMode(m)}
-      />
-      <div className="cx-desc">
-        {mode === 'tun' ? 'Все программы, включая игры и UDP.' : 'Браузеры и программы, которые используют системный прокси.'}
-        {isRunning ? ' Смена режима переподключит VPN на пару секунд.' : ''}
-        {mode === 'sys_proxy' && settings?.kill_switch.enabled && settings.kill_switch.programs.some((p) => p.enabled)
-          ? ' Программы из Kill Switch, которые не используют прокси, останутся без сети — для них нужен VPN (TUN).'
-          : ''}
-      </div>
+      {/* iOS: только VPN, режима «Системный прокси» нет. */}
+      {isIos ? null : (
+        <>
+          <div className="cx-head">
+            <span>Режим</span>
+            <button className="info-btn" aria-label="Как это работает" title="Как это работает" onClick={onModeInfo}>
+              <Icon name="info" size={16} />
+            </button>
+          </div>
+          <Seg
+            className="cx-seg"
+            value={mode}
+            options={[
+              ['tun', 'VPN (TUN)'],
+              ['sys_proxy', 'Системный прокси'],
+            ]}
+            onChange={(m) => void store.setMode(m)}
+          />
+          <div className="cx-desc">
+            {mode === 'tun' ? 'Все программы, включая игры и UDP.' : 'Браузеры и программы, которые используют системный прокси.'}
+            {isRunning ? ' Смена режима переподключит VPN на пару секунд.' : ''}
+            {mode === 'sys_proxy' && settings?.kill_switch.enabled && settings.kill_switch.programs.some((p) => p.enabled)
+              ? ' Программы из Kill Switch, которые не используют прокси, останутся без сети — для них нужен VPN (TUN).'
+              : ''}
+          </div>
+        </>
+      )}
 
       <div className="cx-head">
         <span>Куда направлять</span>
@@ -194,7 +200,7 @@ function Main({
       <button className="cx-card cx-list" onClick={() => onSub('list')}>
         <span className="grow">
           <span className="cx-list-title">{verb} · мой список</span>
-          <span className="cx-list-sum">{list.length ? summary.join(' · ') : 'Пока пусто — добавьте сервис, программу или сайт'}</span>
+          <span className="cx-list-sum">{list.length ? summary.join(' · ') : (isIos ? 'Пока пусто — добавьте сервис или сайт' : 'Пока пусто — добавьте сервис, программу или сайт')}</span>
           {list.length ? (
             <span className="cx-stack">
               {list.slice(0, 6).map((r, i) => (
@@ -254,6 +260,13 @@ function Preset({ title, desc, on, onChange }: { title: string; desc: string; on
 }
 
 function LiveSummary({ apps, running, onOpen }: { apps: AppRow[]; running: boolean; onOpen: () => void }) {
+  // iOS: вместо программ — самые активные сайты.
+  const rows = isIos
+    ? apps
+        .flatMap((a) => a.sites)
+        .sort((x, y) => y.bytes - x.bytes)
+        .map((s) => ({ key: s.host, name: s.host, conns: s.conns, vpnConns: s.vpn ? s.conns : 0, bytes: s.bytes }))
+    : apps;
   const total = apps.reduce((a, x) => a + x.conns, 0);
   const vpn = apps.reduce((a, x) => a + x.vpnConns, 0);
   const pct = total ? (vpn / total) * 100 : 0;
@@ -262,7 +275,7 @@ function LiveSummary({ apps, running, onOpen }: { apps: AppRow[]; running: boole
       <span className="cx-live-top">
         <span className="cx-live-count">
           <b>{plural(total, ['соединение', 'соединения', 'соединений'])}</b>
-          <span>{plural(apps.length, ['программа', 'программы', 'программ'])}</span>
+          {isIos ? null : <span>{plural(apps.length, ['программа', 'программы', 'программ'])}</span>}
         </span>
         <span className="cx-bar">
           <i style={{ width: `${pct}%` }} />
@@ -280,7 +293,7 @@ function LiveSummary({ apps, running, onOpen }: { apps: AppRow[]; running: boole
         </span>
         {!running ? <span className="cx-live-off">Соединения появятся после подключения</span> : null}
       </span>
-      {apps.slice(0, 3).map((a) => (
+      {rows.slice(0, 3).map((a) => (
         <span key={a.key} className="cx-live-app">
           <Tile label={a.name} size={28} />
           <span className="grow">
@@ -304,7 +317,7 @@ type ListTab = 'all' | 'service' | 'program' | 'site';
 
 const GROUPS: [Exclude<ListTab, 'all'>, string][] = [
   ['service', 'Сервисы'],
-  ['program', 'Программы'],
+  ...(isIos ? [] : [['program', 'Программы'] as [Exclude<ListTab, 'all'>, string]]),
   ['site', 'Сайты и IP'],
 ];
 
@@ -331,7 +344,7 @@ function MyList({ routing, list, onBack, onAdd }: { routing: Routing; list: Rule
         options={[
           ['all', 'Все'],
           ['service', 'Сервисы'],
-          ['program', 'Программы'],
+          ...(isIos ? [] : [['program', 'Программы'] as [ListTab, string]]),
           ['site', 'Сайты'],
         ]}
         onChange={setTab}
@@ -364,7 +377,13 @@ function MyList({ routing, list, onBack, onAdd }: { routing: Routing; list: Rule
         </div>
       ))}
       {!groups.length ? (
-        <div className="cx-empty">{routing === 'selected' ? 'Добавьте сервис, программу или сайт — они пойдут через VPN.' : 'Добавьте то, что должно идти напрямую: банк, игру, локальный сервис.'}</div>
+        <div className="cx-empty">{routing === 'selected'
+            ? isIos
+              ? 'Добавьте сервис или сайт — они пойдут через VPN.'
+              : 'Добавьте сервис, программу или сайт — они пойдут через VPN.'
+            : isIos
+              ? 'Добавьте то, что должно идти напрямую: банк, локальный сервис.'
+              : 'Добавьте то, что должно идти напрямую: банк, игру, локальный сервис.'}</div>
       ) : null}
       <button className="cx-add mt12" onClick={onAdd}>
         <Icon name="plus" size={16} />
@@ -382,7 +401,8 @@ type LiveFilter = 'all' | 'vpn' | 'direct';
 function Live({ apps, onBack }: { apps: AppRow[]; onBack: () => void }) {
   const store = useStore();
   const { isRunning, settings, catalog } = store;
-  const [view, setView] = useState<LiveView>('apps');
+  // iOS не говорит, какая программа открыла соединение, — только сайты.
+  const [view, setView] = useState<LiveView>(isIos ? 'sites' : 'apps');
   const [filter, setFilter] = useState<LiveFilter>('all');
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -417,15 +437,17 @@ function Live({ apps, onBack }: { apps: AppRow[]; onBack: () => void }) {
         </button>
       </div>
       <div className="sub-lead">Тумблер включён — идёт через VPN. Правило сохранится в мой список.</div>
-      <Seg
-        className="mt14"
-        value={view}
-        options={[
-          ['apps', 'Программы'],
-          ['sites', 'Сайты'],
-        ]}
-        onChange={setView}
-      />
+      {isIos ? null : (
+        <Seg
+          className="mt14"
+          value={view}
+          options={[
+            ['apps', 'Программы'],
+            ['sites', 'Сайты'],
+          ]}
+          onChange={setView}
+        />
+      )}
       <div className="cx-filters">
         {(
           [
@@ -499,7 +521,8 @@ function Live({ apps, onBack }: { apps: AppRow[]; onBack: () => void }) {
                       <span className="grow">
                         <span className="cx-rule-name">{s.host}</span>
                         <span className={s.vpn ? 'cx-rule-sub vpn' : 'cx-rule-sub'}>
-                          {s.app} · {locked ? 'по правилу программы' : s.vpn ? 'через VPN' : 'напрямую'}
+                          {isIos ? null : `${s.app} · `}
+                          {locked ? 'по правилу программы' : s.vpn ? 'через VPN' : 'напрямую'}
                         </span>
                       </span>
                       <Toggle label={`${s.host} через VPN`} on={s.vpn} disabled={locked} onChange={(v) => routeSite(s, v)} />
