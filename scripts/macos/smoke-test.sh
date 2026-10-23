@@ -359,7 +359,7 @@ long_elapsed=$((SECONDS - long_start))
 if (( reconnecting_at >= 15 )); then pass "reconnecting появился через ${reconnecting_at} с (не раньше 15 с)"; else fail "reconnecting появился слишком рано или не появился: ${reconnecting_at} с"; fi
 if (( server_down_at >= 0 && server_down_at <= 95 )); then pass "server_down появился через ${server_down_at} с"; else fail "server_down не появился к 95 с: ${server_down_at} с"; fi
 if (( down_notice_at >= 0 && down_notice_at <= 95 )); then pass "watch получил vpn.down через ${down_notice_at} с"; else fail "watch не получил vpn.down к 95 с: ${down_notice_at} с"; fi
-if (( long_elapsed >= 109 && long_elapsed <= 117 )); then pass "длинный fault injection длился ${long_elapsed} с"; else fail "длинный сбой длился ${long_elapsed} с вместо примерно 75"; fi
+if (( long_elapsed >= 109 && long_elapsed <= 117 )); then pass "длинный fault injection длился ${long_elapsed} с"; else fail "длинный сбой длился ${long_elapsed} с вместо примерно 110"; fi
 if [[ -z "$long_unexpected" ]]; then pass "во время сбоя наблюдались только connected/reconnecting/server_down"; else fail "неожиданные состояния или pid во время сбоя: $long_unexpected"; fi
 if start_server; then pass "тестовый сервер перезапущен после длинного сбоя"; else fail "тестовый сервер не перезапустился после длинного сбоя"; fi
 
