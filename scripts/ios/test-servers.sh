@@ -12,7 +12,7 @@ core="$root/resources/core/mihomo"
 [[ -x "$core" ]] || "$root/scripts/macos/fetch-core.sh" >&2
 work="$(mktemp -d)"
 host=127.0.0.2
-ifconfig lo0 | grep -q "inet $host " || sudo ifconfig lo0 alias "$host" up
+ifconfig lo0 | grep "inet $host " >/dev/null || sudo ifconfig lo0 alias "$host" up
 
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=localhost \
     -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1

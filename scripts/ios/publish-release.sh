@@ -17,7 +17,7 @@ for f in dist/klick-ios.ipa dist/klick-altstore.json; do
     [[ -f "$f" ]] || { echo "нет $f — сначала scripts/ios/build.sh и scripts/ios/altstore-source.sh" >&2; exit 1; }
 done
 if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-    if gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name' | grep -qx 'klick-ios.ipa'; then
+    if gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name' | grep -x 'klick-ios.ipa' >/dev/null; then
         echo "в выпуске $tag kl!ck для iOS уже есть — поднимите версию в Cargo.toml" >&2
         exit 1
     fi

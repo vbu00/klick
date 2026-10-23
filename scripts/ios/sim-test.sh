@@ -45,7 +45,8 @@ xcrun simctl io "$device" screenshot "$root/dist/ios-sim-start.png" >/dev/null 2
 # Страница грузится несколько секунд; снимок и проверка «жив ли kl!ck» — после неё.
 sleep 8
 xcrun simctl io "$device" screenshot "$root/dist/ios-sim.png" >/dev/null 2>&1 && echo "снимок: dist/ios-sim.png"
-if xcrun simctl spawn "$device" launchctl list | grep -q "$bundle_id"; then
+# Без `grep -q`: он закрывает канал раньше, чем launchctl допишет, и с pipefail проверка «падает» сама.
+if xcrun simctl spawn "$device" launchctl list | grep "$bundle_id" >/dev/null; then
     echo "ok   приложение работает"
 else
     echo "FAIL приложение закрылось"; bad=1

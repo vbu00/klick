@@ -34,6 +34,9 @@ func klickFullScreen() {
                 let before = view.frame
                 view.scrollView.contentInsetAdjustmentBehavior = .never
                 view.frame = parent.convert(window.bounds, from: window)
+                // Под страницей WebKit красит цветом окна (тёмным) — пусть красит фоном самой страницы,
+                // светлым или тёмным по теме.
+                view.underPageBackgroundColor = nil
                 NSLog("kl!ck: окно %@, WebView %@ → %@", NSCoder.string(for: window.bounds), NSCoder.string(for: before), NSCoder.string(for: view.frame))
             }
         }
