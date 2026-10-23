@@ -218,38 +218,28 @@ async fn run_checks(
         return Err(ErrorInfo::new("sub.no_servers"));
     }
 
-    let mut addresses_by_name: HashMap<String, Vec<ServerAddr>> = HashMap::new();
+    // Адрес сервера по имени: имена в провайдере mihomo уникальны.
+    let mut by_name: HashMap<String, ServerAddr> = HashMap::new();
     for address in addresses {
-        addresses_by_name.entry(address.name.clone()).or_default().push(address.clone());
+        by_name.entry(address.name.clone()).or_insert_with(|| address.clone());
     }
-    let addresses_by_name = std::sync::Arc::new(std::sync::Mutex::new(addresses_by_name));
-    let list = std::sync::Arc::new(list);
-    let next = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let done = std::sync::Arc::new(std::sync::Mutex::new(HashMap::with_capacity(list.len())));
-    let mut jobs = JoinSet::new();
-    for slot in 0..slot_ports.len().min(list.len()) {
-        let (api, list, by_name, next, done, slot_port) = (api.clone(), list.clone(), addresses_by_name.clone(), next.clone(), done.clone(), slot_ports[slot]);
-        jobs.spawn(async move {
-            loop {
-                let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let Some((name, kind)) = list.get(index) else { break };
-                let address = by_name.lock().unwrap().get_mut(name).and_then(|items| {
-                    let address = items.first().cloned();
-                    if !items.is_empty() {
-                        items.remove(0);
-                    }
-                    address
-                });
-                let result = probe_server(&api, slot, slot_port, name, kind, address.as_ref(), tun, direct_port).await;
-                done.lock().unwrap().insert(name.clone(), result);
+    let by_name = std::sync::Arc::new(by_name);
+    let mut servers = check_pass(api, slot_ports, tun, direct_port, &by_name, list.clone(), deadline).await;
+    // Неустойчивый путь (потери, задержка в секунду) иногда валит все попытки разом — и работающий сервер
+    // выходит «не отвечает». Такие, если осталось время, проверяем ещё раз; прошёл — «работает, нестабильно».
+    let again: Vec<(String, String)> = list
+        .iter()
+        .filter(|(name, _)| servers.get(name).is_some_and(|p| !matches!(p.verdict, ProbeVerdict::Ok | ProbeVerdict::Freeze)))
+        .cloned()
+        .collect();
+    if !again.is_empty() && Instant::now() < deadline {
+        for (name, mut second) in check_pass(api, slot_ports, tun, direct_port, &by_name, again, deadline).await {
+            if second.verdict == ProbeVerdict::Ok {
+                second.flaky = true;
+                servers.insert(name, second);
             }
-        });
+        }
     }
-    // Мёртвый сервер отнимает до полуминуты, а при сильных блокировках мёртвых больше всего:
-    // по истечении времени отдаём проверенные, а не теряем всё.
-    let _ = timeout_at(deadline, async { while jobs.join_next().await.is_some() {} }).await;
-    jobs.abort_all();
-    let servers = std::mem::take(&mut *done.lock().unwrap());
 
     let mut network = ProbeNetwork { vpn, direct_checked: !tun, ..ProbeNetwork::default() };
     let panel = if let Some(target) = share {
@@ -263,7 +253,39 @@ async fn run_checks(
     } else {
         None
     };
-    Ok(ProbeOutcome { list: (*list).clone(), servers, network, shared: None, attempted_share: false, share: panel })
+    Ok(ProbeOutcome { list, servers, network, shared: None, attempted_share: false, share: panel })
+}
+
+/// Один проход по серверам: слоты берут их по очереди. Мёртвый сервер отнимает до полуминуты, а при сильных
+/// блокировках мёртвых больше всего: по истечении времени отдаём проверенные, а не теряем всё.
+async fn check_pass(
+    api: &CoreApi,
+    slot_ports: &[u16],
+    tun: bool,
+    direct_port: Option<u16>,
+    by_name: &std::sync::Arc<HashMap<String, ServerAddr>>,
+    list: Vec<(String, String)>,
+    deadline: Instant,
+) -> HashMap<String, ServerProbe> {
+    let list = std::sync::Arc::new(list);
+    let next = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let done = std::sync::Arc::new(std::sync::Mutex::new(HashMap::with_capacity(list.len())));
+    let mut jobs = JoinSet::new();
+    for slot in 0..slot_ports.len().min(list.len()) {
+        let (api, list, by_name, next, done, slot_port) = (api.clone(), list.clone(), by_name.clone(), next.clone(), done.clone(), slot_ports[slot]);
+        jobs.spawn(async move {
+            loop {
+                let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some((name, kind)) = list.get(index) else { break };
+                let result = probe_server(&api, slot, slot_port, name, kind, by_name.get(name), tun, direct_port).await;
+                done.lock().unwrap().insert(name.clone(), result);
+            }
+        });
+    }
+    let _ = timeout_at(deadline, async { while jobs.join_next().await.is_some() {} }).await;
+    jobs.abort_all();
+    let servers = std::mem::take(&mut *done.lock().unwrap());
+    servers
 }
 
 async fn probe_server(

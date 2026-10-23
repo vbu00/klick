@@ -1772,6 +1772,7 @@ impl Engine {
             c.selected_server = Some(name.clone());
         }
         let _ = self.save();
+        self.after_switch().await;
         self.notice("server.switched", json!({ "server": name, "reason": "down" }));
         true
     }
@@ -2694,10 +2695,30 @@ impl Engine {
         }
         self.save()?;
         if self.running.is_some() {
+            self.after_switch().await;
+            // Новый сервер — страж начинает с чистого листа и сразу его проверяет: счёт неудач прежнего
+            // (мёртвого) сервера к нему не относится.
+            self.guard = Some(Guard::new(self.now_ms()));
+            self.down_since = None;
+            if matches!(self.vpn, VpnState::Reconnecting | VpnState::ServerDown) {
+                self.set_state(VpnState::Connected, None);
+            }
+            self.spawn_probe(false);
             self.notice("server.switched", json!({ "server": name, "reason": "user" }));
         }
         self.emit_state();
         Ok(self.view_json())
+    }
+
+    /// Сервер сменили при работающем VPN: соединения через прежний остались бы на нём до своих тайм-аутов
+    /// (на мёртвом — минутами, и смена «не работает» до переподключения). Закрыть — программы сразу откроют
+    /// новые через выбранный.
+    async fn after_switch(&self) {
+        if let Some(api) = self.api() {
+            if let Err(e) = api.close_connections().await {
+                tracing::warn!("ядро не закрыло соединения после смены сервера: {e:#}");
+            }
+        }
     }
 }
 
