@@ -190,7 +190,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # dist\klick-setup.exe
 
 ```sh
 scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>.pkg (universal)
-scripts/ios/build.sh               # dist/klick-ios.ipa (ещё Xcode, Go, brew install xcodegen ldid)
+scripts/ios/build.sh               # dist/klick-ios.ipa (ещё Xcode, Go, brew install xcodegen)
 ```
 
 Ядро mihomo и база стран в git не хранятся: `build.ps1` скачивает

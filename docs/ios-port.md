@@ -40,6 +40,9 @@ Actions на Mac (`.github/workflows/ios.yml`) и не подписан серт
 
 * `debug.SetMemoryLimit(32 МБ)` и `GOGC=50` — куча Go с запасом под код, стеки и буферы системы
   (sing-box: 45 МБ / 1,5 и `GOGC=10`, сейчас — свой `oomkiller` с `GOGC=50`; mihomo-ios — 36 МБ).
+* Ядро собрано с тегами mihomo `with_low_memory` (буферы соединений вдвое меньше: 16 КБ на TCP,
+  8 КБ на UDP) и `no_tailscale`, `no_zerotier`, `no_easytier` (редкие тяжёлые виды серверов — меньше
+  кода и памяти при запуске).
 * Сторож: раз в 5 с, если куча и стеки больше 40 МБ, ядро закрывает все соединения (их буферы —
   основная память) и отдаёт память системе, — как `oomkiller` у sing-box.
 * GeoSite нет (`geodata-mode: false`), база стран `Country.mmdb` (7,7 МБ) читается через `mmap`
@@ -139,11 +142,11 @@ SideStore — с суффиксом команды, `ALTBundleIdentifier`, `ALTA
 `group.app.klick.ios` (`gen/apple/Shared/AppGroup.swift`). Подписи без App Group приложение не
 ломается: окно работает, а подключение скажет, что подпись без общей папки.
 
-Почему `.ipa` с псевдоподписью ldid. `tauri ios build --no-sign` собирает без подписи и без прав.
+Почему `.ipa` с подписью без сертификата. `tauri ios build --no-sign` собирает без подписи и без прав.
 Подписчики (SideStore, AltStore, Sideloadly) смотрят права в самом `.ipa`, чтобы включить нужные
 возможности на App ID, а AltStore и SideStore ещё и сверяют их с источником: всё, что в `.ipa`, должно
-быть перечислено в `appPermissions`. Поэтому `scripts/ios/build.sh` вписывает права в псевдоподпись
-(`ldid -S`) и приложения, и расширения.
+быть перечислено в `appPermissions`. Поэтому `scripts/ios/build.sh` подписывает расширение и приложение
+без сертификата (`codesign --sign -`, ad-hoc) с их правами — так же их видят и подписчики, и `ldid -e`.
 
 ### Источник для AltStore, SideStore, Feather и ESign
 
@@ -173,7 +176,8 @@ SideStore — с суффиксом команды, `ALTBundleIdentifier`, `ALTA
 4. проект Xcode из `gen/apple/project.yml` (`xcodegen`): шаблон `tauri ios init` + таргет
    `KlickTunnel`, права, App Group, ссылки `klick://`;
 5. `tauri ios build --no-sign --archive-only` — Rust (через `tauri ios xcode-script`), Swift, Go;
-6. псевдоподпись с правами (`ldid -S`) расширения и приложения, `Payload/` → `dist/klick-ios.ipa`;
+6. подпись без сертификата с правами (`codesign --sign -`) расширения и приложения, `Payload/` →
+   `dist/klick-ios.ipa`;
 7. проверка `.ipa`: `scripts/ios/check-ipa.sh` — расширение и его тип, права у обоих, arm64, iOS 15,
    iPhone и iPad, версия, ядро в обоих, ресурсы, иконка.
 

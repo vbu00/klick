@@ -18,7 +18,7 @@ check() { # check <описание> <команда…>
 }
 plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Info.plist" 2>/dev/null; }
 has() { [[ "$1" == *"$2"* ]]; }
-ents() { ldid -e "$1" 2>/dev/null; }
+ents() { codesign -d --entitlements - --xml "$1" 2>/dev/null; }
 
 check "приложение klick.app" test -x "$app/klick"
 check "расширение VPN KlickTunnel.appex" test -x "$appex/KlickTunnel"
@@ -35,8 +35,8 @@ check "версия $version" test "$(plist "$app" CFBundleShortVersionString)" 
 check "версия расширения $version" test "$(plist "$appex" CFBundleShortVersionString)" = "$version"
 check "id расширения внутри id приложения" has "$(plist "$appex" CFBundleIdentifier)" "$(plist "$app" CFBundleIdentifier)."
 check "ссылки klick://" has "$(plist "$app" CFBundleURLTypes)" klick
-check "ядро mihomo в приложении" has "$(strings -a "$app/klick" | grep -m1 'metacubex/mihomo')" mihomo
-check "ядро mihomo в расширении" has "$(strings -a "$appex/KlickTunnel" | grep -m1 'metacubex/mihomo')" mihomo
+check "ядро mihomo в приложении" grep -qa 'metacubex/mihomo' "$app/klick"
+check "ядро mihomo в расширении" grep -qa 'metacubex/mihomo' "$appex/KlickTunnel"
 check "наборы и база стран" test -f "$app/klick-resources/core/Country.mmdb" -a -f "$app/klick-resources/catalog.json"
 check "иконка" test -n "$(find "$app" -maxdepth 1 -name 'AppIcon*.png' -o -maxdepth 1 -name 'Assets.car' | head -1)"
 echo

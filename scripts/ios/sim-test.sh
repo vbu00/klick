@@ -2,8 +2,9 @@
 # kl!ck в симуляторе iOS: приложение ставится и запускается, окно открывается, движок службы поднимается
 # (в журнале — строка «данные: …»), снимок экрана — в dist/ios-sim.png.
 # С KLICK_TEST_SUB (ссылка подписки) — ещё и серверы: движок добавляет подписку и меряет задержку через
-# каждый сервер ядром mihomo в самом приложении. Туннель Network Extension симулятор не запускает —
-# подключение VPN проверяется только на устройстве (docs/ios-port.md).
+# каждый сервер ядром mihomo в самом приложении (свои серверы для CI — scripts/ios/test-servers.sh).
+# Туннель Network Extension симулятор не запускает — подключение VPN проверяется только на устройстве
+# (docs/ios-port.md).
 #   scripts/ios/sim-test.sh dist/klick-ios-sim.app
 set -euo pipefail
 app="${1:?путь к .app для симулятора}"
@@ -55,6 +56,11 @@ if [[ -n "${KLICK_TEST_SUB:-}" ]]; then
         else
             echo "ok   серверы подписки отвечают через ядро в приложении"
         fi
+        # KLICK_TEST_EXPECT="hysteria2 1/1;vless 1/1" — какие серверы обязаны ответить (свои серверы CI).
+        IFS=';' read -ra expect <<<"${KLICK_TEST_EXPECT:-}"
+        for e in ${expect[@]+"${expect[@]}"}; do
+            if [[ "$line" == *"$e"* ]]; then echo "ok   $e"; else echo "FAIL ждали «$e»"; bad=1; fi
+        done
     else
         echo "FAIL самопроверка с подпиской не закончилась за 180 с"; bad=1
     fi
