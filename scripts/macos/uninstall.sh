@@ -20,7 +20,7 @@ no_binary=""
 # Работает с сетевыми службами текущего размещения (Location); остальные возвращает служба kl!ck.
 # $1 = fix — вернуть, check — только посчитать. Печатает, сколько наших значений нашлось.
 scan_network() {
-    local ns=/usr/sbin/networksetup svc out kind found=0
+    local ns=/usr/sbin/networksetup svc out kind dns found=0
     [[ -x "$ns" ]] || { echo 0; return; }
     while IFS= read -r svc; do
         svc="${svc#\*}"   # выключенные службы в списке начинаются со «*»
@@ -28,7 +28,10 @@ scan_network() {
         out="$("$ns" -getdnsservers "$svc" 2>/dev/null)"
         if [[ "$out" == "198.18.0.2" ]]; then
             found=$((found + 1))
-            [[ "$1" == fix ]] && "$ns" -setdnsservers "$svc" Empty >/dev/null 2>&1
+            # Свои адреса человека — из резерва службы; нет их — DNS от роутера (DHCP).
+            dns="$(saved_dns "$svc")"
+            # shellcheck disable=SC2086 # адреса — отдельными словами
+            [[ "$1" == fix ]] && "$ns" -setdnsservers "$svc" ${dns:-Empty} >/dev/null 2>&1
         fi
         for kind in webproxy securewebproxy socksfirewallproxy; do
             out="$("$ns" "-get$kind" "$svc" 2>/dev/null | /usr/bin/awk -F': ' '$1=="Enabled"{e=$2} $1=="Server"{s=$2} $1=="Port"{p=$2} END{print e" "s" "p}')"
@@ -43,6 +46,26 @@ scan_network() {
 
 markers_left() { [[ -e "$data/dns.json" || -e "$data/sysproxy.json" ]]; }
 
+# ID сетевой службы по её имени: резервы в dns.json лежат по ID (отметки старых версий — по имени).
+service_id() {
+    local id
+    while IFS= read -r id; do
+        [[ "$(printf 'show Setup:/Network/Service/%s\n' "$id" | /usr/sbin/scutil | /usr/bin/awk -F' : ' '$1 ~ /UserDefinedName$/ {print $2; exit}')" == "$1" ]] && { echo "$id"; return; }
+    done < <(printf 'list Setup:/Network/Service/[^/]+$\n' | /usr/sbin/scutil | /usr/bin/sed -n 's|.*Setup:/Network/Service/||p')
+}
+
+# Адреса DNS службы до kl!ck из резерва, через пробел; пусто — были от роутера или резерва нет.
+saved_dns() {
+    local key out
+    [[ -f "$data/dns.json" ]] || return
+    for key in "$(service_id "$1")" "$1"; do
+        [[ -n "$key" ]] || continue
+        out="$(/usr/bin/plutil -extract "services.$key" json -o - "$data/dns.json" 2>/dev/null)" || continue
+        printf '%s' "$out" | /usr/bin/tr -d '[]" ' | /usr/bin/tr ',' ' '
+        return
+    done
+}
+
 if [[ -x "$installed" ]]; then
     "$installed" uninstall $wipe
 elif [[ -x "$bundled" ]]; then
@@ -53,6 +76,8 @@ else
     rm -f /Library/LaunchDaemons/app.klick.service.plist
     # Правила Kill Switch в брандмауэре pf служба нарочно оставляет при остановке — снять.
     /sbin/pfctl -q -a com.apple/090.klick -F all 2>/dev/null || true
+    # Служба упала с включённым VPN: её ядра (VPN и страж Kill Switch) живут без неё и держат TUN.
+    /usr/bin/pkill -9 -f '^/Library/PrivilegedHelperTools/klick/' 2>/dev/null || true
     rm -rf /Library/PrivilegedHelperTools/klick
 fi
 

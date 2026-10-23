@@ -532,15 +532,8 @@ pub(super) async fn send_report(target: ShareTarget, report: PanelReport) -> &'s
     if target.version < 1 {
         return "off";
     }
-    let first = post_report(&target.url, target.vpn_port, &report).await;
-    let result = match first {
-        PostResult::Accepted => return "sent",
-        PostResult::PanelOff => return "off",
-        PostResult::Later => return "later",
-        PostResult::Failed if target.vpn_port.is_some() => post_report(&target.url, None, &report).await,
-        PostResult::Failed => PostResult::Failed,
-    };
-    match result {
+    // При включённом VPN — только через него: прямой повтор показал бы панели настоящий адрес.
+    match post_report(&target.url, target.vpn_port, &report).await {
         PostResult::Accepted => "sent",
         PostResult::PanelOff => "off",
         PostResult::Later => "later",

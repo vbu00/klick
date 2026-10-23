@@ -167,6 +167,8 @@ export function errorText(code: string, params?: Params): string {
       return 'Проверка не уложилась в полторы минуты — попробуйте ещё раз';
     case 'probe.network_changed':
       return 'Во время проверки поменялась сеть или VPN — запустите её заново';
+    case 'latency.network_changed':
+      return 'Во время замера поменялась сеть — проверьте задержку ещё раз';
     case 'probe.share_unavailable':
       return 'Итоги проверки принимает только панель Mistgate, а эта подписка не с неё';
     case 'service.timeout':

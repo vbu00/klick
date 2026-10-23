@@ -64,7 +64,7 @@ pub enum Msg {
     /// Итог проверки сервера, которую страж связи запустил в фоне; `net` — счётчик смен сети на её начало.
     Probed { generation: u64, retry: bool, ok: bool, net: u64 },
     /// Задержка серверов подключения измерена в фоне.
-    Measured { conn: String, result: Result<Measured, ErrorInfo> },
+    Measured { conn: String, net: u64, result: Result<Measured, ErrorInfo> },
     ProbeDone { conn: String, net: u64, result: Result<ProbeOutcome, ErrorInfo> },
     /// macOS: ядро-страж Kill Switch завершилось само.
     #[cfg(unix)]
@@ -645,7 +645,7 @@ impl Engine {
                         // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
                         // ядро на том же входе управления не запустится).
                         Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
-                        Msg::Measured { conn, result } => self.measured(conn, result),
+                        Msg::Measured { conn, net, result } => self.measured(conn, net, result),
                         Msg::ProbeDone { conn, net, result } => self.probe_done(conn, net, result),
                         Msg::Cmd(cmd, reply) => {
                             let res = self.handle(cmd).await;
@@ -945,9 +945,17 @@ impl Engine {
         // (у UDP-серверов — WireGuard, Hysteria2 — сброса нет вовсе). Закрыть — откроют новые сразу.
         if moved {
             if let Some(api) = self.api() {
-                match api.close_connections().await {
-                    Ok(()) => tracing::info!("сеть сменилась: старые соединения закрыты"),
-                    Err(e) => tracing::warn!("ядро не закрыло старые соединения: {e:#}"),
+                // Hysteria2 и TUIC держат одну QUIC-сессию с сервером на все соединения; после смены сети
+                // она умирает молча, и всё висит до её тайм-аута (~30 с). Перечитать конфиг — новая сессия сразу
+                // (соединения при этом закрываются так же).
+                if matches!(self.active_kind(&api).await.as_deref(), Some("hysteria2" | "hysteria" | "tuic")) {
+                    tracing::info!("сеть сменилась: сервер на QUIC — перечитываю конфиг ради новой сессии");
+                    self.reload_rules().await;
+                } else {
+                    match api.close_connections().await {
+                        Ok(()) => tracing::info!("сеть сменилась: старые соединения закрыты"),
+                        Err(e) => tracing::warn!("ядро не закрыло старые соединения: {e:#}"),
+                    }
                 }
             }
         }
@@ -1615,8 +1623,16 @@ impl Engine {
 
     /// Выбранный сервер — WireGuard (в том числе AmneziaWG).
     async fn active_is_wireguard(&self, api: &CoreApi) -> bool {
-        let Some(name) = self.settings.active().and_then(|c| c.selected_server.clone()) else { return false };
-        api.provider_proxies(PROVIDER).await.is_ok_and(|list| list.iter().any(|(n, kind)| *n == name && kind == "wireguard"))
+        self.active_kind(api).await.as_deref() == Some("wireguard")
+    }
+
+    /// Протокол сервера, через который идёт VPN: выбранного, а если не выбирали — того, что взяло ядро.
+    async fn active_kind(&self, api: &CoreApi) -> Option<String> {
+        let name = match self.settings.active().and_then(|c| c.selected_server.clone()) {
+            Some(name) => name,
+            None => api.selected(VPN_GROUP).await.ok().flatten()?,
+        };
+        api.provider_proxies(PROVIDER).await.ok()?.into_iter().find(|(n, _)| *n == name).map(|(_, kind)| kind)
     }
 
     // ── Страж ──────────────────────────────────────────────────────────────
@@ -2602,7 +2618,7 @@ impl Engine {
         if !self.paths.provider_file(&conn.id).exists() {
             self.download(&conn.id).await?;
         }
-        let (api, paths, pipe, tx) = (self.api(), self.paths.clone(), self.profile.tester_pipe.clone(), self.tx.clone());
+        let (api, paths, pipe, tx, net) = (self.api(), self.paths.clone(), self.profile.tester_pipe.clone(), self.tx.clone(), self.net_seq);
         tokio::spawn(async move {
             let result = match api {
                 Some(api) => match api.provider_proxies(PROVIDER).await {
@@ -2614,12 +2630,14 @@ impl Engine {
                 },
                 None => run_tester(paths, pipe, conn.id.clone(), true).await.map(|(list, delays)| (list, delays, None)),
             };
-            let _ = tx.send(Msg::Measured { conn: conn.id, result }).await;
+            let _ = tx.send(Msg::Measured { conn: conn.id, net, result }).await;
         });
         Ok(())
     }
 
-    fn measured(&mut self, conn_id: String, result: Result<Measured, ErrorInfo>) {
+    fn measured(&mut self, conn_id: String, net: u64, result: Result<Measured, ErrorInfo>) {
+        // Сеть сменилась во время замера: половина задержек — из прежней сети.
+        let result = if net == self.net_seq { result } else { Err(ErrorInfo::new("latency.network_changed")) };
         let reply = result.and_then(|(list, delays, now)| {
             let conn = self.settings.connections.iter().find(|c| c.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
             let views = self.store_servers(&conn, list, Some(&delays), now, None);

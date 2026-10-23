@@ -359,8 +359,11 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       } else if (e.ev === 'servers') {
         // Замерили в другом окне (или в этом): свежие задержки и «нет ответа» — после замера.
-        dispatch({ t: 'tested', id: e.connection });
-        void loadServers(e.connection);
+        // Команда `servers` отдаёт список активного подключения: событие о другом не грузим, иначе чужой список ляжет под его ID.
+        if (e.connection === ref.current.settings?.active_connection) {
+          dispatch({ t: 'tested', id: e.connection });
+          void loadServers(e.connection);
+        }
       } else if (e.ev === 'settings') {
         // Главное окно и окно трея — два отдельных окна: что поменяли в одном, должно быть видно в другом.
         void transport.call<Settings>('settings').then((settings) => dispatch({ t: 'settings', settings })).catch(() => undefined);
@@ -500,7 +503,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         // Итоги — в состоянии подключения (probe_last) и у серверов: служба пришлёт их и сама, но ответ может обогнать события.
         const [st, list] = await Promise.all([transport.call<StateView>('status').catch(() => null), transport.call<ServerView[]>('servers').catch(() => null)]);
         if (st) setState(st);
-        if (list) {
+        // Пока шла проверка, выбрали другое подключение — `servers` вернул уже его список.
+        if (list && st?.connection?.id === id) {
           dispatch({ t: 'servers', id, list });
           dispatch({ t: 'tested', id });
           const c = probeCounts(list);

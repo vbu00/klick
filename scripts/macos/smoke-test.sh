@@ -546,6 +546,28 @@ check "правил pf не осталось" bash -c '! pfctl -a com.apple/090.
 check "интернет у пользователя есть" user_ok
 check "настройки сети как до установки" netconf_same
 
+echo "== удаление, когда службы уже нет (упала с включённым VPN, файлы удалили)"
+# Запасной путь uninstall.sh: свои DNS человека — из резерва службы, а не «от роутера»; ядра без службы — остановить.
+"$app/Contents/MacOS/klick-service" install >/dev/null 2>&1
+wait_for 15 test -S /var/run/klick.sock
+nc -z 127.0.0.1 21080 || start_server >/dev/null 2>&1
+cli add "socks5://127.0.0.1:21080#CI" >/dev/null 2>&1
+cli mode tun >/dev/null
+cli connect >/dev/null
+check "VPN подключён" wait_for 25 state_is connected
+check "DNS kl!ck стоит" wait_for 10 dns_ours
+mv "$svc" "$work/klick-service.away"
+kill -9 "$(launchctl print system/app.klick.service | awk '/pid =/ {print $3}')" 2>/dev/null
+sleep 2
+check "служба упала, DNS kl!ck остался" dns_ours
+"$(dirname "${BASH_SOURCE[0]}")/uninstall.sh" >/dev/null 2>&1
+check "служба убрана из launchd" bash -c '! launchctl print system/app.klick.service'
+check "ядра упавшей службы остановлены" bash -c '! pgrep -f "^/Library/PrivilegedHelperTools/klick/"'
+check "DNS kl!ck не остался" bash -c '! scutil --dns | grep -q "198.18.0.2"'
+check "интернет у пользователя есть" wait_for 10 user_ok
+check "свои DNS и прокси человека — как до установки" netconf_same
+rm -rf "/Library/Application Support/klick"
+
 if [[ $failed -gt 0 ]]; then
     echo "== не прошло проверок: $failed"
     exit 1
