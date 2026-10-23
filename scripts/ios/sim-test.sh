@@ -85,6 +85,11 @@ if [[ -n "${KLICK_TEST_SUB:-}" ]]; then
             echo "FAIL самопроверка темы $theme не дошла"; bad=1
         fi
     done
+    # Тёмная и системная (в симуляторе — светлая) — разные картинки; одинаковые значат, что снимки
+    # опоздали и проверили одну тему.
+    if cmp -s "$root/dist/ios-sim-theme-dark.png" "$root/dist/ios-sim-theme-system.png"; then
+        echo "FAIL снимки тёмной и системной темы одинаковые"; bad=1
+    fi
 fi
 
 echo

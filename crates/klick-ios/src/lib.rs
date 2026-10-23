@@ -134,7 +134,8 @@ async fn self_test(sub: String) {
         Err(e) => tracing::warn!("самопроверка: ошибка {}", e.code),
     }
     // Смена темы — как из настроек окна: страница перерисовывается в новых цветах. sim-test.sh снимает
-    // экран после каждой строки «самопроверка темы».
+    // экран после каждой строки «самопроверка темы»; тема держится 30 с — до снимков скрипт доходит
+    // не сразу (ждёт самопроверку, снимает экран, проверяет, жив ли kl!ck).
     for theme in ["dark", "custom", "system"] {
         let prefs = serde_json::from_value(json!({ "appearance": { "theme": theme, "base": "midnight", "accent": "#30d158" } }));
         if let Ok(prefs) = prefs {
@@ -142,7 +143,7 @@ async fn self_test(sub: String) {
         }
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         tracing::info!("самопроверка темы: {theme}");
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     }
 }
 
