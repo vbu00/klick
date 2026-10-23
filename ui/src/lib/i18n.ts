@@ -168,7 +168,7 @@ export function errorText(code: string, params?: Params): string {
     case 'probe.network_changed':
       return 'Во время проверки поменялась сеть или VPN — запустите её заново';
     case 'probe.share_unavailable':
-      return 'Панель этой подписки не принимает итоги проверки';
+      return 'Итоги проверки принимает только панель Mistgate, а эта подписка не с неё';
     case 'service.timeout':
       return 'Служба kl!ck долго не отвечает — попробуйте ещё раз';
     case 'proto.bad_request':

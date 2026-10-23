@@ -38,8 +38,8 @@ function networkText(n: ProbeReport['network']): string | null {
 }
 
 const SHARED: Record<NonNullable<ProbeReport['shared']>, { text: string; cls: string; title?: string }> = {
-  sent: { text: 'итоги отправлены панели подписки', cls: 'good' },
-  off: { text: 'сейчас не принимает итоги', cls: 'dim' },
+  sent: { text: 'отправлен в панель Mistgate', cls: 'good' },
+  off: { text: 'панель Mistgate сейчас не принимает', cls: 'dim' },
   later: { text: 'отправка отложена', cls: 'dim', title: 'Недавно уже отправляли, или панель просит прислать позже' },
   failed: { text: 'отправить не удалось', cls: 'warn' },
 };
@@ -126,7 +126,11 @@ export function ProbeCard() {
           </>
         ) : null}
 
-        {conn?.info?.probe_report ? <Share on={!!conn.probe_share} /> : null}
+        {conn?.info?.probe_report ? (
+          <Share on={!!conn.probe_share} />
+        ) : conn ? (
+          <div className="foot-note">Отправить итоги провайдеру VPN можно только с подпиской панели Mistgate: другие панели их пока не принимают.</div>
+        ) : null}
       </section>
     </>
   );
@@ -250,7 +254,7 @@ function Result({ report, checkedAt, list }: { report: ProbeReport; checkedAt: n
         ) : null}
         {shared ? (
           <>
-            <span className="k">Панель</span>
+            <span className="k">Отчёт</span>
             <span className={`v ${shared.cls}`} title={shared.title}>
               {shared.text}
             </span>
@@ -273,13 +277,13 @@ function Result({ report, checkedAt, list }: { report: ProbeReport; checkedAt: n
 
 function Share({ on }: { on: boolean }) {
   const store = useStore();
-  const title = 'Отправлять итоги панели подписки';
+  const title = 'Отправлять итоги в панель Mistgate';
   return (
     <div className="pr-share">
       <div className="grow">
         <div className="pr-share-title">{title}</div>
         <div className="pr-share-sub">
-          Уйдут типы и адреса серверов, как в подписке, итоги проверки, оператор и регион сети — без вашего IP и имени устройства. Это помогает провайдеру VPN чинить серверы под вашего оператора.
+          Подписка выдана панелью Mistgate — только она принимает итоги. Уйдут типы и адреса серверов, как в подписке, итоги проверки, оператор и регион сети — без вашего IP и имени устройства. Это помогает провайдеру VPN чинить серверы под вашего оператора.
         </div>
       </div>
       <Toggle label={title} on={on} onChange={(v) => void store.probeShare(v)} />
