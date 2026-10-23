@@ -59,7 +59,7 @@ pub enum Capture {
 pub struct CoreLayout {
     /// Для какой системы конфиг: путь к программам, вход управления и адаптер TUN устроены по-разному.
     pub os: Os,
-    /// Вход управления ядра: именованный канал на Windows, Unix-сокет на macOS.
+    /// Вход управления ядра: именованный канал на Windows, Unix-сокет на macOS, `127.0.0.1:порт` на iOS.
     pub controller: String,
     pub secret: String,
     pub mixed_port: u16,
@@ -128,7 +128,9 @@ pub fn compile(input: &CompileInput) -> Value {
     cfg.insert("rules".into(), Value::from(all));
     cfg.insert("dns".into(), dns(s, input.catalog, layout.os, input.server_dns, user.as_deref()));
     cfg.insert("sniffer".into(), sniffer());
-    if input.capture == Capture::Tun {
+    // iOS: адаптер поднимает расширение VPN по дескриптору туннеля от системы, а не по конфигу —
+    // поэтому и перечитывание конфига его не трогает.
+    if input.capture == Capture::Tun && layout.os != Os::Ios {
         cfg.insert("tun".into(), tun(layout));
     }
     Value::Object(cfg)
@@ -197,10 +199,13 @@ pub fn ks_active(s: &Settings) -> bool {
     s.kill_switch.enabled && s.kill_switch.programs.iter().any(|p| p.enabled)
 }
 
+/// iOS: путь сокета в общей папке приложения длиннее предела в 104 байта (в симуляторе — заметно),
+/// поэтому вход управления — порт на 127.0.0.1 с паролем `secret`.
 fn controller_key(os: Os) -> &'static str {
     match os {
         Os::Windows => "external-controller-pipe",
         Os::MacOs => "external-controller-unix",
+        Os::Ios => "external-controller",
     }
 }
 
@@ -239,7 +244,8 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
         "ipv6": true,
         "unified-delay": true,
         "tcp-concurrent": true,
-        "find-process-mode": "always",
+        // iOS не говорит, чьё соединение: искать программу бесполезно.
+        "find-process-mode": if layout.os == Os::Ios { "off" } else { "always" },
         "geo-auto-update": false,
         "geodata-mode": false,
         controller_key(layout.os): layout.controller,
@@ -307,7 +313,7 @@ fn policy(route: Route) -> &'static str {
 pub fn folder_regex(os: Os, folder: &str) -> String {
     match os {
         Os::Windows => windows_folder_regex(folder),
-        Os::MacOs => crate::macos::folder_regex(folder),
+        Os::MacOs | Os::Ios => crate::macos::folder_regex(folder),
     }
 }
 
@@ -612,7 +618,8 @@ fn proxy_server_dns(os: Os, server_dns: &[String]) -> Value {
     // заданный доменом, не найдётся.
     let common = ["tls://77.88.8.8:853", "https://1.1.1.1/dns-query", "77.88.8.8"];
     match os {
-        Os::Windows => json!(common),
+        // iOS: DNS системы расширению не виден (и пока VPN включён, он — адрес внутри туннеля).
+        Os::Windows | Os::Ios => json!(common),
         Os::MacOs => {
             let mut list: Vec<String> = if server_dns.is_empty() { vec!["system".into()] } else { server_dns.to_vec() };
             list.extend(common.iter().map(|u| u.to_string()));
@@ -658,7 +665,7 @@ fn dns(s: &Settings, catalog: &Catalog, os: Os, server_dns: &[String], user: Opt
         "time.windows.com", "time.nist.gov", "+.pool.ntp.org", "+.time.edu.cn",
         "+.stun.*.*", "+.stun.*.*.*", "stun.l.google.com",
     ];
-    if os == Os::MacOs {
+    if os != Os::Windows {
         // Проверка «есть ли интернет» и страницы входа в сетях Wi-Fi, время системы.
         fake_ip_filter.extend(["captive.apple.com", "+.captive.apple.com", "time.apple.com", "+.time.apple.com"]);
     }
@@ -956,6 +963,21 @@ mod tests {
         let windows = compile(&CompileInput { settings: &s, catalog: &c, layout: &layout(), capture: Capture::Tun, provider_path: "providers/a.txt", sets: &st, server_dns: &[] });
         assert!(!windows["dns"]["fake-ip-filter"].as_array().unwrap().iter().any(|f| f == "captive.apple.com"));
         assert_eq!(windows["tun"]["device"], "klick");
+    }
+
+    #[test]
+    fn ios_config_leaves_tun_to_the_extension() {
+        let s = Settings::default();
+        let (c, st) = (catalog(), sets());
+        let l = CoreLayout { os: Os::Ios, controller: "127.0.0.1:17900".into(), core_exe: String::new(), ..layout() };
+        let cfg = compile(&CompileInput { settings: &s, catalog: &c, layout: &l, capture: Capture::Tun, provider_path: "providers/a.txt", sets: &st, server_dns: &[] });
+        assert!(cfg.get("tun").is_none(), "адаптер держит расширение VPN");
+        assert_eq!(cfg["external-controller"], "127.0.0.1:17900");
+        assert_eq!(cfg["secret"], "s");
+        assert_eq!(cfg["find-process-mode"], "off");
+        assert!(!cfg["rules"][0].as_str().unwrap().starts_with("PROCESS-PATH"), "своего exe у ядра на iOS нет");
+        assert_eq!(cfg["dns"]["proxy-server-nameserver"], json!(["tls://77.88.8.8:853", "https://1.1.1.1/dns-query", "77.88.8.8"]));
+        assert!(cfg["dns"]["fake-ip-filter"].as_array().unwrap().iter().any(|f| f == "captive.apple.com"));
     }
 
     #[test]

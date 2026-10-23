@@ -1,5 +1,5 @@
-//! Под какую систему работает kl!ck. Пути программ и конфиг ядра на Windows и macOS устроены
-//! по-разному, но логика обеих систем — чистые функции: тесты проверяют обе на любой машине.
+//! Под какую систему работает kl!ck. Пути программ и конфиг ядра на Windows, macOS и iOS устроены
+//! по-разному, но логика всех систем — чистые функции: тесты проверяют их на любой машине.
 
 /// Система, для которой собираются правила и конфиг ядра.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -7,16 +7,25 @@ pub enum Os {
     Windows,
     /// macOS; так же ведут себя и другие Unix-системы: пути через `/`.
     MacOs,
+    /// iOS: адаптер держит расширение VPN, а не ядро, и программ в правилах нет — система не говорит,
+    /// чьё соединение.
+    Ios,
 }
 
 impl Os {
     /// Система, под которую собрана программа.
-    pub const CURRENT: Os = if cfg!(windows) { Os::Windows } else { Os::MacOs };
+    pub const CURRENT: Os = if cfg!(windows) {
+        Os::Windows
+    } else if cfg!(target_os = "ios") {
+        Os::Ios
+    } else {
+        Os::MacOs
+    };
 
     pub fn separator(self) -> char {
         match self {
             Os::Windows => '\\',
-            Os::MacOs => '/',
+            Os::MacOs | Os::Ios => '/',
         }
     }
 

@@ -453,7 +453,7 @@ pub fn program_folder(input: &str) -> Result<String, InputError> {
 pub fn program_folder_on(os: Os, input: &str, is_file: Option<bool>) -> Result<String, InputError> {
     match os {
         Os::Windows => windows_program_folder(input),
-        Os::MacOs => crate::macos::program_folder(input, is_file),
+        Os::MacOs | Os::Ios => crate::macos::program_folder(input, is_file),
     }
 }
 

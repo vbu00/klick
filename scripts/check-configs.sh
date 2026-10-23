@@ -1,6 +1,7 @@
 #!/bin/bash
 # Проверяет ядром (`mihomo -t`) все варианты конфига, которые собирает klick-core:
-# режимы (TUN, прокси, проверочное ядро, локальная проверка, страж Kill Switch), оба положения тумблера, Windows и macOS.
+# режимы (TUN, прокси, проверочное ядро, локальная проверка, страж Kill Switch), оба положения тумблера, Windows, macOS и iOS
+# (на iOS — только TUN, проверочное ядро и локальная проверка: режима прокси и стража там нет).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 core="$root/resources/core/mihomo"
@@ -20,8 +21,10 @@ echo 'vless://11111111-2222-3333-4444-555555555555@example.com:443?security=tls&
 dump="$root/target/debug/examples/dump_config"
 [[ -x "$dump" ]] || dump="$dump.exe"
 bad=0
-for os in macos windows; do
-    for mode in tun proxy tester probe guard; do
+for os in macos windows ios; do
+    modes="tun proxy tester probe guard"
+    [[ $os == ios ]] && modes="tun tester probe"
+    for mode in $modes; do
         for routing in selected all_vpn; do
             cfg="$home/$os-$mode-$routing.yaml"
             "$dump" "$mode" "$routing" "$os" > "$cfg"
