@@ -29,9 +29,11 @@ on:
 permissions:
   contents: write
 
+# Новый пуш отменяет текущую сборку: проверки на устройстве CI не заменяет, ждать старую незачем.
+# Выпуск (ручной запуск) не отменяется.
 concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: false
+  group: ios-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   build:

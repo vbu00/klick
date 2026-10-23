@@ -8,27 +8,27 @@ import UIKit
 
 @_cdecl("klick_group_dir")
 func klickGroupDir() -> UnsafeMutablePointer<CChar>? {
-    AppGroup.directory.map { strdup($0.path) }
+    AppGroup.directory.flatMap { strdup($0.path) }
 }
 
 @_cdecl("klick_device_id")
 func klickDeviceId() -> UnsafeMutablePointer<CChar>? {
-    onMain { UIDevice.current.identifierForVendor?.uuidString }.map { strdup($0) }
+    onMain { UIDevice.current.identifierForVendor?.uuidString }.flatMap { strdup($0) }
 }
 
 @_cdecl("klick_clipboard")
 func klickClipboard() -> UnsafeMutablePointer<CChar>? {
-    onMain { UIPasteboard.general.string }.map { strdup($0) }
+    onMain { UIPasteboard.general.string }.flatMap { strdup($0) }
 }
 
 @_cdecl("klick_tunnel_start")
 func klickTunnelStart() -> UnsafeMutablePointer<CChar>? {
-    Tunnel.shared.start().map { strdup($0) }
+    Tunnel.shared.start().flatMap { strdup($0) }
 }
 
 @_cdecl("klick_tunnel_reload")
 func klickTunnelReload() -> UnsafeMutablePointer<CChar>? {
-    Tunnel.shared.reload().map { strdup($0) }
+    Tunnel.shared.reload().flatMap { strdup($0) }
 }
 
 @_cdecl("klick_tunnel_stop")
