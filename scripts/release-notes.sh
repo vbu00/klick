@@ -31,4 +31,7 @@ open -a 'kl!ck'
 FlareStore, SideStore, AltStore, Feather и ESign — kl!ck будет обновляться оттуда:
 \`https://github.com/$repo/releases/latest/download/klick-altstore.json\`. Все способы —
 [как поставить на iPhone и iPad](https://github.com/$repo/blob/ios/docs/ios-install.md).
+
+На iOS 16 и новее сначала включите **режим разработчика**: Настройки → Конфиденциальность и безопасность →
+Режим разработчика, перезагрузить, после перезагрузки — «Включить». Без него подписанное приложение не встанет.
 NOTES

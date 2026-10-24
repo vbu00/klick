@@ -217,6 +217,10 @@ kl!ck для iPhone и iPad (iOS 15+) — то же окно, подписки, 
 или Sideloadly. С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для FlareStore,
 AltStore, SideStore, Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
 
+На iOS 16 и новее перед установкой включите **режим разработчика**: Настройки → Конфиденциальность и
+безопасность → Режим разработчика, перезагрузить, после перезагрузки — «Включить». Без него подписанное
+приложение не встанет.
+
 Как поставить — [docs/ios-install.md](https://github.com/limeflash/klick/blob/ios/docs/ios-install.md);
 как устроен порт и чего на iOS нет (Kill Switch по программам, системный прокси) —
 [docs/ios-port.md](https://github.com/limeflash/klick/blob/ios/docs/ios-port.md). Код iOS — в ветке
