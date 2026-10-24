@@ -211,7 +211,8 @@ kl!ck для iPhone и iPad (iOS 15+) — то же окно, подписки, 
 системное расширение, поэтому он работает и с закрытым kl!ck. В App Store его нет: файл
 [`klick-ios.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) нужно
 подписать самому, и для VPN в подписи нужны права Network Extension и App Groups — их даёт только
-**платный** аккаунт разработчика Apple (свой сертификат через ESign/Feather, SideStore или Sideloadly).
+**платный** аккаунт разработчика Apple или купленный сертификат с этими правами. Проверено с сертификатом
+FlareStore; подойдут и свой сертификат через ESign/Feather, SideStore или Sideloadly.
 С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для AltStore, SideStore,
 Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
 
