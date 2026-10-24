@@ -21,11 +21,11 @@ type Sub = null | 'ks' | 'down' | 'theme' | 'log' | 'about';
 
 const REPO = 'https://github.com/vbu00/klick';
 
-/** Авторы kl!ck; порт на macOS — только в версии для Mac. */
+/** Авторы kl!ck. */
 const AUTHORS: [string, string, string][] = [
   ['vbu00', 'Разработка', 'https://github.com/vbu00'],
   ['Dmitriy Medvedev', 'Дизайн интерфейса и логотип', 'https://github.com/aleuuu'],
-  ...(isMac ? [['limeflash', 'Порт на macOS', 'https://github.com/limeflash'] as [string, string, string]] : []),
+  ['limeflash', 'Порты на macOS и iOS', 'https://github.com/limeflash'],
 ];
 
 /** Скопировать в буфер обмена и сказать об этом. */

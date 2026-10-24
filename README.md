@@ -188,7 +188,8 @@ scripts/macos/build.sh             # dist/kl!ck.app и dist/klick-<версия>
 
 - [**vbu00**](https://github.com/vbu00) — разработка
 - [**Dmitriy Medvedev**](https://github.com/aleuuu) — дизайн интерфейса и логотип
-- [**limeflash**](https://github.com/limeflash) — порт на macOS
+- [**limeflash**](https://github.com/limeflash) — порты на macOS и iOS, стабильность VPN и проверка
+  серверов из своей сети (0.5); его ветки — `limeflash/*`
 
 Логотип-клавиша в пяти цветах и вордмарк — в [`docs/logo`](docs/logo).
 

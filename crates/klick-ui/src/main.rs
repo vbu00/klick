@@ -193,7 +193,7 @@ fn clipboard_text() -> String {
 
 /// Авторы kl!ck — в окне «О kl!ck» на macOS.
 #[cfg(target_os = "macos")]
-const COPYRIGHT: &str = "© vbu00, Dmitriy Medvedev · порт на macOS — limeflash";
+const COPYRIGHT: &str = "© vbu00, Dmitriy Medvedev · порты на macOS и iOS — limeflash";
 
 /// «Выход»: спросить в окне трея, отключить VPN или оставить его работать.
 fn request_exit(app: &AppHandle) {
@@ -206,7 +206,7 @@ fn request_exit(app: &AppHandle) {
 fn about_metadata() -> tauri::menu::AboutMetadata<'static> {
     tauri::menu::AboutMetadata {
         credits: Some(
-            "Разработка — vbu00 (github.com/vbu00)\nДизайн интерфейса и логотип — Dmitriy Medvedev (github.com/aleuuu)\nПорт на macOS — limeflash (github.com/limeflash)".into(),
+            "Разработка — vbu00 (github.com/vbu00)\nДизайн интерфейса и логотип — Dmitriy Medvedev (github.com/aleuuu)\nПорты на macOS и iOS — limeflash (github.com/limeflash)".into(),
         ),
         copyright: Some(COPYRIGHT.into()),
         ..Default::default()
