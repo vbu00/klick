@@ -2367,7 +2367,7 @@ dependencies = [
 
 [[package]]
 name = "klick-cli"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "klick-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "base64 0.22.1",
  "percent-encoding",
@@ -2391,7 +2391,7 @@ dependencies = [
 
 [[package]]
 name = "klick-proto"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "klick-core",
  "serde",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "klick-service"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "klick-setup"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "klick-core",
  "serde",
@@ -2444,7 +2444,7 @@ dependencies = [
 
 [[package]]
 name = "klick-ui"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "klick-core",
  "mac-notification-sys",
