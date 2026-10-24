@@ -27,8 +27,8 @@ open -a 'kl!ck'
 
 **iPhone и iPad:** в App Store kl!ck нет — \`klick-ios.ipa\` подписывает тот, кто ставит, и для VPN нужен
 **платный** аккаунт разработчика Apple или купленный сертификат с правами VPN (с бесплатным Apple ID приложение
-встанет, но VPN не включится). Проверено с сертификатом FlareStore. Источник для SideStore, AltStore, Feather
-и ESign — kl!ck будет обновляться оттуда:
+встанет, но VPN не включится). Проверено с [FlareStore](https://flarestore.app/guide/ios/). Источник для
+FlareStore, SideStore, AltStore, Feather и ESign — kl!ck будет обновляться оттуда:
 \`https://github.com/$repo/releases/latest/download/klick-altstore.json\`. Все способы —
 [как поставить на iPhone и iPad](https://github.com/$repo/blob/ios/docs/ios-install.md).
 NOTES

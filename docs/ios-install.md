@@ -13,19 +13,30 @@ Extension), и для него в подписи нужны два права: *
 Где взять файл:
 
 * выпуск: `https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa`;
-* источник для AltStore, SideStore, Feather и ESign (приложение появится в списке и будет обновляться):
+* источник для FlareStore, AltStore, SideStore, Feather и ESign (приложение появится в списке и будет
+  обновляться):
   `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`;
 * сборка из любой ветки — артефакт `klick-ios` в Actions → iOS.
 
 ## Способ 1. FlareStore — проверено с kl!ck
 
 FlareStore продаёт сертификат на устройство (по UDID, на год) с правами VPN / Network Extension и App
-Groups. С kl!ck проверено на iPhone: ставится, VPN включается. Подписать можно его подписчиком в
-браузере (загрузить туда `klick-ios.ipa`) или импортировать `.p12` и профиль из пакета в ESign, KSign
-или Feather — дальше как в способе 2.
+Groups, а его приложение подписывает и ставит `.ipa` прямо на iPhone. С kl!ck проверено: ставится, VPN
+включается. По [гайду FlareStore](https://flarestore.app/guide/ios/):
 
-Если сервис подписывает общим корпоративным сертификатом, его могут отозвать — приложение перестанет
-открываться до переподписи.
+1. Купить сертификат на [flarestore.vip](https://flarestore.vip) и поставить приложение FlareStore через
+   их подписчик в браузере — сертификат подхватится сам. Если нет: FlareStore → Settings → Certificates →
+   Add Certificate, добавить `.p12` и `.mobileprovision` из пакета (и пароль `.p12`, если он есть).
+2. Добавить источник kl!ck — FlareStore понимает формат AltStore/SideStore:
+   `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json` — и скачать kl!ck
+   оттуда. Или на главной «+ Import» → `klick-ios.ipa`.
+3. Library → kl!ck → **Sign**, затем **Install** и согласиться на запрос установки.
+
+Если запрос установки не появился или пишет про домен — что-то блокирует `*.flarestore.vip` и
+`localhost.flarestore.vip`: блокировщик рекламы, провайдер или VPN (на время установки выключите и
+kl!ck). `.p12` и профиль из пакета подходят и для ESign, KSign или Feather — тогда как в способе 2.
+
+Если сертификат отзовут, приложение перестанет открываться до переподписи.
 
 ## Способ 2. Свой сертификат: ESign, Feather или KSign
 
