@@ -34,7 +34,8 @@ kl!ck для Windows, перенесённый на macOS, iPhone и iPad, пл�
 проверка серверов, темы. VPN держит системное расширение, поэтому он работает и с закрытым kl!ck,
 включается в Настройках → VPN и, если попросить, сам поднимается после перезагрузки. Ядро mihomo собрано из
 исходников прямо в расширение и настроено под лимит памяти iOS. Подписку можно добавить по QR-коду — камерой или из фото. Есть
-источник для AltStore, SideStore, Feather и ESign: kl!ck появляется в их списке и обновляется оттуда.
+источник для FlareStore, AltStore, SideStore, Feather и ESign: kl!ck появляется в их списке и обновляется
+оттуда.
 
 **macOS.** То же окно и те же функции, что на Windows: служба, TUN и системный прокси, Kill Switch, ссылки
 `klick://`, обновление пакетом поверх. DNS и прокси возвращаются как были — при смене «Размещения»,
@@ -211,10 +212,10 @@ kl!ck для iPhone и iPad (iOS 15+) — то же окно, подписки, 
 системное расширение, поэтому он работает и с закрытым kl!ck. В App Store его нет: файл
 [`klick-ios.ipa`](https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa) нужно
 подписать самому, и для VPN в подписи нужны права Network Extension и App Groups — их даёт только
-**платный** аккаунт разработчика Apple или купленный сертификат с этими правами. Проверено с сертификатом
-FlareStore; подойдут и свой сертификат через ESign/Feather, SideStore или Sideloadly.
-С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для AltStore, SideStore,
-Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
+**платный** аккаунт разработчика Apple или купленный сертификат с этими правами. Проверено с
+[FlareStore](https://flarestore.app/guide/ios/); подойдут и свой сертификат через ESign/Feather, SideStore
+или Sideloadly. С бесплатным Apple ID приложение встанет, но VPN не включится. Источник для FlareStore,
+AltStore, SideStore, Feather и ESign: `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`.
 
 Как поставить — [docs/ios-install.md](https://github.com/limeflash/klick/blob/ios/docs/ios-install.md);
 как устроен порт и чего на iOS нет (Kill Switch по программам, системный прокси) —
