@@ -7,7 +7,7 @@ use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use windows_service::service::{
-    ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
+    PowerEventParam, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
     ServiceFailureActions, ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
@@ -35,7 +35,11 @@ fn status(state: ServiceState, code: u32) -> ServiceStatus {
     ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: state,
-        controls_accepted: if state == ServiceState::Running { ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN } else { ServiceControlAccept::empty() },
+        controls_accepted: if state == ServiceState::Running {
+            ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN | ServiceControlAccept::POWER_EVENT
+        } else {
+            ServiceControlAccept::empty()
+        },
         exit_code: ServiceExitCode::Win32(code),
         checkpoint: 0,
         wait_hint: Duration::from_secs(10),
@@ -50,11 +54,26 @@ fn run_service() -> Result<()> {
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let stop = Arc::new(Mutex::new(Some(stop_tx)));
+    // Пробуждение: долгий ли был сон (по настоящим часам с момента ухода в сон).
+    let (wake_tx, mut wake_rx) = tokio::sync::mpsc::unbounded_channel::<bool>();
+    let asleep_since = Mutex::new(None::<std::time::SystemTime>);
     let handler = move |event| match event {
         ServiceControl::Stop | ServiceControl::Shutdown => {
             if let Some(tx) = stop.lock().unwrap().take() {
                 let _ = tx.send(());
             }
+            ServiceControlHandlerResult::NoError
+        }
+        // На том же Wi-Fi или кабеле после сна адаптеры могут не поменяться, а сессии к серверу уже истекли.
+        ServiceControl::PowerEvent(PowerEventParam::Suspend) => {
+            *asleep_since.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::SystemTime::now());
+            ServiceControlHandlerResult::NoError
+        }
+        ServiceControl::PowerEvent(PowerEventParam::ResumeAutomatic | PowerEventParam::ResumeSuspend) => {
+            let since = asleep_since.lock().unwrap_or_else(|e| e.into_inner()).take();
+            // Неизвестно, сколько спал (сообщения об уходе в сон не было), — считаем, что долго.
+            let long = since.and_then(|t| t.elapsed().ok()).is_none_or(|d| d >= engine::LONG_SLEEP);
+            let _ = wake_tx.send(long);
             ServiceControlHandlerResult::NoError
         }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -68,6 +87,18 @@ fn run_service() -> Result<()> {
         let profile = Profile::production();
         let (engine, _task) = engine::spawn(paths, profile.clone())?;
         let server = tokio::spawn(pipe::serve(profile.pipe.clone(), true, engine.clone()));
+        let woke = engine.clone();
+        tokio::spawn(async move {
+            while let Some(mut long) = wake_rx.recv().await {
+                // Сеть после пробуждения поднимается не сразу; оба сообщения о пробуждении — в одно.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                while let Ok(l) = wake_rx.try_recv() {
+                    long |= l;
+                }
+                tracing::info!("компьютер проснулся{}", if long { " после долгого сна" } else { "" });
+                woke.network_changed(long).await;
+            }
+        });
         let _ = stop_rx.await;
         engine.shutdown().await;
         server.abort();

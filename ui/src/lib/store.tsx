@@ -1,11 +1,12 @@
 // Состояние окна: зеркало службы плюс то, что нужно только интерфейсу (всплывающие сообщения, график).
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { DROP_NOTICES, errorText, noticeTarget, noticeText } from './i18n';
 import { planToggle, positionVerb } from './live';
+import { probeCounts } from './probe';
 import type { Transport } from './transport';
 import { applyTheme, resolveTheme, systemDark } from './theme';
-import type { ConnectionView, ErrorInfo, KEvent, KillSwitch, Mode, Preferences, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target } from './types';
+import type { ConnectionView, ErrorInfo, KEvent, KillSwitch, Mode, Preferences, ProbeReport, Route, Routing, Rule, ServerView, Service, Settings, StateView, Target, VpnState } from './types';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'dim';
 
@@ -25,7 +26,7 @@ export interface IncomingLink {
   seq: number;
 }
 
-interface Traffic {
+export interface Traffic {
   up: number;
   down: number;
   upHist: number[];
@@ -43,8 +44,13 @@ interface S {
   pinging: boolean;
   /** Подключения, чьи серверы уже проверяли на задержку: только у них null значит «нет ответа». */
   tested: Record<string, boolean>;
-  traffic: Traffic;
+  /** Идёт проверка серверов: с какой секунды (Unix). Живёт в состоянии окна, а не экрана: вкладку можно сменить. */
+  probing: number | null;
+  /** Проверка серверов подключения `id` не удалась. */
+  probeError: { id: string; error: ErrorInfo } | null;
   toasts: Toast[];
+  /** Нажали «включить» или «выключить», а служба ещё не ответила: `from` — состояние VPN в момент нажатия. */
+  power: { want: 'on' | 'off'; from: VpnState; id: number } | null;
   /** Кто мешает режиму VPN: zapret, другой VPN. Узнаём из уведомления службы при подключении. */
   neighbors: string[];
   /** Расширения браузеров, перехватившие прокси: мешают режиму «Системный прокси». */
@@ -68,7 +74,10 @@ type A =
   | { t: 'servers'; id: string; list: ServerView[] }
   | { t: 'pinging'; on: boolean }
   | { t: 'tested'; id: string }
-  | { t: 'traffic'; up: number; down: number }
+  | { t: 'probing'; since: number | null }
+  | { t: 'probeError'; id: string; error: ErrorInfo }
+  | { t: 'power'; power: S['power'] }
+  | { t: 'powerDone'; id: number }
   | { t: 'toast'; toast: Toast }
   | { t: 'dismiss'; id: number }
   | { t: 'neighbors'; names: string[] }
@@ -93,8 +102,10 @@ const initial: S = {
   servers: {},
   pinging: false,
   tested: {},
-  traffic: emptyTraffic(),
+  probing: null,
+  probeError: null,
   toasts: [],
+  power: null,
   neighbors: [],
   browserProxy: [],
   noProxy: [],
@@ -111,7 +122,7 @@ function reducer(s: S, a: A): S {
     case 'service':
       return { ...s, serviceUp: a.up };
     case 'state':
-      return { ...s, state: a.state, loaded: true, traffic: running(a.state) ? s.traffic : emptyTraffic(), neighbors: running(a.state) ? s.neighbors : [], browserProxy: running(a.state) ? s.browserProxy : [], noProxy: running(a.state) && a.state.mode === 'sys_proxy' ? s.noProxy : [] };
+      return { ...s, state: a.state, loaded: true, neighbors: running(a.state) ? s.neighbors : [], browserProxy: running(a.state) ? s.browserProxy : [], noProxy: running(a.state) && a.state.mode === 'sys_proxy' ? s.noProxy : [] };
     case 'settings':
       return { ...s, settings: a.settings };
     case 'servers':
@@ -120,21 +131,14 @@ function reducer(s: S, a: A): S {
       return { ...s, pinging: a.on };
     case 'tested':
       return { ...s, tested: { ...s.tested, [a.id]: true } };
-    case 'traffic': {
-      const t = s.traffic;
-      const mb = (b: number) => (b * 8) / 1e6;
-      return {
-        ...s,
-        traffic: {
-          up: a.up,
-          down: a.down,
-          upHist: [...t.upHist.slice(1), mb(a.up)],
-          downHist: [...t.downHist.slice(1), mb(a.down)],
-          upSum: t.upSum + a.up,
-          downSum: t.downSum + a.down,
-        },
-      };
-    }
+    case 'probing':
+      return { ...s, probing: a.since, probeError: a.since ? null : s.probeError };
+    case 'probeError':
+      return { ...s, probeError: { id: a.id, error: a.error } };
+    case 'power':
+      return { ...s, power: a.power };
+    case 'powerDone':
+      return s.power?.id === a.id ? { ...s, power: null } : s;
     case 'toast':
       return { ...s, toasts: [...s.toasts.slice(-1), a.toast] };
     case 'dismiss':
@@ -160,14 +164,35 @@ function reducer(s: S, a: A): S {
   }
 }
 
+/** Скорость раз в секунду — отдельно от общего состояния: на событие трафика перерисовываются
+ *  только плитки скорости и графики, а не все экраны. `null` — VPN выключен, обнулить. */
+function trafficReducer(t: Traffic, a: { up: number; down: number } | null): Traffic {
+  if (!a) return t.upSum || t.downSum || t.up || t.down ? emptyTraffic() : t;
+  const mb = (b: number) => (b * 8) / 1e6;
+  return {
+    up: a.up,
+    down: a.down,
+    upHist: [...t.upHist.slice(1), mb(a.up)],
+    downHist: [...t.downHist.slice(1), mb(a.down)],
+    upSum: t.upSum + a.up,
+    downSum: t.downSum + a.down,
+  };
+}
+
 export interface Store extends S {
   transport: Transport;
   isRunning: boolean;
+  /** Кнопку питания нажали, служба ещё не ответила сменой состояния: показать нажатие сразу и не принять второе. */
+  pending: 'on' | 'off' | null;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   selectConnection(id: string): Promise<boolean>;
   selectServer(name: string): Promise<void>;
   testLatency(): Promise<void>;
+  /** Проверить серверы активного подключения из этой сети: до полутора минут. */
+  probe(): Promise<void>;
+  /** Отправлять итоги проверки панели подписки. */
+  probeShare(enabled: boolean): Promise<void>;
   refresh(id: string): Promise<void>;
   remove(id: string): Promise<void>;
   addLink(source: string, name?: string): Promise<boolean>;
@@ -202,6 +227,17 @@ export interface Store extends S {
 }
 
 const Ctx = createContext<Store | null>(null);
+const TrafficCtx = createContext<Traffic>(emptyTraffic());
+
+/** Скорость и графики: только этим компонентам нужно событие трафика раз в секунду. */
+export const useTraffic = (): Traffic => useContext(TrafficCtx);
+
+const onVisibility = (cb: () => void) => {
+  document.addEventListener('visibilitychange', cb);
+  return () => document.removeEventListener('visibilitychange', cb);
+};
+/** Окно видно. Спрятанное в трей не опрашивает службу: показали — опрос сразу продолжается. */
+export const useVisible = (): boolean => useSyncExternalStore(onVisibility, () => document.visibilityState !== 'hidden');
 
 /** «resume» — один раз за жизнь окна. */
 let resumed = false;
@@ -214,9 +250,17 @@ export function useStore(): Store {
 
 export function StoreProvider({ transport, children }: { transport: Transport; children: ReactNode }) {
   const [s, dispatch] = useReducer(reducer, initial);
+  const [traffic, pushTraffic] = useReducer(trafficReducer, undefined, emptyTraffic);
   const ref = useRef(s);
   ref.current = s;
   const toastId = useRef(0);
+  const powerId = useRef(0);
+
+  // VPN выключен — скорость и графики с нуля.
+  const setState = useCallback((state: StateView) => {
+    dispatch({ t: 'state', state });
+    if (!running(state)) pushTraffic(null);
+  }, []);
 
   const toast = useCallback((title: string, text?: string, tone: Tone = 'dim', action?: Toast['action']) => {
     const id = ++toastId.current;
@@ -238,7 +282,9 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     if (!id) return;
     try {
       const list = await transport.call<ServerView[]>('servers');
-      dispatch({ t: 'servers', id, list });
+      // `servers` отдаёт список активного подключения: если его сменили, пока шёл запрос, — это уже чужой список.
+      const st = await transport.call<StateView>('status');
+      if (st.connection?.id === id) dispatch({ t: 'servers', id, list });
     } catch {
       /* подписка без серверов — список останется пустым */
     }
@@ -253,7 +299,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     try {
       const [state, settings] = await Promise.all([transport.call<StateView>('status'), transport.call<Settings>('settings')]);
       dispatch({ t: 'settings', settings });
-      dispatch({ t: 'state', state });
+      setState(state);
       // После входа в Windows служба сама решит, вернуть ли VPN («Восстанавливать подключение»).
       if (!resumed) {
         resumed = true;
@@ -270,7 +316,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     } catch {
       dispatch({ t: 'service', up: false });
     }
-  }, [transport]);
+  }, [transport, setState]);
 
   // Названия программ: у папок правил и Kill Switch, которых ещё не знаем.
   const asked = useRef(new Set<string>());
@@ -303,7 +349,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     const offEvent = transport.onEvent((e: KEvent) => {
       if (e.ev === 'state') {
         const prev = ref.current.state;
-        dispatch({ t: 'state', state: e.state });
+        setState(e.state);
         if (prev && prev.vpn !== 'connected' && e.state.vpn === 'connected' && prev.vpn === 'connecting') {
           toast(`Подключено к ${e.state.connection?.name ?? 'серверу'}`, e.state.server ?? undefined, 'ok');
         }
@@ -315,13 +361,16 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       } else if (e.ev === 'servers') {
         // Замерили в другом окне (или в этом): свежие задержки и «нет ответа» — после замера.
-        dispatch({ t: 'tested', id: e.connection });
-        void loadServers(e.connection);
+        // Команда `servers` отдаёт список активного подключения: событие о другом не грузим, иначе чужой список ляжет под его ID.
+        if (e.connection === ref.current.settings?.active_connection) {
+          dispatch({ t: 'tested', id: e.connection });
+          void loadServers(e.connection);
+        }
       } else if (e.ev === 'settings') {
         // Главное окно и окно трея — два отдельных окна: что поменяли в одном, должно быть видно в другом.
         void transport.call<Settings>('settings').then((settings) => dispatch({ t: 'settings', settings })).catch(() => undefined);
       } else if (e.ev === 'traffic') {
-        dispatch({ t: 'traffic', up: e.up, down: e.down });
+        pushTraffic({ up: e.up, down: e.down });
       } else if (e.ev === 'notice') {
         if (e.code === 'neighbors.conflict' && Array.isArray(e.params?.names)) dispatch({ t: 'neighbors', names: e.params.names as string[] });
         if (e.code === 'neighbors.browser_proxy' && Array.isArray(e.params?.names)) dispatch({ t: 'browserProxy', names: e.params.names as string[] });
@@ -358,7 +407,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
       offNav();
       offService();
     };
-  }, [transport, reload, loadServers, toast]);
+  }, [transport, reload, loadServers, toast, setState]);
 
   // Ссылка klick://add со страницы подписки. Окно забирает её само: при запуске по ссылке она пришла
   // раньше, чем страница начала слушать события. Сама ссылка ничего не добавляет — только открывает экран.
@@ -398,17 +447,26 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     [transport, failed],
   );
 
+  // Кнопка питания: нажатие видно сразу, а не когда служба пришлёт новое состояние.
+  const power = useCallback(
+    async (want: 'on' | 'off') => {
+      const id = ++powerId.current;
+      dispatch({ t: 'power', power: { want, from: ref.current.state?.vpn ?? 'off', id } });
+      await call(want === 'on' ? 'connect' : 'disconnect');
+      dispatch({ t: 'powerDone', id });
+    },
+    [call],
+  );
+
   const store = useMemo<Store>(
     () => ({
       ...s,
       transport,
       isRunning: running(s.state),
-      connect: async () => {
-        await call('connect');
-      },
-      disconnect: async () => {
-        await call('disconnect');
-      },
+      // Служба ответила сменой состояния — дальше показываем его, а не нажатие.
+      pending: s.power && s.state?.vpn === s.power.from ? s.power.want : null,
+      connect: () => power('on'),
+      disconnect: () => power('off'),
       selectConnection: async (id) => {
         const r = await call('select_connection', { id });
         await reload();
@@ -432,6 +490,39 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
           dispatch({ t: 'tested', id });
         }
         dispatch({ t: 'pinging', on: false });
+      },
+      probe: async () => {
+        const id = ref.current.state?.connection?.id;
+        if (!id || ref.current.probing) return;
+        dispatch({ t: 'probing', since: Math.floor(Date.now() / 1000) });
+        try {
+          await transport.call<ProbeReport>('probe');
+        } catch (e) {
+          dispatch({ t: 'probeError', id, error: (e as ErrorInfo) ?? { code: 'unknown' } });
+          dispatch({ t: 'probing', since: null });
+          return;
+        }
+        // Итоги — в состоянии подключения (probe_last) и у серверов: служба пришлёт их и сама, но ответ может обогнать события.
+        // Статус — после списка: если подключение сменили до или во время запроса, статус это покажет.
+        const list = await transport.call<ServerView[]>('servers').catch(() => null);
+        const st = await transport.call<StateView>('status').catch(() => null);
+        if (st) setState(st);
+        // Пока шла проверка, выбрали другое подключение — `servers` вернул уже его список.
+        if (list && st?.connection?.id === id) {
+          dispatch({ t: 'servers', id, list });
+          dispatch({ t: 'tested', id });
+          const c = probeCounts(list);
+          const bad = c.freeze + c.down;
+          toast('Серверы проверены', `Работают ${c.ok} из ${c.checked}${c.freeze ? ` · заморозка ${c.freeze}` : ''}${c.down ? ` · недоступны ${c.down}` : ''}`, bad ? 'warn' : 'ok');
+        }
+        dispatch({ t: 'probing', since: null });
+      },
+      probeShare: async (enabled) => {
+        const id = ref.current.state?.connection?.id;
+        if (!id) return;
+        const view = await call<ConnectionView>('probe_share', { id, enabled });
+        const st = ref.current.state;
+        if (view && st?.connection?.id === id) setState({ ...st, connection: { ...st.connection, ...view } });
       },
       refresh: async (id) => {
         const r = await call('refresh_connection', { id });
@@ -612,8 +703,12 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
       dismiss: (id) => dispatch({ t: 'dismiss', id }),
       reload,
     }),
-    [s, transport, call, reload, reloadSettings, toast, failed],
+    [s, transport, call, power, reload, reloadSettings, toast, failed],
   );
 
-  return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={store}>
+      <TrafficCtx.Provider value={traffic}>{children}</TrafficCtx.Provider>
+    </Ctx.Provider>
+  );
 }

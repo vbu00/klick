@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/klick-core", "crates/klick-proto", "crates/klick-service", "crates/klick-cli", "crates/klick-ui", "crates/klick-setup"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
 

@@ -90,9 +90,11 @@ pub fn reconcile(desired: Option<Spec>) {
     let first = !SYNCED.swap(true, Ordering::Relaxed);
     let applied = APPLIED.lock().unwrap_or_else(|e| e.into_inner()).clone();
     match desired {
+        // Запоминаем только то, что встало: не встало — следующее состояние службы попробует снова.
         Some(spec) if first || applied.as_ref() != Some(&spec) => {
-            apply(&spec);
-            *APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(spec);
+            if apply(&spec) {
+                *APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = Some(spec);
+            }
         }
         None if first || applied.is_some() => clear_ours(),
         _ => {}
@@ -128,8 +130,9 @@ pub fn clear_ours() {
     *APPLIED.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-fn apply(spec: &Spec) {
-    let Some(now) = query() else { return };
+/// Поставить наш прокси; `true` — настройки Windows теперь такие, как надо.
+fn apply(spec: &Spec) -> bool {
+    let Some(now) = query() else { return false };
     let ours = format!("{}:{}", spec.host, spec.port);
     let bypass = spec.bypass.join(";");
     // Запоминаем настройки пользователя один раз: повторное включение не должно затереть их нашими.
@@ -147,9 +150,7 @@ fn apply(spec: &Spec) {
     let same = now.flags & (PROXY_TYPE_PROXY | PROXY_TYPE_AUTO_DETECT | PROXY_TYPE_AUTO_PROXY_URL) == PROXY_TYPE_PROXY
         && now.server == wanted.server
         && now.bypass == wanted.bypass;
-    if !same {
-        set(&wanted);
-    }
+    same || set(&wanted)
 }
 
 /// Настройки прокси подключения «по локальной сети». Флаги — как в окне настроек Windows
@@ -190,7 +191,8 @@ unsafe fn take(p: PWSTR) -> Option<String> {
 }
 
 /// Записать настройки одной операцией и сообщить программам на WinINet (браузеры, Telegram, магазины).
-fn set(s: &Settings) {
+/// `true` — записались.
+fn set(s: &Settings) -> bool {
     let mut server = wide(s.server.as_deref().unwrap_or(""));
     let mut bypass = wide(s.bypass.as_deref().unwrap_or(""));
     let mut pac = wide(s.pac.as_deref().unwrap_or(""));
@@ -208,9 +210,10 @@ fn set(s: &Settings) {
         pOptions: opts.as_mut_ptr(),
     };
     unsafe {
-        let _ = InternetSetOptionW(None, INTERNET_OPTION_PER_CONNECTION_OPTION, Some(&list as *const _ as *const c_void), list.dwSize);
+        let ok = InternetSetOptionW(None, INTERNET_OPTION_PER_CONNECTION_OPTION, Some(&list as *const _ as *const c_void), list.dwSize).is_ok();
         let _ = InternetSetOptionW(None, INTERNET_OPTION_SETTINGS_CHANGED, None, 0);
         let _ = InternetSetOptionW(None, INTERNET_OPTION_REFRESH, None, 0);
+        ok
     }
 }
 

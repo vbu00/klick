@@ -7,11 +7,11 @@
 #   scripts/macos/fetch-core.sh --force   # скачать заново
 set -euo pipefail
 
-VERSION="v1.19.31"
-# SHA-256 архивов .gz с https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.31
-SHA_ARM64="d131f44b3deb2a8356f7ac75048ad67a10d53243323951c4f3cda7b672922963"
-SHA_AMD64="3546681ebef3415e5dcbe7210a61aa80748136e95e6552768fd883df345508ed"
-SHA_LINUX_AMD64="d5e74bbddbdfff49a1aef7775bf5911da59f0d7196ed509a0ac914b3653dd5f1"
+VERSION="v1.19.33"
+# SHA-256 архивов .gz с https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.33
+SHA_ARM64="060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6"
+SHA_AMD64="551ae54ef8d77a5e21f7a8185a59b441fb13a0fb0514fcdef5ca2816f6f50015"
+SHA_LINUX_AMD64="132f6f3edf9a65e62f04853aed3358472e0b2b7666daa8419edfa2ddf5bb6323"
 # База стран из MetaCubeX/meta-rules-dat, привязана к коммиту.
 GEO_COMMIT="6b01e65c89cdeb684c00c70bb0b414091b22f124"
 GEO_SHA="21606dfffd4ec39542ec40782bebd37b71310471816e1338b6f6430190cbc85d"

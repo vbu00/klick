@@ -11,6 +11,7 @@ pub mod guard;
 pub mod macos;
 pub mod model;
 pub mod os;
+pub mod probe;
 pub mod sub;
 
 pub use model::*;

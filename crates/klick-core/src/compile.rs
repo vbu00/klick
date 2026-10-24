@@ -29,6 +29,22 @@ pub const SET_RU_DOMAINS: &str = "klick-ru-domains";
 const DNS_RU: [&str; 2] = ["tls://77.88.8.8:853", "77.88.8.8"];
 const DNS_FOREIGN: [&str; 2] = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"];
 
+/// Поправки к серверам из любого источника (подписка Clash, ссылки, файлы) — ядро применяет их к каждому
+/// серверу провайдера, только если сервер не задал своё значение.
+const SERVER_FIXES: [&str; 5] = [
+    // Hysteria2: одно рукопожатие на все соединения. Без срока каждое новое соединение после сна или смены
+    // сети ждёт рукопожатия первого под замком, и страница открывается по очереди, по нескольку секунд.
+    r#"(select(.type == "hysteria2" and .handshake-timeout == null) | .handshake-timeout) = 10"#,
+    // WireGuard и AmneziaWG: без keepalive NAT роутера и оператора забывает сопоставление, и сервер молчит.
+    r#"(select(.type == "wireguard" and .persistent-keepalive == null) | .persistent-keepalive) = 25"#,
+    // Ядро 1.19.33 перевело WireGuard на новый стек mips; остаёмся на проверенном gVisor.
+    r#"(select(.type == "wireguard" and .ip-stack.mode == null) | .ip-stack.mode) = "gvisor""#,
+    // Имена сайтов для WireGuard — через туннель: иначе сайт программы из списка «через VPN» ищется
+    // российским DNS напрямую (утечка, а заблокированный сайт может получить негодный адрес).
+    r#"(select(.type == "wireguard" and .dns == null) | .dns) = ["1.1.1.1", "8.8.8.8"]"#,
+    r#"(select(.type == "wireguard" and .remote-dns-resolve == null) | .remote-dns-resolve) = true"#,
+];
+
 /// Как трафик попадает в ядро.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Capture {
@@ -95,7 +111,8 @@ pub fn compile(input: &CompileInput) -> Value {
             { "name": "klick-check-direct", "type": "http", "port": layout.check_direct_port, "listen": "127.0.0.1", "proxy": "DIRECT" },
         ]),
     );
-    cfg.insert("rule-providers".into(), rule_providers(s, input.sets));
+    let user = user_sets(s, input.catalog, layout.os);
+    cfg.insert("rule-providers".into(), rule_providers(s, input.sets, user.as_deref()));
     let mut all = Vec::new();
     // Проверочное ядро — тот же исполняемый файл mihomo. Его соединения в TUN попали бы в
     // туннель основного, и задержка «другого» подключения мерилась бы через
@@ -104,9 +121,12 @@ pub fn compile(input: &CompileInput) -> Value {
     if !exe.is_empty() {
         all.push(format!("PROCESS-PATH-REGEX,{},DIRECT", exact_path_regex(exe)));
     }
-    all.extend(rules(s, input.catalog, layout.os));
+    all.extend(match &user {
+        Some(sets) => compose(s, layout.os, set_rules(sets)),
+        None => rules(s, input.catalog, layout.os),
+    });
     cfg.insert("rules".into(), Value::from(all));
-    cfg.insert("dns".into(), dns(s, input.catalog, layout.os, input.server_dns));
+    cfg.insert("dns".into(), dns(s, input.catalog, layout.os, input.server_dns, user.as_deref()));
     cfg.insert("sniffer".into(), sniffer());
     if input.capture == Capture::Tun {
         cfg.insert("tun".into(), tun(layout));
@@ -192,6 +212,26 @@ pub fn compile_tester(layout: &CoreLayout, provider_path: &str) -> Value {
     Value::Object(cfg)
 }
 
+/// Проверочное ядро с отдельным входом для каждого сервера, который проверяется параллельно.
+pub fn compile_probe(layout: &CoreLayout, provider_path: &str, slot_ports: &[u16]) -> Value {
+    let mut cfg = base(layout, provider_path);
+    let groups: Vec<Value> = slot_ports
+        .iter()
+        .enumerate()
+        .map(|(i, _)| json!({ "name": format!("klick-probe-{i}"), "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }))
+        .collect();
+    let listeners: Vec<Value> = slot_ports
+        .iter()
+        .enumerate()
+        .map(|(i, port)| json!({ "name": format!("klick-probe-listener-{i}"), "type": "http", "port": port, "listen": "127.0.0.1", "proxy": format!("klick-probe-{i}") }))
+        .collect();
+    cfg.insert("allow-lan".into(), json!(false));
+    cfg.insert("proxy-groups".into(), Value::Array(groups));
+    cfg.insert("listeners".into(), Value::Array(listeners));
+    cfg.insert("rules".into(), json!(["MATCH,DIRECT"]));
+    Value::Object(cfg)
+}
+
 fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
     let v = json!({
         "mode": "rule",
@@ -206,10 +246,12 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
         "secret": layout.secret,
         "profile": { "store-selected": false, "store-fake-ip": true },
         "proxy-providers": {
-            PROVIDER: { "type": "file", "path": provider_path, "health-check": { "enable": false } }
+            PROVIDER: { "type": "file", "path": provider_path, "health-check": { "enable": false }, "override": { "override-expr": SERVER_FIXES } }
         },
+        // Серверов нет (провайдер не загрузился) — пустая группа у ядра значит «напрямую»: утечка мимо VPN.
+        // `empty-fallback: REJECT` — тогда соединения отклоняются, а страж скажет, что сервер не отвечает.
         "proxy-groups": [
-            { "name": VPN_GROUP, "type": "select", "use": [PROVIDER] }
+            { "name": VPN_GROUP, "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }
         ],
     });
     match v {
@@ -218,8 +260,18 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
     }
 }
 
-fn rule_providers(s: &Settings, sets: &SetFiles) -> Value {
+fn rule_providers(s: &Settings, sets: &SetFiles, user: Option<&[UserSet]>) -> Value {
     let file = |behavior: &str, path: &str| json!({ "type": "file", "behavior": behavior, "format": "text", "path": path });
+    let mut out = preset_providers(s, sets, file);
+    if let (Some(map), Some(user)) = (out.as_object_mut(), user) {
+        for u in user {
+            map.insert(u.name.clone(), file(u.behavior, &u.path));
+        }
+    }
+    out
+}
+
+fn preset_providers(s: &Settings, sets: &SetFiles, file: impl Fn(&str, &str) -> Value) -> Value {
     match s.routing {
         Routing::Selected if s.blocked_preset => json!({
             SET_BLOCKED_DOMAINS: file("domain", &sets.blocked_domains),
@@ -344,7 +396,141 @@ fn lan_rules() -> Vec<String> {
     out
 }
 
+/// Все правила с пользовательскими списками прямо в конфиге (так — когда файлами правил нельзя, см. `user_sets`).
 pub fn rules(s: &Settings, catalog: &Catalog, os: Os) -> Vec<String> {
+    compose(s, os, inline_user_rules(s, catalog, os))
+}
+
+/// Пользовательские списки строками правил. Ядро берёт первое совпавшее правило, поэтому внутри списка
+/// точное идёт раньше общего: папка поглубже, домен подлиннее, подсеть поуже. При равной точности свои
+/// сайты и подсети — раньше сервисов каталога. Сортировка устойчивая: в остальном порядок как в списке.
+fn inline_user_rules(s: &Settings, catalog: &Catalog, os: Os) -> Vec<String> {
+    let (mut programs, mut domains, mut ips) = user_targets(s, catalog);
+    programs.sort_by_key(|(folder, _)| std::cmp::Reverse(os.depth(folder)));
+    domains.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    ips.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let mut out = Vec::new();
+    for (folder, route) in programs {
+        out.push(format!("PROCESS-PATH-REGEX,{},{}", folder_regex(os, &folder), policy(route)));
+    }
+    for (_, _, domain, route) in domains {
+        out.push(format!("DOMAIN-SUFFIX,{domain},{}", policy(route)));
+    }
+    for (_, _, cidr, route) in ips {
+        out.push(ip_rule(&cidr, policy(route)));
+    }
+    out
+}
+
+/// Программы, домены и подсети включённых правил текущего положения тумблера.
+fn user_targets(s: &Settings, catalog: &Catalog) -> (Vec<(String, Route)>, Vec<Ranked>, Vec<Ranked>) {
+    let list: Vec<&Rule> = s.rules().collect();
+    let programs = list
+        .iter()
+        .filter_map(|r| match &r.target {
+            Target::Program(folder) => Some((folder.clone(), r.route)),
+            _ => None,
+        })
+        .collect();
+    let (mut domains, mut ips) = (Vec::new(), Vec::new());
+    for rule in &list {
+        collect_targets(rule, catalog, &mut domains, &mut ips);
+    }
+    (programs, domains, ips)
+}
+
+/// Свой список в файле правил ядра: имя набора, вид (`classical`, `domain`, `ipcidr`), файл, маршрут, строки.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserSet {
+    pub name: String,
+    pub behavior: &'static str,
+    pub path: String,
+    pub policy: &'static str,
+    pub no_resolve: bool,
+    pub body: String,
+}
+
+/// Свои списки — файлами правил ядра, по виду и маршруту, чтобы их правка не перечитывала конфиг:
+/// перечитанный конфиг пересоздаёт серверы провайдера, и ядро закрывает все соединения через VPN
+/// (звонок обрывается, когда человек добавляет сайт). Файл правил ядро перечитывает, ничего не обрывая.
+/// Внутри файла порядок не важен — маршрут один; между маршрутами он постоянный (блок, напрямую, VPN)
+/// и «точное раньше общего» не соблюдает. Поэтому, если вложенные записи ведут разными маршрутами
+/// (`mail.example.com` напрямую внутри `example.com` через VPN, папка внутри папки), — `None`:
+/// правила остаются в конфиге, как раньше.
+pub fn user_sets(s: &Settings, catalog: &Catalog, os: Os) -> Option<Vec<UserSet>> {
+    let (programs, domains, ips) = user_targets(s, catalog);
+    let domains: Vec<(String, Route)> = domains.into_iter().map(|(_, _, d, r)| (d, r)).collect();
+    let ips: Vec<(String, Route)> = ips.into_iter().map(|(_, _, c, r)| (c, r)).collect();
+    if crossed(&programs, folder_inside) || crossed(&domains, domain_inside) || crossed(&ips, cidr_inside) {
+        return None;
+    }
+    let kinds: [(&str, &'static str, bool, &[(String, Route)]); 3] =
+        [("programs", "classical", false, &programs), ("domains", "domain", false, &domains), ("ips", "ipcidr", true, &ips)];
+    let mut out = Vec::new();
+    for (kind, behavior, no_resolve, items) in kinds {
+        for (route, route_name) in [(Route::Block, "block"), (Route::Direct, "direct"), (Route::Vpn, "vpn")] {
+            let mut lines: Vec<String> = items
+                .iter()
+                .filter(|(_, r)| *r == route)
+                .map(|(v, _)| match kind {
+                    "programs" => format!("PROCESS-PATH-REGEX,{}", folder_regex(os, v)),
+                    "domains" => format!("+.{v}"),
+                    _ => v.clone(),
+                })
+                .collect();
+            lines.sort();
+            lines.dedup();
+            if lines.is_empty() {
+                continue;
+            }
+            let name = format!("klick-user-{kind}-{route_name}");
+            out.push(UserSet { path: format!("user/{name}.txt"), name, behavior, policy: policy(route), no_resolve, body: lines.join("\n") + "\n" });
+        }
+    }
+    Some(out)
+}
+
+fn set_rules(sets: &[UserSet]) -> Vec<String> {
+    sets.iter().map(|u| format!("RULE-SET,{},{}{}", u.name, u.policy, if u.no_resolve { ",no-resolve" } else { "" })).collect()
+}
+
+/// Есть ли пара вложенных записей с разными маршрутами.
+fn crossed(items: &[(String, Route)], inside: fn(&str, &str) -> bool) -> bool {
+    items.iter().enumerate().any(|(i, (a, ra))| items[i + 1..].iter().any(|(b, rb)| ra != rb && (inside(a, b) || inside(b, a))))
+}
+
+/// Папка `a` — это `b` или лежит внутри неё (без учёта регистра).
+fn folder_inside(a: &str, b: &str) -> bool {
+    let (a, b) = (a.trim_end_matches(['\\', '/']).to_lowercase(), b.trim_end_matches(['\\', '/']).to_lowercase());
+    a == b || a.strip_prefix(b.as_str()).is_some_and(|rest| rest.starts_with(['\\', '/']))
+}
+
+/// Домен `a` — это `b` или его поддомен.
+fn domain_inside(a: &str, b: &str) -> bool {
+    let (a, b) = (a.to_ascii_lowercase(), b.to_ascii_lowercase());
+    a == b || a.ends_with(&format!(".{b}"))
+}
+
+/// Подсеть `a` лежит внутри `b`. Непонятную запись считаем вложенной: лучше остаться при старом порядке.
+fn cidr_inside(a: &str, b: &str) -> bool {
+    let parse = |c: &str| -> Option<(u128, u8, bool)> {
+        let (ip, len) = c.split_once('/').map_or((c, None), |(i, l)| (i, l.parse::<u8>().ok()));
+        match ip.parse::<std::net::IpAddr>().ok()? {
+            // IPv4 — в старших 32 битах: длина префикса та же.
+            std::net::IpAddr::V4(v4) => Some((u128::from(u32::from(v4)) << 96, len.unwrap_or(32), false)),
+            std::net::IpAddr::V6(v6) => Some((u128::from(v6), len.unwrap_or(128), true)),
+        }
+    };
+    let (Some((ia, la, va)), Some((ib, lb, vb))) = (parse(a), parse(b)) else { return true };
+    if va != vb || la < lb || lb > 128 {
+        return false;
+    }
+    let mask = if lb == 0 { 0 } else { u128::MAX << (128 - u32::from(lb)) };
+    ia & mask == ib & mask
+}
+
+/// Правила целиком: локальная сеть, Kill Switch, пользовательские (строками или файлами), наборы, остальное.
+fn compose(s: &Settings, os: Os, user: Vec<String>) -> Vec<String> {
     let mut out = lan_rules();
 
     if s.kill_switch.enabled {
@@ -356,34 +542,7 @@ pub fn rules(s: &Settings, catalog: &Catalog, os: Os) -> Vec<String> {
     if os == Os::MacOs && ks_active(s) {
         out.push(format!("{UNKNOWN_PROCESS},{VPN_GROUP}"));
     }
-
-    // Ядро берёт первое совпавшее правило, поэтому внутри списка точное идёт раньше общего:
-    // папка поглубже, домен подлиннее, подсеть поуже. При равной точности свои сайты и подсети —
-    // раньше сервисов каталога. Сортировка устойчивая: в остальном порядок как в списке.
-    let list: Vec<&Rule> = s.rules().collect();
-    let mut programs: Vec<(&str, Route)> = list
-        .iter()
-        .filter_map(|r| match &r.target {
-            Target::Program(folder) => Some((folder.as_str(), r.route)),
-            _ => None,
-        })
-        .collect();
-    programs.sort_by_key(|(folder, _)| std::cmp::Reverse(os.depth(folder)));
-    for (folder, route) in programs {
-        out.push(format!("PROCESS-PATH-REGEX,{},{}", folder_regex(os, folder), policy(route)));
-    }
-    let (mut domains, mut ips) = (Vec::new(), Vec::new());
-    for rule in &list {
-        collect_targets(rule, catalog, &mut domains, &mut ips);
-    }
-    domains.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    ips.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    for (_, _, domain, route) in domains {
-        out.push(format!("DOMAIN-SUFFIX,{domain},{}", policy(route)));
-    }
-    for (_, _, cidr, route) in ips {
-        out.push(ip_rule(&cidr, policy(route)));
-    }
+    out.extend(user);
 
     match s.routing {
         Routing::Selected => {
@@ -462,7 +621,7 @@ fn proxy_server_dns(os: Os, server_dns: &[String]) -> Value {
     }
 }
 
-fn dns(s: &Settings, catalog: &Catalog, os: Os, server_dns: &[String]) -> Value {
+fn dns(s: &Settings, catalog: &Catalog, os: Os, server_dns: &[String], user: Option<&[UserSet]>) -> Value {
     let foreign: Vec<String> = DNS_FOREIGN.iter().map(|u| format!("{u}#{VPN_GROUP}")).collect();
     let ru: Vec<String> = DNS_RU.iter().map(|u| u.to_string()).collect();
     let mut policy = Map::new();
@@ -471,8 +630,18 @@ fn dns(s: &Settings, catalog: &Catalog, os: Os, server_dns: &[String]) -> Value 
             if s.blocked_preset {
                 policy.insert(format!("rule-set:{SET_BLOCKED_DOMAINS}"), json!(foreign));
             }
-            for d in vpn_domains(s, catalog) {
-                policy.insert(format!("+.{d}"), json!(foreign));
+            // Списки файлами: те же домены — из файла правил, и правка списка не меняет конфиг.
+            match user {
+                Some(sets) => {
+                    if let Some(vpn) = sets.iter().find(|u| u.behavior == "domain" && u.policy == VPN_GROUP) {
+                        policy.insert(format!("rule-set:{}", vpn.name), json!(foreign));
+                    }
+                }
+                None => {
+                    for d in vpn_domains(s, catalog) {
+                        policy.insert(format!("+.{d}"), json!(foreign));
+                    }
+                }
             }
             ru.clone()
         }
@@ -653,8 +822,8 @@ mod tests {
         let r = rules(&s, &catalog(), Os::Windows);
         assert!(!r.iter().any(|x| x.contains(SET_RU_DOMAINS)));
         assert!(r.contains(&"GEOIP,RU,DIRECT".to_string()));
-        assert_eq!(rule_providers(&s, &sets()), json!({}));
-        assert!(dns(&s, &catalog(), Os::Windows, &[])["nameserver-policy"].as_object().unwrap().is_empty());
+        assert_eq!(rule_providers(&s, &sets(), None), json!({}));
+        assert!(dns(&s, &catalog(), Os::Windows, &[], None)["nameserver-policy"].as_object().unwrap().is_empty());
 
         s.russia_direct.ips = false;
         let r = rules(&s, &catalog(), Os::Windows);
@@ -705,10 +874,26 @@ mod tests {
     }
 
     #[test]
+    fn probe_core_has_one_rejecting_group_and_listener_per_slot() {
+        let cfg = compile_probe(&layout(), "providers/a.txt", &[12001, 12002]);
+        assert_eq!(cfg["proxy-providers"][PROVIDER]["path"], "providers/a.txt");
+        assert_eq!(cfg["proxy-providers"][PROVIDER]["override"]["override-expr"].as_array().unwrap().len(), SERVER_FIXES.len());
+        assert_eq!(cfg["proxy-groups"].as_array().unwrap().len(), 2);
+        assert_eq!(cfg["proxy-groups"][0], json!({ "name": "klick-probe-0", "type": "select", "use": [PROVIDER], "empty-fallback": "REJECT" }));
+        assert_eq!(cfg["proxy-groups"][1]["name"], "klick-probe-1");
+        assert_eq!(cfg["listeners"][0]["port"], 12001);
+        assert_eq!(cfg["listeners"][0]["proxy"], "klick-probe-0");
+        assert_eq!(cfg["listeners"][1]["port"], 12002);
+        assert_eq!(cfg["listeners"][1]["proxy"], "klick-probe-1");
+        assert_eq!(cfg["rules"], json!(["MATCH,DIRECT"]));
+        assert_eq!(cfg["allow-lan"], false);
+    }
+
+    #[test]
     fn dns_asks_blocked_names_through_vpn() {
         let mut s = Settings::default();
         s.lists.selected.push(Rule { target: Target::Domain("claude.ai".into()), route: Route::Vpn, enabled: true });
-        let d = dns(&s, &catalog(), Os::Windows, &[]);
+        let d = dns(&s, &catalog(), Os::Windows, &[], None);
         assert_eq!(d["nameserver"][0], "tls://77.88.8.8:853");
         assert_eq!(d["nameserver-policy"]["+.claude.ai"][0], "https://1.1.1.1/dns-query#klick-vpn");
         assert!(d["nameserver-policy"][format!("rule-set:{SET_BLOCKED_DOMAINS}")].is_array());
@@ -722,14 +907,14 @@ mod tests {
         let r = rules(&s, &catalog(), Os::Windows);
         assert!(!r.iter().any(|x| x.contains("claude.ai")), "выключенное правило не работает");
         assert!(r.iter().any(|x| x == "DOMAIN-SUFFIX,chatgpt.com,klick-vpn"));
-        assert!(dns(&s, &catalog(), Os::Windows, &[])["nameserver-policy"].get("+.claude.ai").is_none());
+        assert!(dns(&s, &catalog(), Os::Windows, &[], None)["nameserver-policy"].get("+.claude.ai").is_none());
 
         s.blocked_preset = false;
         let r = rules(&s, &catalog(), Os::Windows);
         assert!(!r.iter().any(|x| x.contains(SET_BLOCKED_DOMAINS) || x.contains(SET_BLOCKED_IPS) || x.contains(SET_BLOCKED_COMMUNITY)));
         assert_eq!(r.last().unwrap(), "MATCH,DIRECT");
-        assert_eq!(rule_providers(&s, &sets()), json!({}));
-        assert!(dns(&s, &catalog(), Os::Windows, &[])["nameserver-policy"].get(format!("rule-set:{SET_BLOCKED_DOMAINS}")).is_none());
+        assert_eq!(rule_providers(&s, &sets(), None), json!({}));
+        assert!(dns(&s, &catalog(), Os::Windows, &[], None)["nameserver-policy"].get(format!("rule-set:{SET_BLOCKED_DOMAINS}")).is_none());
     }
 
     #[test]
@@ -837,5 +1022,110 @@ mod tests {
         let at = r.iter().position(|x| *x == unknown).expect("правило для неузнанных");
         assert!(position(&r, "Telegram") < at && at < position(&r, "MATCH"));
         assert!(!rules(&s, &catalog(), Os::Windows).iter().any(|x| x.starts_with("NOT,")), "на Windows это держит WFP");
+    }
+
+    fn compiled(s: &Settings) -> Value {
+        let (c, l, st) = (catalog(), layout(), sets());
+        compile(&CompileInput { settings: s, catalog: &c, layout: &l, capture: Capture::Tun, provider_path: "providers/a.txt", sets: &st, server_dns: &[] })
+    }
+
+    fn discord_and_telegram() -> Settings {
+        let mut s = Settings::default();
+        s.kill_switch.programs.push(r"C:\Games\Roblox".into());
+        s.lists.selected = vec![
+            Rule { target: Target::Program(r"C:\Users\Иван\AppData\Local\Discord".into()), route: Route::Vpn, enabled: true },
+            Rule { target: Target::Program(r"C:\Games\Valorant".into()), route: Route::Direct, enabled: true },
+            Rule { target: Target::Domain("discord.com".into()), route: Route::Vpn, enabled: true },
+            Rule { target: Target::Service("telegram".into()), route: Route::Vpn, enabled: true },
+            Rule { target: Target::Ip("10.20.0.0/16".into()), route: Route::Direct, enabled: true },
+        ];
+        s
+    }
+
+    #[test]
+    fn user_lists_go_to_rule_files_by_kind_and_route() {
+        let s = discord_and_telegram();
+        let sets = user_sets(&s, &catalog(), Os::Windows).expect("вложенности с разными маршрутами нет");
+        let names: Vec<&str> = sets.iter().map(|u| u.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["klick-user-programs-direct", "klick-user-programs-vpn", "klick-user-domains-vpn", "klick-user-ips-direct", "klick-user-ips-vpn"]
+        );
+        assert_eq!(sets[1].body, "PROCESS-PATH-REGEX,(?i)^C:\\\\Users\\\\Иван\\\\AppData\\\\Local\\\\Discord\\\\.+$\n");
+        assert_eq!(sets[2].body, "+.discord.com\n+.t.me\n+.telegram.org\n");
+        assert_eq!(sets[4].body, "149.154.160.0/20\n2001:b28:f23d::/48\n");
+
+        let cfg = compiled(&s);
+        let r: Vec<String> = cfg["rules"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let ks = position(&r, "Roblox");
+        let first = position(&r, "RULE-SET,klick-user-programs-direct,DIRECT");
+        let ips = position(&r, "RULE-SET,klick-user-ips-vpn,klick-vpn,no-resolve");
+        assert!(ks < first && first < ips && ips < position(&r, SET_BLOCKED_DOMAINS));
+        assert!(!r.iter().any(|x| x.contains("discord.com")), "сами домены — в файле, не в конфиге");
+        assert_eq!(cfg["rule-providers"]["klick-user-domains-vpn"], json!({ "type": "file", "behavior": "domain", "format": "text", "path": "user/klick-user-domains-vpn.txt" }));
+        assert_eq!(cfg["dns"]["nameserver-policy"]["rule-set:klick-user-domains-vpn"][0], "https://1.1.1.1/dns-query#klick-vpn");
+    }
+
+    #[test]
+    fn adding_a_site_changes_only_the_rule_file() {
+        // Главное: правка списка не меняет конфиг ядра — значит, его не надо перечитывать и рвать соединения.
+        let before = discord_and_telegram();
+        let mut after = before.clone();
+        after.lists.selected.push(Rule { target: Target::Domain("youtube.com".into()), route: Route::Vpn, enabled: true });
+        after.lists.selected.push(Rule { target: Target::Program(r"C:\Program Files\Steam".into()), route: Route::Vpn, enabled: true });
+        assert_eq!(compiled(&before), compiled(&after));
+        let (b, a) = (user_sets(&before, &catalog(), Os::Windows).unwrap(), user_sets(&after, &catalog(), Os::Windows).unwrap());
+        assert_ne!(b, a);
+        assert!(a.iter().any(|u| u.body.contains("+.youtube.com")));
+        // Первый сайт с новым маршрутом — новый файл: тогда конфиг меняется (один раз).
+        after.lists.selected.push(Rule { target: Target::Domain("sber.ru".into()), route: Route::Direct, enabled: true });
+        assert_ne!(compiled(&before), compiled(&after));
+    }
+
+    #[test]
+    fn nested_entries_with_different_routes_stay_in_the_config() {
+        let mut s = Settings::default();
+        s.lists.selected = vec![
+            Rule { target: Target::Domain("ru".into()), route: Route::Direct, enabled: true },
+            Rule { target: Target::Domain("kinopoisk.ru".into()), route: Route::Vpn, enabled: true },
+        ];
+        assert!(user_sets(&s, &catalog(), Os::Windows).is_none());
+        let r = rules(&s, &catalog(), Os::Windows);
+        assert!(position(&r, "DOMAIN-SUFFIX,kinopoisk.ru") < position(&r, "DOMAIN-SUFFIX,ru,"));
+        assert!(compiled(&s)["rules"].as_array().unwrap().iter().any(|x| x == "DOMAIN-SUFFIX,kinopoisk.ru,klick-vpn"));
+
+        // Вложенные с одним маршрутом — можно файлами: порядок внутри файла не важен.
+        s.lists.selected[0].route = Route::Vpn;
+        assert!(user_sets(&s, &catalog(), Os::Windows).is_some());
+        // Папка внутри папки, подсеть внутри подсети, свой сайт поверх сервиса — с разными маршрутами нельзя.
+        s.lists.selected = vec![
+            Rule { target: Target::Program(r"C:\Games".into()), route: Route::Direct, enabled: true },
+            Rule { target: Target::Program(r"C:\games\Roblox\".into()), route: Route::Vpn, enabled: true },
+        ];
+        assert!(user_sets(&s, &catalog(), Os::Windows).is_none());
+        s.lists.selected = vec![
+            Rule { target: Target::Ip("149.154.160.0/22".into()), route: Route::Direct, enabled: true },
+            Rule { target: Target::Service("telegram".into()), route: Route::Vpn, enabled: true },
+        ];
+        assert!(user_sets(&s, &catalog(), Os::Windows).is_none());
+        s.lists.selected = vec![
+            Rule { target: Target::Domain("telegram.org".into()), route: Route::Block, enabled: true },
+            Rule { target: Target::Service("telegram".into()), route: Route::Vpn, enabled: true },
+        ];
+        assert!(user_sets(&s, &catalog(), Os::Windows).is_none());
+    }
+
+    #[test]
+    fn nesting_checks() {
+        assert!(folder_inside(r"C:\Games\Roblox", r"c:\games\"));
+        assert!(!folder_inside(r"C:\GamesX", r"C:\Games"));
+        assert!(domain_inside("a.b.example.com", "example.com") && domain_inside("Example.com", "example.com"));
+        assert!(!domain_inside("badexample.com", "example.com"));
+        assert!(cidr_inside("149.154.160.0/22", "149.154.160.0/20"));
+        assert!(!cidr_inside("149.154.160.0/20", "149.154.160.0/22"));
+        assert!(!cidr_inside("10.0.0.0/8", "11.0.0.0/8"));
+        assert!(cidr_inside("2001:b28:f23d:1::/64", "2001:b28:f23d::/48"));
+        assert!(!cidr_inside("10.0.0.0/8", "::/0"), "IPv4 и IPv6 не вкладываются");
+        assert!(cidr_inside("1.2.3.4", "0.0.0.0/0"));
     }
 }

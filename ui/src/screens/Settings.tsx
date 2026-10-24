@@ -10,7 +10,7 @@ import { ProgramList } from '../components/ProgramList';
 import { errorText, exitName, serverDown } from '../lib/i18n';
 import { isMac, OS_NAME, TRAY_NAME } from '../lib/platform';
 import { plural, programTitle, shortPath } from '../lib/rules';
-import { useStore } from '../lib/store';
+import { useStore, useVisible } from '../lib/store';
 import { ACCENTS, BASES, PALETTES, THEME_DESC, THEMES, systemDark } from '../lib/theme';
 import type { AboutView, Appearance, ErrorInfo, ExitAction, KsProgramView, LogLine, ServerDown, UpdateView } from '../lib/types';
 
@@ -147,6 +147,12 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
       <SectionHead title="Оформление" />
       <div className="card-list">
         <Row title="Тема" sub={themeSummary} onClick={() => onSub('theme')} chevron />
+        <Row
+          wrap
+          title="Серверы по странам"
+          sub="Сначала страны, внутри — их серверы"
+          right={<Toggle label="Серверы по странам" on={!!settings.servers_by_country} onChange={(v) => void store.setPrefs({ servers_by_country: v })} />}
+        />
       </div>
 
       <SectionHead title="Общие" />
@@ -519,8 +525,11 @@ function LogScreen({ onBack }: { onBack: () => void }) {
   const { transport } = useStore();
   const copy = useCopy();
   const [lines, setLines] = useState<LogLine[] | null>(null);
+  // Журнал — раз в 2 секунды, пока окно видно.
+  const visible = useVisible();
 
   useEffect(() => {
+    if (!visible) return;
     let alive = true;
     const load = () =>
       transport
@@ -533,7 +542,7 @@ function LogScreen({ onBack }: { onBack: () => void }) {
       alive = false;
       clearInterval(t);
     };
-  }, [transport]);
+  }, [transport, visible]);
 
   const newest = (lines ?? []).slice().reverse();
   const text = (lines ?? []).map((l) => `${timeOf(l.at)} ${(LEVEL[l.level] ?? LEVEL.info)[0]} ${l.text}`).join('\n');

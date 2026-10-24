@@ -1,0 +1,215 @@
+proxies:
+  - name: "hy2-gecko"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 8445
+    password: "oDtJtJ8-7VqDBKZUhMBl2E_VngOzQDp_xKXTbpUvBBs"
+    obfs: gecko
+    obfs-password: "4GxJkvcncWPbywK3RhCAHt-e6isYwELz"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "hy2-salamander-hop"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 8444
+    ports: "20000-20100"
+    hop-interval: "30"
+    password: "oDtJtJ8-7VqDBKZUhMBl2E_VngOzQDp_xKXTbpUvBBs"
+    obfs: salamander
+    obfs-password: "DOSOs2KtkfxOQJPZ6ln16S1KIJMTCN2D"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "p"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 443
+    password: "oDtJtJ8-7VqDBKZUhMBl2E_VngOzQDp_xKXTbpUvBBs"
+    obfs: salamander
+    obfs-password: "muLP9fIUKmMXV8JZf3dgV2NAqjJayZXx"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "vless-tcp-vision"
+    type: vless
+    server: "de1.example.com"
+    port: 8446
+    uuid: "b11be9b6-75a2-49a9-aafa-e3beb0d8793c"
+    udp: true
+    packet-encoding: xudp
+    tls: true
+    servername: "www.example.org"
+    client-fingerprint: chrome
+    skip-cert-verify: false
+    network: tcp
+    flow: xtls-rprx-vision
+    reality-opts:
+      public-key: "U8FIQNeLvB0SgHvUvuHt9SDSvTWWRNmmCl9s5DHGAG4"
+      short-id: "97f571d89489933b"
+  - name: "vless-xhttp"
+    type: vless
+    server: "de1.example.com"
+    port: 443
+    uuid: "b11be9b6-75a2-49a9-aafa-e3beb0d8793c"
+    udp: true
+    packet-encoding: xudp
+    tls: true
+    servername: "www.example.org"
+    client-fingerprint: chrome
+    skip-cert-verify: false
+    network: xhttp
+    xhttp-opts:
+      path: "/mS2KKPZf_4"
+      mode: auto
+    reality-opts:
+      public-key: "n-3BBAtWQOI2aQXnpu_GxSB_ljHSGS6iDOCpPtuKo3Q"
+      short-id: "e4e46e13b337b0e5"
+  - name: "awg20"
+    type: wireguard
+    server: "de1.example.com"
+    port: 30939
+    ip: "10.66.8.4/32"
+    ipv6: "fd66:66:0:2::4/128"
+    private-key: "8K2KFcA57GejKI/Iub/G2xX0pB5l8YpOriIjZecTqFo="
+    public-key: "Mp3ugXCbyVSLYd5Yju9CqkaTrmsn29i2zRhaqomxWAg="
+    pre-shared-key: "MskCZ4Nlk2dEIylI+XFCHnXR0A7Q9gjPXfDY2fb5PNw="
+    allowed-ips:
+      - "0.0.0.0/0"
+      - "::/0"
+    udp: true
+    mtu: 1280
+    persistent-keepalive: 25
+    remote-dns-resolve: true
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
+    amnezia-wg-option:
+      jc: 7
+      jmin: 31
+      jmax: 61
+      s1: 35
+      s2: 101
+      s3: 13
+      s4: 10
+      h1: "1767011406-1923779051"
+      h2: "2076956995-2116722736"
+      h3: "1352504196-1523641110"
+      h4: "1590601124-1726039688"
+      i1: "<r 2><b 0x0100000100000000000104686f666602727500001c00010000291000000000000000>"
+      i2: "<r 2><b 0x0100000100000000000104686f666602727500004100010000291000000000000000>"
+      i3: "<r 2><b 0x0100000100000000000104686f666602727500000100010000291000000000000000>"
+  - name: "awg31"
+    type: wireguard
+    server: "de1.example.com"
+    port: 13526
+    ip: "10.66.4.4/32"
+    ipv6: "fd66:66:0:1::4/128"
+    private-key: "0EGSIKeo5VY4V4u5yP5wEzvgICiGyGOFee3KXzbjPnc="
+    public-key: "FU6vf1PIFNSXNd2Xzr16W0xYtDkHjpTRiX//Uo2/B28="
+    pre-shared-key: "vnkEn4LrdoltTZCu94A71YTANuNrVRupjYbw0ruYjYg="
+    allowed-ips:
+      - "0.0.0.0/0"
+      - "::/0"
+    udp: true
+    mtu: 1280
+    persistent-keepalive: 24
+    remote-dns-resolve: true
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
+    amnezia-wg-option:
+      version: 3
+      jc: 5
+      jmin: 17
+      jmax: 88
+      s1: 26
+      s2: 26
+      s3: 26
+      s4: 26
+      h1: "1"
+      h2: "2"
+      h3: "3"
+      h4: "4"
+      i1: "<r 2><b 0x01000001000000000001096b6173706572736b7902727500001c00010000291000000000000000>"
+      i2: "<r 2><b 0x01000001000000000001096b6173706572736b7902727500000100010000291000000000000000>"
+      i3: "<r 2><b 0x01000001000000000001096b6173706572736b7902727500004100010000291000000000000000>"
+      header-protection-key: "a57bKXW2oC6rRqQ80c0SbhuWl+JIbHLh1yifD0SemEA="
+      content-padding-addition: "20-76"
+      rekey-after-time: "125-142"
+      rekey-timeout: "5-7"
+      reject-after-time: "177-204"
+      keepalive-timeout: "12-21"
+      max-handshake-attempts: "14-17"
+      random-trailers: true
+      disable-cookies: true
+proxy-groups:
+  - name: "Mistgate"
+    type: select
+    proxies:
+      - "hy2-gecko"
+      - "hy2-salamander-hop"
+      - "p"
+      - "vless-tcp-vision"
+      - "vless-xhttp"
+      - "awg20"
+      - "awg31"
+      - "DIRECT"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - "1.1.1.1#Mistgate"
+    - "8.8.8.8#Mistgate"
+    - "1.0.0.1#Mistgate"
+    - "8.8.4.4#Mistgate"
+  nameserver-policy:
+    "+.ru":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.su":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.xn--p1ai":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yastatic.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vk.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.userapi.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.sberbank.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vtb.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+  proxy-server-nameserver:
+    - "1.1.1.1"
+    - "8.8.8.8"
+    - "1.0.0.1"
+    - "8.8.4.4"
+rules:
+  - "DOMAIN-SUFFIX,ru,DIRECT"
+  - "DOMAIN-SUFFIX,su,DIRECT"
+  - "DOMAIN-SUFFIX,xn--p1ai,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.com,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.net,DIRECT"
+  - "DOMAIN-SUFFIX,yastatic.net,DIRECT"
+  - "DOMAIN-SUFFIX,vk.com,DIRECT"
+  - "DOMAIN-SUFFIX,userapi.com,DIRECT"
+  - "DOMAIN-SUFFIX,sberbank.com,DIRECT"
+  - "DOMAIN-SUFFIX,vtb.com,DIRECT"
+  - "MATCH,Mistgate"

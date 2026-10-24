@@ -65,10 +65,11 @@ textarea {
   outline-offset: 2px;
 }
 
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
-  100% { box-shadow: 0 0 0 18px color-mix(in srgb, var(--accent) 0%, transparent); }
-}
+/* Бесконечные анимации — только transform и opacity: их кадры считает видеокарта, без перерисовки
+   страницы (box-shadow и mask-size перерисовывались бы 60 раз в секунду, пока VPN включён). */
+/* Пульс: кружок цвета акцента под кнопкой растёт на 18 px с каждой стороны и гаснет — как прежняя тень. */
+@keyframes pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(1.4286); opacity: 0; } } /* 84 px → 120 px */
+@keyframes pulse-dot { from { transform: scale(1); opacity: 1; } to { transform: scale(7); opacity: 0; } } /* 6 px → 42 px */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes screenin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes expandin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -77,10 +78,10 @@ textarea {
 @keyframes sheetin { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 @keyframes wave {
-  0% { mask-size: 0% 0%, 100% 100%; opacity: 1; }
-  55% { mask-size: 340% 340%, 100% 100%; opacity: 1; }
+  0% { transform: scale(0); opacity: 1; }
+  55% { transform: scale(3.4); opacity: 1; }
   62% { opacity: 0; }
-  100% { mask-size: 340% 340%, 100% 100%; opacity: 0; }
+  100% { transform: scale(3.4); opacity: 0; }
 }
 @keyframes ring {
   0% { transform: scale(0.55); opacity: 0; }

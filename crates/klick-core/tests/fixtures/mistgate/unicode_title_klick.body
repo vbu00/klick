@@ -1,0 +1,215 @@
+proxies:
+  - name: "hy2-gecko"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 8445
+    password: "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE"
+    obfs: gecko
+    obfs-password: "4GxJkvcncWPbywK3RhCAHt-e6isYwELz"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "hy2-salamander-hop"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 8444
+    ports: "20000-20100"
+    hop-interval: "30"
+    password: "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE"
+    obfs: salamander
+    obfs-password: "DOSOs2KtkfxOQJPZ6ln16S1KIJMTCN2D"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "p"
+    type: hysteria2
+    server: "de1.example.com"
+    port: 443
+    password: "Kisy4sD0l3an005yzFi6Bq86TBOdCuZ3DqefYe0pbQE"
+    obfs: salamander
+    obfs-password: "muLP9fIUKmMXV8JZf3dgV2NAqjJayZXx"
+    sni: "de1.example.com"
+    skip-cert-verify: false
+    alpn: [h3]
+  - name: "vless-tcp-vision"
+    type: vless
+    server: "de1.example.com"
+    port: 8446
+    uuid: "9596e429-ad6c-420a-a366-7b23d13a6207"
+    udp: true
+    packet-encoding: xudp
+    tls: true
+    servername: "www.example.org"
+    client-fingerprint: chrome
+    skip-cert-verify: false
+    network: tcp
+    flow: xtls-rprx-vision
+    reality-opts:
+      public-key: "U8FIQNeLvB0SgHvUvuHt9SDSvTWWRNmmCl9s5DHGAG4"
+      short-id: "4b90a1af"
+  - name: "vless-xhttp"
+    type: vless
+    server: "de1.example.com"
+    port: 443
+    uuid: "9596e429-ad6c-420a-a366-7b23d13a6207"
+    udp: true
+    packet-encoding: xudp
+    tls: true
+    servername: "www.example.org"
+    client-fingerprint: chrome
+    skip-cert-verify: false
+    network: xhttp
+    xhttp-opts:
+      path: "/mS2KKPZf_4"
+      mode: auto
+    reality-opts:
+      public-key: "n-3BBAtWQOI2aQXnpu_GxSB_ljHSGS6iDOCpPtuKo3Q"
+      short-id: "5fb1826a"
+  - name: "awg20"
+    type: wireguard
+    server: "de1.example.com"
+    port: 30939
+    ip: "10.66.8.2/32"
+    ipv6: "fd66:66:0:2::2/128"
+    private-key: "WOE5hAPJEOezb+aWWg9ihhAqTMUOsRqSJfm/RK2aqEI="
+    public-key: "Mp3ugXCbyVSLYd5Yju9CqkaTrmsn29i2zRhaqomxWAg="
+    pre-shared-key: "Z9X8iJl/OkC6v1Y1CBF1jPWs3CrAtltfsq1VT3iIVf4="
+    allowed-ips:
+      - "0.0.0.0/0"
+      - "::/0"
+    udp: true
+    mtu: 1280
+    persistent-keepalive: 25
+    remote-dns-resolve: true
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
+    amnezia-wg-option:
+      jc: 7
+      jmin: 31
+      jmax: 61
+      s1: 35
+      s2: 101
+      s3: 13
+      s4: 10
+      h1: "1767011406-1923779051"
+      h2: "2076956995-2116722736"
+      h3: "1352504196-1523641110"
+      h4: "1590601124-1726039688"
+      i1: "<r 2><b 0x0100000100000000000108646f776e6c6f61640d77696e646f777375706461746503636f6d00001c000100002904d0000000000000>"
+      i2: "<r 2><b 0x0100000100000000000108646f776e6c6f61640d77696e646f777375706461746503636f6d000001000100002904d0000000000000>"
+      i3: "<r 2><b 0x0100000100000000000108646f776e6c6f61640d77696e646f777375706461746503636f6d000041000100002904d0000000000000>"
+  - name: "awg31"
+    type: wireguard
+    server: "de1.example.com"
+    port: 13526
+    ip: "10.66.4.2/32"
+    ipv6: "fd66:66:0:1::2/128"
+    private-key: "EHv+ueVzd5ki2jhkxWDI6Ek3lLIHSju8pKFEH1A8o1Y="
+    public-key: "FU6vf1PIFNSXNd2Xzr16W0xYtDkHjpTRiX//Uo2/B28="
+    pre-shared-key: "EwDK8GbO652eGTv6ViuqW0DpLTlVFOI1xuHZL1hgDlM="
+    allowed-ips:
+      - "0.0.0.0/0"
+      - "::/0"
+    udp: true
+    mtu: 1280
+    persistent-keepalive: 24
+    remote-dns-resolve: true
+    dns:
+      - "1.1.1.1"
+      - "8.8.8.8"
+    amnezia-wg-option:
+      version: 3
+      jc: 5
+      jmin: 17
+      jmax: 88
+      s1: 26
+      s2: 26
+      s3: 26
+      s4: 26
+      h1: "1"
+      h2: "2"
+      h3: "3"
+      h4: "4"
+      i1: "<r 2><b 0x01000001000000000001043267697302727500001c00010000291000000000000000>"
+      i2: "<r 2><b 0x01000001000000000001043267697302727500004100010000291000000000000000>"
+      i3: "<r 2><b 0x01000001000000000001043267697302727500000100010000291000000000000000>"
+      header-protection-key: "a57bKXW2oC6rRqQ80c0SbhuWl+JIbHLh1yifD0SemEA="
+      content-padding-addition: "20-76"
+      rekey-after-time: "125-142"
+      rekey-timeout: "5-7"
+      reject-after-time: "177-204"
+      keepalive-timeout: "12-21"
+      max-handshake-attempts: "14-17"
+      random-trailers: true
+      disable-cookies: true
+proxy-groups:
+  - name: "Мой VPN 50 (тест) \U0001F408.pro"
+    type: select
+    proxies:
+      - "hy2-gecko"
+      - "hy2-salamander-hop"
+      - "p"
+      - "vless-tcp-vision"
+      - "vless-xhttp"
+      - "awg20"
+      - "awg31"
+      - "DIRECT"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - "1.1.1.1#%D0%9C%D0%BE%D0%B9%20VPN%2050%20(%D1%82%D0%B5%D1%81%D1%82)%20%F0%9F%90%88.pro"
+    - "8.8.8.8#%D0%9C%D0%BE%D0%B9%20VPN%2050%20(%D1%82%D0%B5%D1%81%D1%82)%20%F0%9F%90%88.pro"
+    - "1.0.0.1#%D0%9C%D0%BE%D0%B9%20VPN%2050%20(%D1%82%D0%B5%D1%81%D1%82)%20%F0%9F%90%88.pro"
+    - "8.8.4.4#%D0%9C%D0%BE%D0%B9%20VPN%2050%20(%D1%82%D0%B5%D1%81%D1%82)%20%F0%9F%90%88.pro"
+  nameserver-policy:
+    "+.ru":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.su":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.xn--p1ai":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yastatic.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vk.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.userapi.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.sberbank.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vtb.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+  proxy-server-nameserver:
+    - "1.1.1.1"
+    - "8.8.8.8"
+    - "1.0.0.1"
+    - "8.8.4.4"
+rules:
+  - "DOMAIN-SUFFIX,ru,DIRECT"
+  - "DOMAIN-SUFFIX,su,DIRECT"
+  - "DOMAIN-SUFFIX,xn--p1ai,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.com,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.net,DIRECT"
+  - "DOMAIN-SUFFIX,yastatic.net,DIRECT"
+  - "DOMAIN-SUFFIX,vk.com,DIRECT"
+  - "DOMAIN-SUFFIX,userapi.com,DIRECT"
+  - "DOMAIN-SUFFIX,sberbank.com,DIRECT"
+  - "DOMAIN-SUFFIX,vtb.com,DIRECT"
+  - "MATCH,Мой VPN 50 (тест) \U0001F408.pro"

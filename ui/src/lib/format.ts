@@ -57,7 +57,9 @@ const PROTOCOLS: Record<string, string> = {
   shadowsocks: 'Shadowsocks',
   ssr: 'ShadowsocksR',
   hysteria: 'Hysteria',
+  hy: 'Hysteria',
   hysteria2: 'Hysteria2',
+  hy2: 'Hysteria2',
   tuic: 'TUIC',
   wireguard: 'WireGuard',
   socks5: 'SOCKS5',
@@ -66,7 +68,9 @@ const PROTOCOLS: Record<string, string> = {
 };
 
 export function protocolName(kind: string): string {
-  return PROTOCOLS[kind.toLowerCase()] ?? kind;
+  // `hysteria2+realm` — тот же Hysteria2, только через сервер встречи.
+  const k = kind.toLowerCase().replace(/\+realm$/, '');
+  return PROTOCOLS[k] ?? kind;
 }
 
 /** Линия и заливка графика скорости за 60 секунд в поле 300×90. */

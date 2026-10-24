@@ -7,16 +7,19 @@ import { useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNod
 import mark from '../assets/mark.png';
 import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
+import { ProbeMark } from '../components/Controls';
 import { Icon } from '../components/Icon';
+import { parseServer } from '../lib/countries';
 import { buildPath, fmtRate, pingColor, protocolName } from '../lib/format';
 import { errorText } from '../lib/i18n';
+import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import { isMac } from '../lib/platform';
-import { useStore } from '../lib/store';
+import { useStore, useTraffic } from '../lib/store';
 import { detect } from '../lib/source';
 
 import type { AboutView, Connection, ExitAction, ServerView, VpnState } from '../lib/types';
-import { useNow } from './Home';
+import { Elapsed } from './Home';
 
 const STATUS: Record<VpnState, [string, string]> = {
   off: ['Отключено', 'var(--dim)'],
@@ -34,40 +37,6 @@ function clock(since: number | null, now: number): string {
   return `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
 }
 
-/** Страны по названию — когда в имени сервера нет флага. */
-const COUNTRIES: [RegExp, string][] = [
-  [/нидерланд|netherlands|голланд|amsterdam|амстердам/i, 'NL'],
-  [/германи|germany|frankfurt|франкфурт/i, 'DE'],
-  [/финлян|finland|helsinki|хельсинки/i, 'FI'],
-  [/сша|usa|united states|америк|new york|нью-йорк/i, 'US'],
-  [/турци|turkey|türkiye|istanbul|стамбул/i, 'TR'],
-  [/япони|japan|tokyo|токио/i, 'JP'],
-  [/франци|france|paris|париж/i, 'FR'],
-  [/великобритан|англи|united kingdom|london|лондон/i, 'GB'],
-  [/швеци|sweden|stockholm/i, 'SE'],
-  [/польш|poland|warsaw|варшав/i, 'PL'],
-  [/казахстан|kazakhstan|алматы|almaty/i, 'KZ'],
-  [/латви|latvia|рига|riga/i, 'LV'],
-  [/эстони|estonia|таллин|tallinn/i, 'EE'],
-  [/сингапур|singapore/i, 'SG'],
-  [/гонконг|hong kong/i, 'HK'],
-  [/швейцари|switzerland|zurich|цюрих/i, 'CH'],
-  [/канад|canada|toronto/i, 'CA'],
-  [/росси|russia|москв|moscow/i, 'RU'],
-];
-
-/** Код страны из флага в имени сервера: «🇳🇱 Амстердам» → NL; «NL-2 Amsterdam» → NL; «Нидерланды» → NL. */
-function countryCode(name: string): string {
-  const flag = [...name].filter((ch) => {
-    const c = ch.codePointAt(0) ?? 0;
-    return c >= 0x1f1e6 && c <= 0x1f1ff;
-  });
-  if (flag.length >= 2) return flag.slice(0, 2).map((ch) => String.fromCharCode((ch.codePointAt(0) ?? 0) - 0x1f1e6 + 65)).join('');
-  const m = /^([A-Z]{2})(?=[\s\-_·|]|\d)/.exec(name.trim());
-  if (m) return m[1];
-  return COUNTRIES.find(([re]) => re.test(name))?.[1] ?? '';
-}
-
 /** Имя сервера без флага в начале. */
 const plainName = (name: string) => name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim() || name;
 
@@ -75,11 +44,10 @@ const KIND: Record<Connection['kind'], string> = { subscription: 'Подписк
 
 export function Tray() {
   const store = useStore();
-  const { state, settings, servers, pinging, tested, traffic, isRunning, transport, serviceUp } = store;
+  const { state, settings, servers, pinging, tested, isRunning, pending, transport, serviceUp } = store;
   const [view, setView] = useState<'main' | 'settings'>('main');
   const [exitAsk, setExitAsk] = useState(false);
   const [about, setAbout] = useState<AboutView | null>(null);
-  const now = useNow(isRunning);
   // Содержимое естественной высоты: по нему окно трея подгоняет свою высоту.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
 
@@ -164,22 +132,24 @@ export function Tray() {
   const srv = conn ? servers[conn.id] ?? [] : [];
   const current = srv.find((s) => s.selected) ?? srv.find((s) => s.name === conn?.selected_server) ?? srv[0];
   const on = vpn === 'connected';
-  const busy = vpn === 'connecting' || vpn === 'reconnecting';
-  const [label, color] = empty ? ['Нет подключений', 'var(--dim)'] : STATUS[vpn];
+  // Нажали кнопку — сразу «Подключение…» или «Отключение…», не дожидаясь ответа службы.
+  const busy = vpn === 'connecting' || vpn === 'reconnecting' || !!pending;
+  const [label, color] = empty ? ['Нет подключений', 'var(--dim)'] : pending === 'on' ? STATUS.connecting : pending === 'off' ? ['Отключение…', 'var(--orange)'] : STATUS[vpn];
   const labelFull = vpn === 'reconnecting' && state.attempt ? `${label} ${state.attempt[0]} из ${state.attempt[1]}` : label;
-  const bigText = empty ? 'Добавьте сервер' : vpn === 'error' ? 'Нет ответа' : clock(isRunning ? state.since : null, now);
+  const bigText = empty ? 'Добавьте сервер' : vpn === 'error' && !pending ? 'Нет ответа' : <Elapsed since={isRunning ? state.since : null} format={clock} />;
   const sub = empty ? 'Подписка или прямая ссылка' : srv.length > 1 && current ? `${conn.name} · ${plainName(current.name)}` : `${conn.name}${current ? ` · ${protocolName(current.kind)}` : ''}`;
   const ks = settings.kill_switch;
   const ksOn = ks.programs.filter((p) => p.enabled).length;
 
   const power = async () => {
-    if (empty) return;
+    // Второе нажатие, пока служба не ответила на первое, — не команда.
+    if (empty || pending) return;
     if (isRunning || busy) await store.disconnect();
     else await store.connect();
   };
 
-  const powerClass = on ? 'tr-power on' : busy ? 'tr-power busy' : vpn === 'server_down' ? 'tr-power warn' : vpn === 'error' ? 'tr-power bad' : empty ? 'tr-power empty' : 'tr-power';
-  const look = on ? 'ok' : busy ? 'busy' : vpn === 'server_down' ? 'warn' : vpn === 'error' ? 'bad' : '';
+  const powerClass = on && !pending ? 'tr-power on' : busy ? 'tr-power busy' : vpn === 'server_down' ? 'tr-power warn' : vpn === 'error' ? 'tr-power bad' : empty ? 'tr-power empty' : 'tr-power';
+  const look = on && !pending ? 'ok' : busy ? 'busy' : vpn === 'server_down' ? 'warn' : vpn === 'error' ? 'bad' : '';
 
   if (view === 'settings') {
     return (
@@ -205,7 +175,8 @@ export function Tray() {
       <Header ping={isRunning ? current?.delay ?? null : undefined} onSettings={() => setView('settings')} />
 
       <div className="tr-status">
-        <button className={powerClass} disabled={empty} title={isRunning ? 'Отключить' : busy ? 'Отменить' : 'Подключить'} onClick={() => void power()}>
+        <button className={powerClass} disabled={empty} title={isRunning ? 'Отключить' : busy ? 'Отменить' : 'Подключить'} aria-busy={busy} onClick={() => void power()}>
+          <span className="tr-halo" aria-hidden="true" />
           <Icon name="power" size={26} />
           {busy ? <span className="tr-spin" /> : null}
         </button>
@@ -214,19 +185,19 @@ export function Tray() {
             <i />
             {labelFull}
           </span>
-          <span className={empty || vpn === 'error' ? 'tr-big sm' : isRunning ? 'tr-big' : 'tr-big dim'}>{bigText}</span>
+          <span className={empty || (vpn === 'error' && !pending) ? 'tr-big sm' : isRunning ? 'tr-big' : 'tr-big dim'}>{bigText}</span>
           <span className="tr-sub">{sub}</span>
         </span>
       </div>
       </div>
 
-      {vpn === 'error' ? (
+      {vpn === 'error' && !pending ? (
         <div className="tr-error">
           <span className="grow">
             <span className="t">Не удалось подключиться</span>
             <span className="s">{state.error ? errorText(state.error) : 'Сервер не ответил'}</span>
           </span>
-          <button onClick={() => void store.connect()}>Повторить</button>
+          <button onClick={() => void power()}>Повторить</button>
         </div>
       ) : null}
 
@@ -234,7 +205,7 @@ export function Tray() {
         <PasteCard />
       ) : (
         <>
-          {isRunning ? <Traffic down={traffic.down} up={traffic.up} downHist={traffic.downHist} upHist={traffic.upHist} /> : null}
+          {isRunning ? <Traffic /> : null}
           {settings.connections.length > 1 ? (
             <div className="tr-block">
               <div className="tr-caps">Подключение</div>
@@ -278,6 +249,7 @@ export function Tray() {
                   <span className="t">{current ? plainName(current.name) : conn.name}</span>
                   <span className="s mono">{current ? protocolName(current.kind) : 'список появится после обновления'}</span>
                 </span>
+                <ProbeMark probe={current?.probe} />
                 <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
                   {pinging ? '…' : pingLabel(current?.delay, !!conn && !!tested[conn.id])}
                 </span>
@@ -372,8 +344,10 @@ function MiniToggle({ on, onChange, label, disabled, big }: { on: boolean; onCha
   );
 }
 
-/** Скорость — только пока VPN работает: нули при выключенном VPN ничего не говорят. */
-function Traffic({ down, up, downHist, upHist }: { down: number; up: number; downHist: number[]; upHist: number[] }) {
+/** Скорость — только пока VPN работает: нули при выключенном VPN ничего не говорят. Раз в секунду
+ *  перерисовывается только она, а не всё окно. */
+function Traffic() {
+  const { down, up, downHist, upHist } = useTraffic();
   const d = buildPath(downHist.slice(-32), Math.max(1.2, ...downHist.slice(-32)) * 1.1);
   const u = buildPath(upHist.slice(-32), Math.max(3, ...upHist.slice(-32)) * 1.1);
   const split = (bytes: number) => {
@@ -437,7 +411,7 @@ function pingLabel(delay: number | null | undefined, tested: boolean): string {
 }
 
 function ServerRow({ s, active, pinging, tested, onPick }: { s: ServerView; active: boolean; pinging: boolean; tested: boolean; onPick: () => void }) {
-  const code = countryCode(s.name);
+  const code = parseServer(s.name, s.kind).code;
   return (
     <button className={active ? 'tr-server on' : 'tr-server'} onClick={onPick}>
       <span className={active ? 'tr-radio on' : 'tr-radio'}>
@@ -445,9 +419,13 @@ function ServerRow({ s, active, pinging, tested, onPick }: { s: ServerView; acti
       </span>
       {code ? <span className="tr-code">{code}</span> : null}
       <span className="tr-server-name">{plainName(s.name)}</span>
-      <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
-        {pinging ? '…' : pingLabel(s.delay, tested)}
-      </span>
+      <ProbeMark probe={s.probe} />
+      {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
+      {!pinging && s.delay == null && probeMark(s.probe) ? null : (
+        <span className="tr-ms" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
+          {pinging ? '…' : pingLabel(s.delay, tested)}
+        </span>
+      )}
     </button>
   );
 }

@@ -220,6 +220,18 @@ pub struct SubInfo {
     pub total: u64,
     /// Окончание в секундах Unix.
     pub expire: Option<i64>,
+    /// Объявление панели (заголовок `announce`): например, причина отказа.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announce: Option<String>,
+    /// Ссылка на поддержку (`support-url`), только https.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_url: Option<String>,
+    /// Страница подписки (`profile-web-page-url`), только https.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    /// Максимальная версия отчёта, которую принимает панель (`probe-report`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_report: Option<u32>,
 }
 
 /// Подключение: подписка, ссылка или файл. Сама ссылка — секрет и хранится отдельно.
@@ -238,6 +250,9 @@ pub struct Connection {
     pub update_interval_hours: Option<u32>,
     #[serde(default)]
     pub selected_server: Option<String>,
+    /// Разрешить отправку локальной проверки панели этой подписки.
+    #[serde(default)]
+    pub probe_share: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +275,8 @@ pub struct Settings {
     pub auto_update: bool,
     /// «Уведомлять об обрывах»: уведомления Windows показывает окно.
     pub notify: bool,
+    /// «Серверы по странам»: окно показывает список серверов по странам. Только вид — ядро не трогает.
+    pub servers_by_country: bool,
     pub appearance: Appearance,
     pub on_exit: ExitAction,
     pub language: String,
@@ -281,6 +298,7 @@ impl Default for Settings {
             restore_on_logon: false,
             auto_update: true,
             notify: true,
+            servers_by_country: true,
             appearance: Appearance::default(),
             on_exit: ExitAction::Ask,
             language: "ru".into(),
@@ -564,6 +582,17 @@ fn punycode_label(label: &str) -> Result<String, InputError> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn sub_info_from_older_settings_loads() {
+        // Настройки, сохранённые до объявления и ссылок панели.
+        let old: SubInfo = serde_json::from_str(r#"{"upload":1,"download":2,"total":3,"expire":null}"#).unwrap();
+        assert_eq!((old.announce, old.support_url, old.page_url), (None, None, None));
+        let c: Connection = serde_json::from_str(r#"{"id":"a","name":"n","kind":"subscription","info":{"upload":1,"download":2,"total":3,"expire":5}}"#).unwrap();
+        assert_eq!(c.info.unwrap().expire, Some(5));
+        // Пустые поля в файл не пишем.
+        assert_eq!(serde_json::to_string(&SubInfo::default()).unwrap(), r#"{"upload":0,"download":0,"total":0,"expire":null}"#);
+    }
+
     /// Примеры в тестах ниже — пути Windows; macOS проверяется в `crate::macos`.
     fn program_folder(p: &str) -> Result<String, InputError> {
         program_folder_on(Os::Windows, p, None)
@@ -629,6 +658,7 @@ mod tests {
         assert_eq!(s.routing, Routing::Selected);
         assert!(s.kill_switch.enabled);
         assert!(s.auto_update && s.notify);
+        assert!(s.servers_by_country, "по странам — по умолчанию");
         assert_eq!(s.appearance, Appearance::default());
     }
 

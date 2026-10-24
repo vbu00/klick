@@ -1,10 +1,8 @@
 /* Окно трея: 320 px, высота по содержимому, тема — как у приложения. Вид и размеры — как у меню
    трея kl!ck 0.3: плотные строки, кнопка 64 px, точки со свечением под ней. */
 
-@keyframes trpulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
-  100% { box-shadow: 0 0 0 14px transparent; }
-}
+/* Пульс кнопки — кружок под ней растёт на 14 px с каждой стороны и гаснет (transform и opacity, без перерисовки). */
+@keyframes trpulse { from { transform: scale(1); opacity: 1; } to { transform: scale(1.4375); opacity: 0; } } /* 64 px → 92 px */
 @keyframes trwave {
   0% { transform: scale(0.4); opacity: 0; }
   10% { opacity: 0.9; }
@@ -45,10 +43,12 @@
 .tr-gear .ico { width: 16px !important; height: 16px !important; }
 
 .tr-status { display: flex; align-items: center; gap: 16px; padding: 12px 0 10px; }
-.tr-power { flex: none; position: relative; width: 64px; height: 64px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, transform 0.12s ease; }
+.tr-power { flex: none; position: relative; width: 64px; height: 64px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--dim); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, transform 0.12s ease; isolation: isolate; }
 .tr-power:hover { border-color: var(--ring); color: var(--text); }
 .tr-power:active { transform: scale(0.94); }
-.tr-power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); animation: trpulse 2.2s ease-out infinite; }
+.tr-power.on { background: var(--accent); border-color: var(--accent); color: var(--onAccent); }
+.tr-halo { display: none; }
+.tr-power.on .tr-halo { display: block; position: absolute; inset: -1px; z-index: -1; border-radius: 50%; background: color-mix(in srgb, var(--accent) 45%, transparent); animation: trpulse 2.2s ease-out infinite; pointer-events: none; }
 .tr-power.on::before,
 .tr-power.on::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent); animation: trwave 3.6s cubic-bezier(0.3, 0.6, 0.4, 1) infinite; pointer-events: none; }
 .tr-power.on::after { animation-delay: 1.8s; }
@@ -190,3 +190,5 @@
 .check-row.on .check { background: var(--accent); border-color: var(--accent); }
 .check-row.on .check i { border-color: var(--onAccent); }
 .preview-bar button.view { border-style: dashed; }
+.tr-server .pr-mark,
+.tr-direct .pr-mark { height: 16px; padding: 0 6px; font-size: 10px; }

@@ -5,6 +5,7 @@
 
 use klick_proto::{ConnView, FailureView, IpColumn, IpReport};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -25,7 +26,7 @@ const IP_V6: &str = "https://api6.ipify.org";
 const PROXYCHECK: &str = "https://proxycheck.io/v2/";
 const DOH_JSON: &str = "https://cloudflare-dns.com/dns-query";
 
-fn client(port: Option<u16>) -> Option<reqwest::Client> {
+pub(super) fn client(port: Option<u16>) -> Option<reqwest::Client> {
     let b = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
         .connect_timeout(Duration::from_secs(6))
@@ -58,7 +59,7 @@ pub async fn run(plan: Plan) -> IpReport {
     IpReport { via_vpn, direct, ipv6_leak, dns_protected, checked_at: crate::engine::unix_now() }
 }
 
-async fn column(port: Option<u16>) -> IpColumn {
+pub(super) async fn column(port: Option<u16>) -> IpColumn {
     let mut col = IpColumn::default();
     let Some(c) = client(port) else {
         col.error = Some("ip.client".into());
@@ -88,10 +89,22 @@ fn fill(col: &mut IpColumn, v: &Value) {
     col.country = s(&v["country"]);
     col.country_code = s(&v["isocode"]);
     col.city = s(&v["city"]);
+    col.region = s(&v["region"]);
     col.provider = s(&v["provider"]).or_else(|| s(&v["organisation"]));
     col.asn = v["asn"].as_str().and_then(|a| a.trim_start_matches("AS").parse().ok());
     col.vpn_detected = v["proxy"].as_str().map(|p| p.eq_ignore_ascii_case("yes"));
     col.datacenter = v["type"].as_str().map(|t| t.eq_ignore_ascii_case("hosting"));
+    col.net_type = if col.vpn_detected == Some(true) {
+        Some("vpn".into())
+    } else {
+        match s(&v["type"]).as_deref().map(str::to_ascii_lowercase).as_deref() {
+            Some("wireless" | "mobile") => Some("mobile".into()),
+            Some("residential") => Some("home".into()),
+            Some("business") => Some("business".into()),
+            Some("hosting") => Some("hosting".into()),
+            _ => None,
+        }
+    };
 }
 
 async fn json(c: &reqwest::Client, url: &str) -> Result<Value, &'static str> {
@@ -137,6 +150,32 @@ async fn dns_check(tun: bool) -> Option<bool> {
 }
 
 /// Соединения из API ядра — в понятный окну вид.
+/// Куда идёт соединение из `/connections` ядра: block, direct или vpn.
+fn route(c: &Value) -> &'static str {
+    let chains: Vec<&str> = c["chains"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if chains.contains(&"REJECT") || chains.contains(&"REJECT-DROP") {
+        "block"
+    } else if chains.contains(&"DIRECT") {
+        "direct"
+    } else {
+        "vpn"
+    }
+}
+
+/// Сколько скачало каждое открытое соединение через VPN: id → байт. Стражу связи: если с прошлой
+/// проверки хоть одно скачало ещё — сервер жив, даже когда его собственная проверка не успела.
+pub fn vpn_downloads(v: &Value) -> HashMap<String, u64> {
+    v["connections"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|c| route(c) == "vpn")
+                .filter_map(|c| Some((c["id"].as_str()?.to_string(), c["download"].as_u64().unwrap_or(0))))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn connections(v: &Value) -> Vec<ConnView> {
     let list = v["connections"].as_array().cloned().unwrap_or_default();
     let mut out: Vec<ConnView> = list
@@ -145,19 +184,11 @@ pub fn connections(v: &Value) -> Vec<ConnView> {
             let m = &c["metadata"];
             let s = |x: &Value| x.as_str().filter(|s| !s.is_empty()).map(str::to_string);
             let host = s(&m["host"]).or_else(|| s(&m["sniffHost"])).or_else(|| s(&m["destinationIP"])).unwrap_or_default();
-            let chains: Vec<&str> = c["chains"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-            let route = if chains.contains(&"REJECT") || chains.contains(&"REJECT-DROP") {
-                "block"
-            } else if chains.contains(&"DIRECT") {
-                "direct"
-            } else {
-                "vpn"
-            };
             ConnView {
                 host,
                 process: s(&m["process"]),
                 process_path: s(&m["processPath"]),
-                route: route.into(),
+                route: route(c).into(),
                 rule: s(&c["rule"]).unwrap_or_default(),
                 network: s(&m["network"]).unwrap_or_default(),
                 upload: c["upload"].as_u64().unwrap_or(0),
@@ -236,5 +267,20 @@ mod tests {
         assert_eq!(c[0].route, "vpn");
         assert_eq!(c[0].process.as_deref(), Some("Discord.exe"));
         assert_eq!(c[1].route, "direct");
+    }
+
+    #[test]
+    fn only_vpn_connections_count_as_traffic_through_the_server() {
+        let v = json!({ "connections": [
+            { "id": "a", "chains": ["nl-1", "klick-vpn"], "download": 4096 },
+            { "id": "b", "chains": ["DIRECT"], "download": 900000 },
+            { "id": "c", "chains": ["REJECT"], "download": 0 },
+            { "id": "d", "chains": ["de-2", "klick-vpn"] }
+        ]});
+        let d = vpn_downloads(&v);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d["a"], 4096);
+        assert_eq!(d["d"], 0);
+        assert!(vpn_downloads(&json!({ "connections": null })).is_empty());
     }
 }

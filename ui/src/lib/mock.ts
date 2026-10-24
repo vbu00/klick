@@ -15,7 +15,9 @@ import type {
   KsProgramView,
   LogLine,
   PendingLink,
+  ProbeReport,
   ProgramView,
+  ServerProbe,
   Routing,
   Rule,
   ServerView,
@@ -29,17 +31,65 @@ export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' |
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
+/** Превью: `?slow=1500` — служба отвечает на каждую команду за 1,5 с; `?fail=connect` — VPN не включается;
+ *  `?fail=probe` — проверка серверов прерывается сменой сети; `?partial=1` — за отведённое время проверены не все;
+ *  `?many=1` — у подписки 41 сервер (весь набор Mistgate). */
+const PARAMS = new URLSearchParams(location.search);
+
+/** Весь набор Mistgate: 6 стран, у трёх — ещё HY2 · WARP. Только имена и протоколы, без адресов. */
+function mistgate(): ServerView[] {
+  const flag = (cc: string) => String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+  return ['BY', 'DE', 'EE', 'NL', 'RU', 'TR'].flatMap((cc, ci) =>
+    (
+      [
+        ['HY2', 'hysteria2'],
+        ...(['DE', 'EE', 'NL'].includes(cc) ? [['HY2 · WARP', 'hysteria2']] : []),
+        ['VLESS · TCP', 'vless'],
+        ['VLESS · XHTTP', 'vless'],
+        ['AWG2', 'wireguard'],
+        ['AWG3.1', 'wireguard'],
+      ] as [string, string][]
+    ).map(([v, kind], i) => ({ name: `${flag(cc)} ${cc} · ${v}`, kind, delay: (ci * 7 + i * 13) % 11 === 3 ? null : 38 + ((ci * 31 + i * 17) % 90), selected: false })),
+  );
+}
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Итог проверки сервера в превью: часть VLESS «заморожена», TR · VLESS · TCP заблокирован, Trojan не проходит,
+ *  AWG и HY2 работают, EE · HY2 и Helsinki-2 — нестабильно. Задержку проверка не меняет: её и не выдумываем. */
+function mockProbe(s: ServerView, direct: boolean): ServerProbe {
+  const n = s.name;
+  const verdict: ServerProbe['verdict'] = /TR · VLESS · TCP/.test(n)
+    ? 'tcp_blocked'
+    : s.kind === 'trojan'
+      ? 'handshake_failed'
+      : s.kind === 'vless' && /Amsterdam|Frankfurt|· TCP|(DE|RU|NL) · VLESS · XHTTP/.test(n)
+        ? 'freeze'
+        : s.delay == null
+          ? 'no_answer'
+          : 'ok';
+  const flaky = /EE · HY2$|Helsinki-2/.test(n);
+  const answered = verdict === 'ok' || verdict === 'freeze';
+  return {
+    verdict,
+    flaky,
+    ...(answered && s.delay != null ? { delay_ms: s.delay } : {}),
+    ...(answered ? { dl_bytes: verdict === 'freeze' ? 10985 : 131072, dl_stalled: verdict === 'freeze' } : {}),
+    ...(direct
+      ? { tcp_ok: verdict === 'tcp_blocked' ? 0 : flaky ? 2 : 3, tcp_tries: 3, ...(verdict === 'tcp_blocked' ? {} : { tcp_ms: 28 + (n.length % 40) }), dns: /RU ·/.test(n) ? ('different' as const) : ('same' as const) }
+      : {}),
+  };
+}
 
 function seed(): { connections: Connection[]; servers: Record<string, ServerView[]> } {
   const sub: Connection = {
     id: 'alex',
-    name: 'Remnawave · Alex',
+    name: 'Mistgate · Alex',
     kind: 'subscription',
-    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400 },
+    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex', probe_report: 1 },
     updated_at: nowS() - 3600,
     update_interval_hours: 12,
     selected_server: 'Нидерланды · Amsterdam',
+    probe_share: false,
   };
   const link: Connection = {
     id: 'grpc',
@@ -53,13 +103,31 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
   return {
     connections: [sub, link],
     servers: {
+      // Имена — как у разных панелей: Remnawave («Страна · Город»), Mistgate (флаг, код, протокол),
+      // код в скобках и серверы без страны (попадут в «Другие» в списке по странам).
       alex: [
         { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: true },
         { name: 'Германия · Frankfurt', kind: 'vless', delay: 61, selected: false },
         { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: false },
         { name: 'США · New York', kind: 'trojan', delay: 142, selected: false },
         { name: 'Турция · Istanbul', kind: 'vless', delay: null, selected: false },
-      ],
+        ...(PARAMS.get('many') === '1' ? mistgate() : []),
+        { name: '🇧🇾 BY · HY2', kind: 'hysteria2', delay: 56, selected: false },
+        { name: '🇧🇾 BY · VLESS · TCP', kind: 'vless', delay: null, selected: false },
+        { name: '🇧🇾 BY · VLESS · XHTTP', kind: 'vless', delay: 71, selected: false },
+        { name: '🇧🇾 BY · AWG2', kind: 'wireguard', delay: 44, selected: false },
+        { name: '🇧🇾 BY · AWG3.1', kind: 'wireguard', delay: 47, selected: false },
+        { name: '🇩🇪 DE · HY2', kind: 'hysteria2', delay: 63, selected: false },
+        { name: '🇩🇪 DE · HY2 · WARP', kind: 'hysteria2', delay: 62, selected: false },
+        { name: '🇩🇪 DE · VLESS · XHTTP', kind: 'vless', delay: 88, selected: false },
+        { name: '🇩🇪 DE · AWG2', kind: 'wireguard', delay: null, selected: false },
+        { name: '🇳🇱 NL · HY2', kind: 'hysteria2', delay: 52, selected: false },
+        { name: '🇳🇱 NL · HY2 · WARP', kind: 'hysteria2', delay: 58, selected: false },
+        { name: '🇳🇱 NL · AWG3.1', kind: 'wireguard', delay: 49, selected: false },
+        { name: '[FI] Helsinki-2', kind: 'vless', delay: 41, selected: false },
+        { name: 'AWG2', kind: 'wireguard', delay: 95, selected: false },
+        { name: 'AWG3.1', kind: 'wireguard', delay: null, selected: false },
+      ].filter((s, i, all) => all.findIndex((x) => x.name === s.name) === i),
       grpc: [{ name: 'grpc', kind: 'vless', delay: 57, selected: true }],
     },
   };
@@ -181,6 +249,12 @@ class MockService {
   private level = 4;
   private flowsSince = Date.now();
   private log: LogLine[] = [];
+  /** Проверка серверов: последняя по подключениям, идущая сейчас и когда итоги последний раз ушли панели. */
+  private probeLast: Record<string, { checked_at: number; report: ProbeReport }> = {};
+  private probing: Promise<ProbeReport> | null = null;
+  private sharedAt = 0;
+  /** Меняется, когда включают и выключают VPN или меняют режим: идущая проверка тогда прерывается. */
+  private netEpoch = 0;
 
   constructor(scenario: Scenario) {
     this.reset(scenario);
@@ -188,6 +262,8 @@ class MockService {
 
   reset(sc: Scenario) {
     clearInterval(this.timer);
+    this.probeLast = {};
+    this.netEpoch++;
     const { connections, servers } = seed();
     this.servers = servers;
     const empty = sc === 'empty';
@@ -214,6 +290,8 @@ class MockService {
       restore_on_logon: false,
       auto_update: true,
       notify: true,
+      // `?countries=1` — список серверов сразу по странам.
+      servers_by_country: new URLSearchParams(location.search).get('countries') !== '0',
       // `?theme=light` — посмотреть превью в светлой теме.
       appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158' },
       on_exit: 'ask',
@@ -257,7 +335,30 @@ class MockService {
 
   private view(): ConnectionView | null {
     const c = this.active();
-    return c ? { id: c.id, name: c.name, info: c.info } : null;
+    return c ? { id: c.id, name: c.name, info: c.info, probe_share: !!c.probe_share, probe_last: this.probeLast[c.id] ?? null } : null;
+  }
+
+  /** Проверка серверов активного подключения отдельным ядром: 2–4 секунды в превью, с `?slow` дольше. */
+  private async runProbe(id: string, list: ServerView[]): Promise<ProbeReport> {
+    const epoch = this.netEpoch;
+    const tun = this.st.mode === 'tun' && this.running();
+    await wait(Math.max(2000 + Math.random() * 2000, (Number(PARAMS.get('slow')) || 0) * 8));
+    if (PARAMS.get('fail') === 'probe' || epoch !== this.netEpoch) fail('probe.network_changed');
+    const n = PARAMS.get('partial') ? Math.min(list.length, Math.ceil(list.length * 0.8)) : list.length;
+    list.forEach((s, i) => (s.probe = i < n ? mockProbe(s, !tun) : undefined));
+    const share = !!this.active()?.probe_share;
+    const recent = Date.now() - this.sharedAt < 600_000;
+    if (share && !recent) this.sharedAt = Date.now();
+    const report: ProbeReport = {
+      // Оператор и регион служба узнаёт, только когда включена отправка панели.
+      network: { vpn: tun, direct_checked: !tun, asn: 8359, country: 'RU', net_type: 'mobile', ...(share ? { operator: 'MTS PJSC', region: 'Moscow' } : {}) },
+      servers: n,
+      ...(share ? { shared: recent ? ('later' as const) : ('sent' as const) } : {}),
+    };
+    this.probeLast[id] = { checked_at: nowS(), report };
+    this.emit({ ev: 'servers', connection: id });
+    this.emitState();
+    return report;
   }
 
   /** Куда ядро превью отправит соединение: Kill Switch, правила списка, готовые наборы. */
@@ -305,12 +406,33 @@ class MockService {
 
   onService(cb: (up: boolean) => void) {
     this.service.add(cb);
-    cb(true);
+    cb(this.up);
     return () => this.service.delete(cb);
   }
 
+  /** Служба на связи; `__klickMock.serviceDown(5000)` — пропала на 5 секунд и вернулась. */
+  private up = true;
+  serviceDown(ms: number) {
+    this.up = false;
+    this.service.forEach((cb) => cb(false));
+    setTimeout(() => {
+      this.up = true;
+      this.service.forEach((cb) => cb(true));
+    }, ms);
+  }
+
+  /** Для стресс-проверок превью: событие от «службы» и сколько у неё слушателей. */
+  fire(e: KEvent | 'state') {
+    if (e === 'state') this.emitState();
+    else this.emit(e);
+  }
+  stats() {
+    return { events: this.events.size, service: this.service.size, vpn: this.st.vpn };
+  }
+
   async call(cmd: string, args: any): Promise<unknown> {
-    await wait(120);
+    await wait(Number(PARAMS.get('slow')) || 120);
+    if (!this.up) fail('service.unreachable');
     switch (cmd) {
       case 'status':
       case 'subscribe':
@@ -321,8 +443,14 @@ class MockService {
         if (!this.active()) fail('vpn.no_connection');
         if (this.running()) return this.st;
         this.st = { ...this.st, vpn: 'connecting', error: null };
+        this.netEpoch++;
         this.emitState();
         await wait(900);
+        if (PARAMS.get('fail') === 'connect') {
+          this.st = { ...this.st, vpn: 'error', error: 'core.start_failed' };
+          this.emitState();
+          return fail('core.start_failed');
+        }
         this.st = { ...this.st, vpn: 'connected', since: nowS(), attempt: null };
         this.startTraffic();
         this.emitState();
@@ -330,10 +458,12 @@ class MockService {
       }
       case 'disconnect':
         clearInterval(this.timer);
+        this.netEpoch++;
         this.st = { ...this.st, vpn: 'off', since: null, attempt: null, error: null };
         this.emitState();
         return this.st;
       case 'set_mode':
+        if (this.settings.mode !== args.mode) this.netEpoch++;
         this.settings.mode = args.mode;
         this.st = { ...this.st, mode: args.mode };
         this.emitState();
@@ -353,6 +483,23 @@ class MockService {
           s.delay = Math.random() < 0.12 ? null : Math.max(18, Math.round(base * (0.85 + Math.random() * 0.3)));
         });
         return list;
+      }
+      case 'probe': {
+        const id = this.settings.active_connection;
+        if (!id) return fail('vpn.no_connection');
+        const list = this.servers[id] ?? [];
+        if (!list.length) fail('sub.no_servers');
+        // Вторая проверка, пока идёт первая, присоединяется к ней.
+        this.probing ??= this.runProbe(id, list).finally(() => (this.probing = null));
+        return this.probing;
+      }
+      case 'probe_share': {
+        const c = this.settings.connections.find((x) => x.id === args.id);
+        if (!c) return fail('conn.not_found');
+        if (!c.info?.probe_report) fail('probe.share_unavailable');
+        c.probe_share = !!args.enabled;
+        this.emitState();
+        return { id: c.id, name: c.name, info: c.info, probe_share: c.probe_share, probe_last: this.probeLast[c.id] ?? null };
       }
       case 'select_server': {
         const list = this.servers[this.settings.active_connection ?? ''] ?? [];
@@ -447,6 +594,7 @@ class MockService {
         if (p.restore_on_logon !== undefined) this.settings.restore_on_logon = p.restore_on_logon;
         if (p.auto_update !== undefined) this.settings.auto_update = p.auto_update;
         if (p.notify !== undefined) this.settings.notify = p.notify;
+        if (p.servers_by_country !== undefined) this.settings.servers_by_country = p.servers_by_country;
         if (p.appearance !== undefined) this.settings.appearance = p.appearance;
         if (p.on_exit !== undefined) this.settings.on_exit = p.on_exit;
         return this.settings;
@@ -614,6 +762,13 @@ export function createMockTransport(): Transport {
   const linkListeners = new Set<() => void>();
   (window as any).__klickMock = {
     setScenario: (s: Scenario) => svc.reset(s),
+    /** Служба пропала на `ms` и вернулась. */
+    serviceDown: (ms = 5000) => svc.serviceDown(ms),
+    /** Событие службы, например `{ ev: 'traffic', up: 1e5, down: 1e6 }`, и число слушателей — для стресс-проверок. */
+    emit: (e: KEvent | 'state') => svc.fire(e),
+    stats: () => svc.stats(),
+    /** Проверка серверов из консоли — например, в окне трея, где своей кнопки нет. */
+    probe: () => svc.call('probe', undefined),
     /** Ссылка klick://add пришла, пока окно открыто: `__klickMock.openLink('https://…', 'Имя')`. */
     openLink: (url: string, name?: string) => {
       pending = previewLink(url, name ?? null);

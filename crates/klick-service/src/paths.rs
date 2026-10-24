@@ -106,6 +106,7 @@ pub struct Profile {
     pub pipe: String,
     pub core_pipe: String,
     pub tester_pipe: String,
+    pub probe_pipe: String,
     /// macOS: сокет ядра-стража Kill Switch.
     #[cfg(unix)]
     pub guard_pipe: String,
@@ -126,6 +127,7 @@ impl Profile {
             pipe: klick_proto::PIPE.into(),
             core_pipe: r"\\.\pipe\klick-core".into(),
             tester_pipe: r"\\.\pipe\klick-tester".into(),
+            probe_pipe: r"\\.\pipe\klick-probe".into(),
             mixed_port: 7890,
             tun_allowed: true,
             wfp_allowed: true,
@@ -140,6 +142,7 @@ impl Profile {
             pipe: klick_proto::PIPE_DEV.into(),
             core_pipe: r"\\.\pipe\klick-dev-core".into(),
             tester_pipe: r"\\.\pipe\klick-dev-tester".into(),
+            probe_pipe: r"\\.\pipe\klick-dev-probe".into(),
             mixed_port: 17890,
             tun_allowed: allow_tun,
             wfp_allowed: allow_wfp,
@@ -167,6 +170,7 @@ impl Profile {
             pipe: pipe.into(),
             core_pipe: format!("{run}/core.sock"),
             tester_pipe: format!("{run}/tester.sock"),
+            probe_pipe: format!("{run}/probe.sock"),
             guard_pipe: format!("{run}/guard.sock"),
             mixed_port,
             tun_allowed,

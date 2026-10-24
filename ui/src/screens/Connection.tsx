@@ -1,5 +1,5 @@
 // «Соединение» по макету v4: режим, «Куда направлять» с готовыми наборами, «Мой список» карточкой,
-// «Сейчас в сети» сводкой; ниже — живая схема и «Как вас видят сайты».
+// «Сейчас в сети» сводкой; ниже — живая схема, «Проверка серверов» и «Как вас видят сайты».
 // Подэкраны: «Мой список», «Сейчас в сети», «Не открывается?». Везде один тумблер — «через VPN»:
 // в списке он включает и выключает правило, в «Сейчас в сети» сам пишет правило в мой список.
 
@@ -10,25 +10,29 @@ import { Icon } from '../components/Icon';
 import { IpCard } from '../components/IpCard';
 import { LiveSchema } from '../components/LiveSchema';
 import { ModeInfo } from '../components/ModeInfo';
+import { ProbeCard } from '../components/ProbeCard';
 import { failureReason, routeName, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget, siteRule, siteTarget, type AppRow, type SiteRow } from '../lib/live';
 import { defaultRoute, plural, ruleTitle, unicodeDomain } from '../lib/rules';
-import { useStore } from '../lib/store';
+import { useStore, useVisible } from '../lib/store';
 import type { Transport } from '../lib/transport';
 import type { ConnView, FailureView, Mode, Routing, Rule, Service, Target } from '../lib/types';
 
 type Sub = null | 'list' | 'live' | 'failures';
 
-/** Соединения и неудачи раз в 2 секунды, пока открыта вкладка и работает VPN. */
+/** Соединения и неудачи раз в 2 секунды, пока открыта вкладка, работает VPN и окно видно. Спрятанное
+ *  в трей окно службу не опрашивает; показали — сразу свежие данные. */
 function useLive(running: boolean, transport: Transport) {
   const [conns, setConns] = useState<ConnView[]>([]);
   const [fails, setFails] = useState<FailureView[]>([]);
+  const visible = useVisible();
   useEffect(() => {
     if (!running) {
       setConns([]);
       setFails([]);
       return;
     }
+    if (!visible) return;
     let alive = true;
     const tick = async () => {
       const [c, f] = await Promise.all([
@@ -45,7 +49,7 @@ function useLive(running: boolean, transport: Transport) {
       alive = false;
       clearInterval(t);
     };
-  }, [running, transport]);
+  }, [running, visible, transport]);
   return { conns, fails };
 }
 
@@ -231,6 +235,7 @@ function Main({
       </div>
       <LiveSchema running={isRunning} mode={mode} server={state.server} conns={conns} catalog={catalog} />
 
+      <ProbeCard />
       <IpCard />
     </>
   );

@@ -1,12 +1,13 @@
 {
   "name": "klick-ui",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "check": "tsc --noEmit",
+    "test": "node --test scripts/countries.test.mjs scripts/probe.test.mjs",
     "screenshots": "node scripts/screenshots.mjs",
     "video": "node scripts/video.mjs full",
     "video:gif": "node scripts/video.mjs gif",

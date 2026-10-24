@@ -18,7 +18,8 @@ Set-Content -Path $report -Value '' -Encoding UTF8
 $script:fails = 0
 $sub = $env:KLICK_TEST_SUB
 
-function Log([string]$m) { Add-Content -Path $report -Value ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) -Encoding UTF8 }
+# Страница подписки (`page_url` в ответах службы) несёт её токен, а отчёт уходит в журнал CI — прячем.
+function Log([string]$m) { Add-Content -Path $report -Value ("[{0:HH:mm:ss}] {1}" -f (Get-Date), ($m -replace '"page_url":\s*"[^"]*"', '"page_url": "<скрыто>"')) -Encoding UTF8 }
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
     if (-not $ok) { $script:fails++ }
     $mark = if ($ok) { 'OK  ' } else { 'FAIL' }

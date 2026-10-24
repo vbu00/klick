@@ -15,9 +15,9 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
 #[cfg(windows)]
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+use tokio::net::windows::named_pipe::ClientOptions;
 use tokio::sync::oneshot;
 
 #[cfg(windows)]
@@ -41,11 +41,15 @@ impl CoreApi {
     }
 
     #[cfg(windows)]
-    async fn open(&self) -> Result<NamedPipeClient> {
+    async fn open(&self) -> Result<Box<dyn CoreStream>> {
+        #[cfg(test)]
+        if let Some(address) = self.pipe.strip_prefix("tcp://") {
+            return Ok(Box::new(tokio::net::TcpStream::connect(address).await?));
+        }
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             match ClientOptions::new().open(&self.pipe) {
-                Ok(c) => return Ok(c),
+                Ok(c) => return Ok(Box::new(c)),
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && Instant::now() < deadline => {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
@@ -55,8 +59,12 @@ impl CoreApi {
     }
 
     #[cfg(unix)]
-    async fn open(&self) -> Result<tokio::net::UnixStream> {
-        tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")
+    async fn open(&self) -> Result<Box<dyn CoreStream>> {
+        #[cfg(test)]
+        if let Some(address) = self.pipe.strip_prefix("tcp://") {
+            return Ok(Box::new(tokio::net::TcpStream::connect(address).await?));
+        }
+        Ok(Box::new(tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")?))
     }
 
     async fn send(&self, method: Method, path: &str, body: Option<&Value>) -> Result<hyper::Response<hyper::body::Incoming>> {
@@ -118,6 +126,19 @@ impl CoreApi {
             .collect())
     }
 
+    /// Ядро отвечает раньше, чем дочитает файл провайдера: подождать, пока появится список.
+    pub async fn wait_provider(&self, provider: &str, attempts: usize, pause: Duration) -> Result<Vec<(String, String)>> {
+        let mut list = self.provider_proxies(provider).await;
+        for _ in 0..attempts {
+            if matches!(&list, Ok(servers) if !servers.is_empty()) {
+                break;
+            }
+            tokio::time::sleep(pause).await;
+            list = self.provider_proxies(provider).await;
+        }
+        list
+    }
+
     pub async fn selected(&self, group: &str) -> Result<Option<String>> {
         let v = self.get_json(&format!("/proxies/{}", enc(group))).await?;
         Ok(v["now"].as_str().map(str::to_string))
@@ -142,17 +163,32 @@ impl CoreApi {
         Ok(v["delay"].as_u64().filter(|d| *d > 0).map(|d| d as u32))
     }
 
-    /// Задержка всех серверов группы разом.
-    pub async fn group_delay(&self, group: &str, url: &str, timeout_ms: u32) -> Result<HashMap<String, u32>> {
-        let path = format!("/group/{}/delay?url={}&timeout={timeout_ms}", enc(group), enc(url));
-        let (status, body) = self.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 3_000)).await?;
-        if !status.is_success() {
-            return Ok(HashMap::new());
+    /// Задержка каждого сервера отдельно, не больше `parallel` проверок сразу. Вся группа разом —
+    /// это десяток новых рукопожатий (QUIC, WireGuard) в одну секунду: в плохой сети не успевает
+    /// никто, и в списке «нет ответа» даже у сервера, через который всё работает.
+    pub async fn provider_delays(&self, provider: &str, names: &[String], url: &str, timeout_ms: u32, parallel: usize) -> HashMap<String, u32> {
+        let gate = Arc::new(tokio::sync::Semaphore::new(parallel.max(1)));
+        let mut checks = tokio::task::JoinSet::new();
+        for name in names {
+            let (api, gate, name) = (self.clone(), gate.clone(), name.clone());
+            let path = format!("/providers/proxies/{}/{}/healthcheck?url={}&timeout={timeout_ms}", enc(provider), enc(&name), enc(url));
+            checks.spawn(async move {
+                let _turn = gate.acquire_owned().await.ok()?;
+                let (status, body) = api.call_within(Method::GET, &path, None, Duration::from_millis(u64::from(timeout_ms) + 2_000)).await.ok()?;
+                if !status.is_success() {
+                    return None;
+                }
+                let v: Value = serde_json::from_slice(&body).ok()?;
+                Some((name, v["delay"].as_u64().filter(|d| *d > 0)? as u32))
+            });
         }
-        let v: Value = serde_json::from_slice(&body)?;
-        Ok(v.as_object()
-            .map(|m| m.iter().filter_map(|(k, d)| Some((k.clone(), d.as_u64().filter(|d| *d > 0)? as u32))).collect())
-            .unwrap_or_default())
+        let mut out = HashMap::new();
+        while let Some(done) = checks.join_next().await {
+            if let Ok(Some((name, delay))) = done {
+                out.insert(name, delay);
+            }
+        }
+        out
     }
 
     /// Перечитать конфиг без перезапуска: тумблер, списки, Kill Switch.
@@ -161,6 +197,24 @@ impl CoreApi {
         let (status, text) = self.call_within(Method::PUT, "/configs?force=true", Some(&body), Duration::from_secs(20)).await?;
         if !status.is_success() {
             bail!("ядро не приняло конфиг ({status}): {}", String::from_utf8_lossy(&text));
+        }
+        Ok(())
+    }
+
+    /// Перечитать файл правил: соединения не трогаются, в отличие от перечитывания конфига.
+    pub async fn refresh_rule_provider(&self, name: &str) -> Result<()> {
+        let (status, text) = self.call(Method::PUT, &format!("/providers/rules/{}", enc(name)), None).await?;
+        if !status.is_success() {
+            bail!("ядро не перечитало правила ({status}): {}", String::from_utf8_lossy(&text));
+        }
+        Ok(())
+    }
+
+    /// Закрыть все соединения ядра: программы сразу откроют новые.
+    pub async fn close_connections(&self) -> Result<()> {
+        let (status, text) = self.call(Method::DELETE, "/connections", None).await?;
+        if !status.is_success() {
+            bail!("ядро не закрыло соединения ({status}): {}", String::from_utf8_lossy(&text));
         }
         Ok(())
     }
@@ -196,6 +250,9 @@ impl CoreApi {
         Ok(())
     }
 }
+
+trait CoreStream: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> CoreStream for T {}
 
 /// Строка журнала ядра без адресов сайтов: `--> youtube.com:443` превращается в `--> <адрес>`.
 /// Журнал рабочей службы по брифу не хранит, куда ходил человек.
@@ -356,10 +413,24 @@ impl CoreProcess {
             let tail = tail.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stream).lines();
+                // Не больше 20 строк ядра за 10 с: в плохом состоянии (нет интерфейса, петля) ядро пишет
+                // тысячи строк в секунду, и журнал разрастался бы на гигабайты.
+                let (mut window, mut shown, mut skipped) = (Instant::now(), 0u32, 0u32);
                 while let Ok(Some(line)) = lines.next_line().await {
                     let line = if verbose { line } else { redact(&line) };
                     if verbose || line.contains("level=warning") || line.contains("level=error") || line.contains("level=fatal") {
-                        tracing::info!(target: "core", "{line}");
+                        if window.elapsed() >= Duration::from_secs(10) {
+                            if skipped > 0 {
+                                tracing::info!(target: "core", "пропущено строк ядра за 10 с: {skipped}");
+                            }
+                            (window, shown, skipped) = (Instant::now(), 0, 0);
+                        }
+                        if shown < 20 {
+                            shown += 1;
+                            tracing::info!(target: "core", "{line}");
+                        } else {
+                            skipped += 1;
+                        }
                     } else {
                         tracing::debug!(target: "core", "{line}");
                     }

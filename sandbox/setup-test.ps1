@@ -158,7 +158,8 @@ try {
     $win = WaitKlick 30
     Check 'ссылка запустила kl!ck' ($null -ne $win)
     if ($win) {
-        $ui = WaitUi $win.Id @('second.example.org') 60
+        # Первое окно на свежей машине: холодный старт WebView2 на раннере бывает дольше минуты.
+        $ui = WaitUi $win.Id @('second.example.org') 120
         Log "    в окне: $ui"
         Check 'по ссылке открылся экран «Добавить»: виден домен' ($ui.Contains('second.example.org') -and $ui.Contains('Добавить подписку'))
         Check 'самой ссылки в окне нет' (-not $ui.Contains('SECRET'))

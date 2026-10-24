@@ -329,3 +329,74 @@
 .ip-sep { grid-column: 1 / -1; height: 1px; margin: 2px 0; background: var(--line); }
 .ip-empty { font-size: 13px; color: var(--text3); line-height: 1.5; text-wrap: pretty; }
 .ip-card .foot-note { margin-top: 12px; }
+
+/* Проверка серверов: карточка того же вида, что «Как вас видят сайты». Оранжевый текст смешан с цветом текста —
+   на светлой теме чистый оранжевый не читается. */
+.pr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.pr-run-title { font-size: 14px; font-weight: 600; }
+.pr-when { flex: none; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pr-track { position: relative; height: 4px; margin-top: 12px; border-radius: 2px; background: var(--elem); overflow: hidden; }
+.pr-track i { position: absolute; top: 0; bottom: 0; left: 0; width: 35%; border-radius: 2px; background: var(--accent); animation: prslide 1.5s cubic-bezier(0.4, 0, 0.2, 1) -0.6s infinite; }
+@keyframes prslide { from { transform: translateX(-100%); } to { transform: translateX(286%); } }
+@media (prefers-reduced-motion: reduce) { .pr-track i { animation: none; width: 100%; opacity: 0.35; } }
+.pr-text { margin-top: 10px; font-size: 12px; color: var(--dim); line-height: 1.45; text-wrap: pretty; }
+.pr-text.center { margin-top: 8px; text-align: center; color: var(--dim2); }
+.pr-error { margin-bottom: 14px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--red) 12%, var(--card)); font-size: 12.5px; line-height: 1.4; }
+.pr-error b { display: block; font-size: 13.5px; font-weight: 600; }
+.pr-error span { display: block; margin-top: 2px; color: var(--text3); }
+.pr-error + .btn-card { margin-top: 0; }
+.pr-sum { font-size: 13px; color: var(--dim); }
+.pr-sum b { margin-right: 2px; font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.pr-bar { display: flex; gap: 2px; height: 8px; margin-top: 10px; border-radius: 4px; overflow: hidden; background: var(--elem); }
+.pr-bar i { flex-basis: 0; }
+.pr-bar .ok,
+.pr-legend .ok { background: var(--accent); }
+.pr-bar .warn,
+.pr-legend .warn { background: var(--orange); }
+.pr-bar .bad,
+.pr-legend .bad { background: var(--red); }
+.pr-legend { display: flex; flex-wrap: wrap; gap: 2px 4px; margin: 6px -6px 0; font-size: 12px; color: var(--dim); }
+.pr-leg { display: flex; align-items: center; gap: 6px; padding: 3px 7px; border: 0; border-radius: 9px; background: none; color: inherit; font: inherit; cursor: pointer; transition: background 0.15s ease; }
+.pr-leg:hover:not(:disabled), .pr-leg.on { background: var(--elem); }
+.pr-leg:disabled { cursor: default; }
+.pr-legend i { width: 7px; height: 7px; border-radius: 50%; }
+.pr-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pr-group { margin: 8px 0 0; padding: 4px; list-style: none; border-radius: 12px; background: var(--elem); animation: expandin 0.2s ease; }
+.pr-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 9px; background: none; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; }
+button.pr-row { cursor: pointer; transition: background 0.15s ease; }
+button.pr-row:hover { background: var(--card); }
+.pr-row .flag { flex: none; width: 18px; height: 18px; font-size: 7px; }
+.pr-ms { flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pr-now { flex: none; font-size: 11px; color: var(--accent); }
+.pr-tip { margin-top: 14px; padding: 11px 12px 12px; border-radius: 14px; background: color-mix(in srgb, var(--orange) 13%, var(--card)); }
+.pr-tip.bad { background: color-mix(in srgb, var(--red) 12%, var(--card)); }
+.pr-tip-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+.pr-tip-sub { margin-top: 2px; font-size: 12px; color: var(--text3); line-height: 1.4; text-wrap: pretty; }
+.pr-tip-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pr-tip-row .flag { width: 22px; height: 22px; font-size: 8px; }
+.pr-tip-name { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-tip-proto { display: block; margin-top: 1px; font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-tip-btn { flex: none; height: 30px; padding: 0 13px; border: 0; border-radius: 16px; background: var(--accent); color: var(--onAccent); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.2s ease, transform 0.15s ease; }
+.pr-tip-btn:hover { opacity: 0.9; }
+.pr-tip-btn:active { transform: scale(0.96); }
+.pr-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 14px; align-items: baseline; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; }
+.pr-kv:empty { display: none; }
+.pr-kv .k { color: var(--dim); }
+.pr-kv .v { min-width: 0; color: var(--text); line-height: 1.4; text-wrap: pretty; }
+.pr-kv .good { color: var(--accent); }
+.pr-kv .warn { color: color-mix(in srgb, var(--orange) 55%, var(--text)); }
+.pr-kv .dim { color: var(--dim); }
+.pr-cur { display: flex; align-items: center; gap: 6px; align-self: center; }
+.pr-kv .k:has(+ .pr-cur) { align-self: center; }
+.pr-cur .flag { width: 16px; height: 16px; font-size: 7px; }
+.pr-ok { flex: none; color: var(--accent); font-weight: 600; }
+.pr-card .foot-note { margin-top: 12px; }
+.pr-card .foot-note + .foot-note { margin-top: 6px; }
+.pr-share { display: flex; align-items: center; gap: 12px; margin: 14px -14px -14px; padding: 12px 14px 14px; border-top: 1px solid var(--line); }
+.pr-share-title { font-size: 13.5px; font-weight: 600; }
+.pr-share-sub { margin-top: 2px; font-size: 11.5px; color: var(--dim); line-height: 1.4; text-wrap: pretty; }
+
+/* Отметка проверки у сервера: как «нет ответа», рядом с задержкой. Рабочий сервер — без отметки. */
+.pr-mark { flex: none; height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 600; white-space: nowrap; cursor: default; }
+.pr-mark.warn { background: color-mix(in srgb, var(--orange) 16%, transparent); color: color-mix(in srgb, var(--orange) 55%, var(--text)); }
+.pr-mark.bad { background: color-mix(in srgb, var(--red) 13%, transparent); color: color-mix(in srgb, var(--red) 72%, var(--text)); }

@@ -12,9 +12,10 @@ use crate::neighbors;
 use crate::netconf;
 #[cfg(unix)]
 use crate::pf;
-use crate::netwatch::NetWatch;
+use crate::netwatch::{self, NetWatch};
 use crate::paths::{Paths, Profile};
 use crate::programs;
+use crate::probe::{self, ProbeOutcome, ShareTarget};
 use crate::storage::{self, Secrets};
 use crate::subs;
 use crate::sys;
@@ -28,28 +29,44 @@ use klick_core::{
     ServerDownPolicy, Settings, Target,
 };
 use klick_proto::{
-    AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ServerView, StateView, SystemProxy, UpdateView, VpnState,
+    AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ProbeLast, ProbeReport, ServerProbe, ServerView,
+    StateView, SystemProxy, UpdateView, VpnState,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 pub const TUN_DEVICE: &str = "klick";
-const PROBE_TIMEOUT_MS: u32 = 5_000;
+/// Сон дольше этого — NAT роутера и сервера уже забыл соединения: они мертвы, хоть сеть и та же.
+/// Короче — не трогаем: большинство снов короткие, и обрывать на каждом вредно.
+pub const LONG_SLEEP: Duration = Duration::from_secs(120);
+/// Проверка связи стражем — два запроса через сервер (unified-delay). В плохой сети они не всегда
+/// укладываются в 5 с, а неудача ведёт к переподключению.
+const PROBE_TIMEOUT_MS: u32 = 10_000;
+/// Второй адрес проверки: страж проверяет оба сразу и доволен первым ответом.
+const PROBE_URL_ALT: &str = "https://cp.cloudflare.com/generate_204";
+/// Задержка серверов для списка: каждый отдельно, не больше стольких сразу.
+const LATENCY_TIMEOUT_MS: u32 = 8_000;
+const LATENCY_PARALLEL: usize = 6;
 
 pub enum Msg {
     Cmd(Command, oneshot::Sender<Result<Value, ErrorInfo>>),
     /// Что нужно проверке IP: сама проверка идёт вне очереди, чтобы не задерживать команды.
     IpPlan(oneshot::Sender<Plan>),
-    /// Windows сообщила об изменении сети (после сна, смены Wi-Fi, отключения кабеля).
-    NetworkChanged,
+    /// Сеть изменилась (смена Wi-Fi, кабель, пробуждение). `moved` — выход в интернет сменился или сон был
+    /// долгим: соединения через прежний адрес мертвы.
+    NetworkChanged { moved: bool },
     CoreExited { generation: u64, code: Option<i32> },
-    /// Итог проверки сервера, которую страж связи запустил в фоне.
-    Probed { generation: u64, retry: bool, ok: bool },
+    /// Итог проверки сервера, которую страж связи запустил в фоне; `net` — счётчик смен сети на её начало.
+    /// `flowing` — пока шла проверка, соединения через VPN что-то скачали; `rx` — скачанное ими к концу проверки.
+    Probed { generation: u64, retry: bool, ok: bool, flowing: bool, rx: HashMap<String, u64>, net: u64 },
+    /// Задержка серверов подключения измерена в фоне.
+    Measured { conn: String, net: u64, result: Result<Measured, ErrorInfo> },
+    ProbeDone { conn: String, net: u64, result: Result<ProbeOutcome, ErrorInfo> },
     /// macOS: ядро-страж Kill Switch завершилось само.
     #[cfg(unix)]
     KsCoreExited { generation: u64 },
@@ -72,6 +89,11 @@ pub enum Msg {
     KsFolderChanged,
 }
 
+/// Ответ на команду окна.
+type Reply = oneshot::Sender<Result<Value, ErrorInfo>>;
+/// Замер серверов: (имя, протокол), задержки, выбранный сейчас сервер.
+type Measured = (Vec<(String, String)>, HashMap<String, u32>, Option<String>);
+
 #[derive(Clone)]
 pub struct EngineHandle {
     tx: mpsc::Sender<Msg>,
@@ -83,6 +105,12 @@ impl EngineHandle {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Msg::Cmd(cmd, tx)).await.map_err(|_| ErrorInfo::new("service.stopping"))?;
         rx.await.map_err(|_| ErrorInfo::new("service.stopping"))?
+    }
+
+    /// Компьютер проснулся: проверить связь, как после смены сети; `long` — спал дольше `LONG_SLEEP`.
+    #[cfg(windows)]
+    pub async fn network_changed(&self, long: bool) {
+        let _ = self.tx.send(Msg::NetworkChanged { moved: long }).await;
     }
 
     pub async fn shutdown(&self) {
@@ -109,6 +137,8 @@ struct Running {
     traffic: tokio::task::JoinHandle<()>,
     logs: tokio::task::JoinHandle<()>,
     started: Instant,
+    /// Конфиг, который сейчас у ядра: правка списков, от которой он не меняется, обходится без перечитывания.
+    config: Vec<u8>,
 }
 
 impl Running {
@@ -149,6 +179,19 @@ pub struct Engine {
     restarts: u8,
     /// Проверка сервера идёт в фоне (поколение ядра): страж ждёт её итога, а не запускает новую.
     probing: Option<u64>,
+    /// Сколько скачало каждое соединение через VPN к прошлой проверке стража.
+    vpn_rx: HashMap<String, u64>,
+    /// Проверка не проходит, а данные через сервер идут: в журнал — один раз, не каждые 30 с.
+    probe_soft: bool,
+    /// Сети нет — страж ждёт; в журнал — один раз.
+    no_network: bool,
+    /// Сколько раз менялась сеть: проверка, начатая до смены, не в счёт.
+    net_seq: u64,
+    /// С какого момента сервер «не отвечает» и когда страж последний раз перезапускал из-за этого ядро.
+    down_since: Option<Instant>,
+    down_restart_at: Option<Instant>,
+    /// Прокси нужен (режим «Системный прокси» работает): желаемое, а не подтверждённое состояние. Подтверждает
+    /// отметка на диске: пока она есть, возврат не состоялся и `retry_netconf_leftovers` его повторяет.
     proxy_applied: bool,
     /// Прокси поставила служба, потому что окна не было: что стояло у пользователя до этого.
     #[cfg(windows)]
@@ -166,13 +209,20 @@ pub struct Engine {
     /// macOS: стоят ли правила Kill Switch в pf; `None` — ещё не сверяли (при запуске службы).
     #[cfg(unix)]
     pf_on: Option<bool>,
-    /// macOS: DNS сетевых служб подменён на адрес внутри адаптера (режим VPN).
+    /// macOS: DNS сетевых служб должен быть на адресе внутри адаптера (режим VPN). Как и `proxy_applied` — желаемое
+    /// состояние: не подтверждённый возврат держит отметка на диске, а не этот флаг.
     #[cfg(unix)]
     dns_overridden: bool,
     /// macOS: DNS-серверы системы, какими они были до подмены: через них ядро ищет адреса серверов VPN.
     /// Запоминаются при каждом запуске ядра, пока DNS не подменён; перечитывание конфига берёт последние.
     server_dns: Vec<String>,
     servers: HashMap<String, Vec<ServerView>>,
+    /// Ждут итога проверки задержки, которая идёт в фоне; не пусто — проверка идёт.
+    latency_waiters: Vec<Reply>,
+    probe_waiters: Vec<Reply>,
+    last_probe: HashMap<String, ProbeLast>,
+    shared_at: HashMap<String, Instant>,
+    net_change_tx: watch::Sender<u64>,
     failures: Failures,
     /// Следующая плановая работа: обновление подписок, предупреждения о сроке и трафике.
     next_maintenance: Instant,
@@ -233,8 +283,7 @@ fn program_folder(input: &str) -> Result<String, InputError> {
     program_folder_on(Os::CURRENT, input, Some(is_file))
 }
 
-/// Дождаться адаптера ядра (адрес 198.18.0.1).
-#[cfg(unix)]
+/// Дождаться адаптера ядра (macOS — адрес 198.18.0.1, Windows — адаптер `klick`).
 async fn wait_tun(limit: Duration) -> bool {
     let deadline = Instant::now() + limit;
     while !sys::tun_up() {
@@ -269,8 +318,14 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     #[cfg(unix)]
     sys::private_dir(&profile.run_dir())?;
     storage::install_core_files(&paths)?;
-    let settings = storage::load_settings(&paths);
+    let mut settings = storage::load_settings(&paths);
     let secrets = Secrets::load(&paths);
+    // Адрес страницы подписки хранится в секретах, а окну он нужен в сведениях подключения.
+    for c in &mut settings.connections {
+        if let (Some(i), Some(page)) = (c.info.as_mut(), secrets.0.get(&page_key(&c.id))) {
+            i.page_url = Some(page.clone());
+        }
+    }
     let catalog = storage::load_catalog(&paths);
     tracing::info!(
         "данные: {} · подключений: {} · сервисов в каталоге: {}",
@@ -280,6 +335,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     );
     let (tx, rx) = mpsc::channel(64);
     let (events, _) = broadcast::channel(256);
+    let (net_change_tx, _) = watch::channel(0_u64);
     let restore_pending = !profile.dev && should_restore(&paths);
     let resume_on_logon = !profile.dev && was_on_before_reboot(&paths);
 
@@ -337,9 +393,12 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     }
     let engine_tx = tx.clone();
     tokio::spawn(async move {
-        while net_rx.recv().await.is_some() {
-            while let Ok(Some(_)) = tokio::time::timeout(Duration::from_secs(3), net_rx.recv()).await {}
-            if engine_tx.send(Msg::NetworkChanged).await.is_err() {
+        while let Some(first) = net_rx.recv().await {
+            let mut moved = first != 0;
+            while let Ok(Some(v)) = tokio::time::timeout(Duration::from_secs(3), net_rx.recv()).await {
+                moved |= v != 0;
+            }
+            if engine_tx.send(Msg::NetworkChanged { moved }).await.is_err() {
                 break;
             }
         }
@@ -359,6 +418,12 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         epoch: Instant::now(),
         restarts: 0,
         probing: None,
+        vpn_rx: HashMap::new(),
+        probe_soft: false,
+        no_network: false,
+        net_seq: 0,
+        down_since: None,
+        down_restart_at: None,
         proxy_applied: false,
         #[cfg(windows)]
         user_proxy_saved: None,
@@ -376,6 +441,11 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         dns_overridden: false,
         server_dns: Vec::new(),
         servers: HashMap::new(),
+        latency_waiters: Vec::new(),
+        probe_waiters: Vec::new(),
+        last_probe: HashMap::new(),
+        shared_at: HashMap::new(),
+        net_change_tx,
         failures: Arc::new(Mutex::new(VecDeque::with_capacity(FAILURES_KEPT))),
         next_maintenance: Instant::now() + Duration::from_secs(60),
         warned: HashSet::new(),
@@ -454,6 +524,71 @@ fn version_newer(latest: &str, current: &str) -> bool {
     parse(latest) > parse(current)
 }
 
+/// Проверочное ядро: только серверы подключения, без портов и перехвата. Список серверов и, если
+/// `measure`, задержка каждого. Работает в фоне, поэтому берёт всё нужное с собой.
+async fn run_tester(paths: Paths, pipe: String, conn_id: String, measure: bool) -> Result<(Vec<(String, String)>, HashMap<String, u32>), ErrorInfo> {
+    let layout = CoreLayout {
+        os: Os::CURRENT,
+        controller: pipe,
+        secret: random_secret(),
+        mixed_port: 0,
+        check_vpn_port: 0,
+        check_direct_port: 0,
+        tun_device: TUN_DEVICE.into(),
+        log_level: "warning".into(),
+        core_exe: String::new(),
+    };
+    let cfg = compile::compile_tester(&layout, &Paths::provider_rel(&conn_id));
+    let path = paths.core_home.join("tester.yaml");
+    storage::write_atomic(&path, &serde_json::to_vec_pretty(&cfg).map_err(internal)?).map_err(internal)?;
+    let api = CoreApi::new(&layout.controller, &layout.secret);
+    let process = CoreProcess::start(&paths.core_exe, &paths.core_home, &path, api.clone(), false, |_| {}).await.map_err(|e| {
+        tracing::error!("проверочное ядро не запустилось: {e:#}");
+        ErrorInfo::new("core.start_failed")
+    })?;
+    // Ядро отвечает раньше, чем дочитает файл подписки: первые запросы бывают с пустым списком.
+    let list = api.wait_provider(PROVIDER, 30, Duration::from_millis(100)).await;
+    let delays = match &list {
+        Ok(l) if measure => measure_all(&api, l).await,
+        _ => HashMap::new(),
+    };
+    process.stop().await;
+    let list = list.map_err(|e| {
+        tracing::warn!("проверочное ядро не отдало серверы: {e:#}");
+        ErrorInfo::new("sub.no_servers")
+    })?;
+    if list.is_empty() {
+        return Err(ErrorInfo::new("sub.no_servers"));
+    }
+    Ok((list, delays))
+}
+
+/// Сколько скачало каждое соединение через VPN (по id соединения в ядре).
+async fn vpn_rx(api: &CoreApi) -> HashMap<String, u64> {
+    api.get_json("/connections").await.map(|v| ipcheck::vpn_downloads(&v)).unwrap_or_default()
+}
+
+/// Связь через сервер: ответил хоть один из двух адресов. Один адрес бывает недоступен сам по себе.
+async fn server_alive(api: &CoreApi) -> bool {
+    let mut checks = tokio::task::JoinSet::new();
+    for url in [PROBE_URL, PROBE_URL_ALT] {
+        let api = api.clone();
+        checks.spawn(async move { matches!(api.proxy_delay(VPN_GROUP, url, PROBE_TIMEOUT_MS).await, Ok(Some(_))) });
+    }
+    while let Some(ok) = checks.join_next().await {
+        if matches!(ok, Ok(true)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Задержка всех серверов подключения: каждый отдельно, не больше `LATENCY_PARALLEL` сразу.
+async fn measure_all(api: &CoreApi, list: &[(String, String)]) -> HashMap<String, u32> {
+    let names: Vec<String> = list.iter().map(|(name, _)| name.clone()).collect();
+    api.provider_delays(PROVIDER, &names, PROBE_URL, LATENCY_TIMEOUT_MS, LATENCY_PARALLEL).await
+}
+
 fn internal(e: impl std::fmt::Display) -> ErrorInfo {
     tracing::error!("внутренняя ошибка: {e:#}");
     ErrorInfo::new("service.internal")
@@ -471,12 +606,16 @@ impl Engine {
         #[cfg(unix)]
         if self.netconf_allowed() {
             let data = self.paths.data.clone();
-            let (proxy, dns) = tokio::task::spawn_blocking(move || netconf::restore_leftovers(&data)).await.unwrap_or((false, false));
-            if proxy {
-                tracing::info!("снят оставшийся системный прокси kl!ck");
-            }
-            if dns {
-                tracing::info!("возвращён DNS, который стоял до VPN");
+            if let Ok(r) = tokio::task::spawn_blocking(move || netconf::restore_leftovers(&data)).await {
+                if r.proxy.done() {
+                    tracing::info!("снят оставшийся системный прокси kl!ck");
+                }
+                if r.dns.done() {
+                    tracing::info!("возвращён DNS, который стоял до VPN");
+                }
+                if r.failed() {
+                    tracing::warn!("прокси или DNS после сбоя вернуть не удалось: отметки остались, повторю");
+                }
             }
         }
         // Служба перезапустилась, а у пользователя остался прокси, который ставила она, — снять.
@@ -507,6 +646,13 @@ impl Engine {
                 msg = rx.recv() => {
                     let Some(msg) = msg else { break };
                     match msg {
+                        Msg::Cmd(Command::TestLatency, reply) => self.test_latency(reply).await,
+                        Msg::Cmd(Command::Probe, reply) => self.probe(reply),
+                        // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
+                        // ядро на том же входе управления не запустится).
+                        Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
+                        Msg::Measured { conn, net, result } => self.measured(conn, net, result),
+                        Msg::ProbeDone { conn, net, result } => self.probe_done(conn, net, result),
                         Msg::Cmd(cmd, reply) => {
                             let res = self.handle(cmd).await;
                             let _ = reply.send(res);
@@ -514,7 +660,7 @@ impl Engine {
                         Msg::IpPlan(reply) => {
                             let _ = reply.send(self.ip_plan());
                         }
-                        Msg::NetworkChanged => self.on_network_change().await,
+                        Msg::NetworkChanged { moved } => self.on_network_change(moved).await,
                         #[cfg(windows)]
                         Msg::RetryLeftoverProxy => self.clear_leftover_proxy(),
                         #[cfg(windows)]
@@ -525,12 +671,18 @@ impl Engine {
                             self.ks_rescan_at.get_or_insert_with(|| Instant::now() + Duration::from_millis(300));
                         }
                         Msg::CoreExited { generation, code } => self.on_core_exit(generation, code).await,
-                        Msg::Probed { generation, retry, ok } => {
+                        Msg::Probed { generation, retry, ok, flowing, rx, net } => {
                             if self.probing == Some(generation) {
                                 self.probing = None;
                             }
                             if self.guard.is_some() && self.running.as_ref().map(|r| r.generation) == Some(generation) {
-                                self.probed(retry, ok).await;
+                                if net == self.net_seq {
+                                    self.vpn_rx = rx;
+                                    self.probed(retry, ok, flowing).await;
+                                } else {
+                                    // Сеть сменилась, пока шла проверка: её итог ни о чём не говорит — проверить заново.
+                                    self.spawn_probe(retry);
+                                }
                             }
                         }
                         #[cfg(unix)]
@@ -593,15 +745,18 @@ impl Engine {
             }
             Command::AddConnection { source, name } => self.add_connection(source, name).await,
             Command::FindConnection { source } => {
-                let found = self.find_connection(&source).map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() });
+                let found = self.find_connection(&source).map(|c| self.connection_view(c));
                 serde_json::to_value(found).map_err(internal)
             }
             Command::ImportFile { file_name, content } => self.import_file(file_name, content).await,
             Command::RefreshConnection { id } => self.refresh(&id).await,
             Command::RemoveConnection { id } => self.remove(&id).await,
             Command::SelectConnection { id } => self.select_connection(&id).await,
-            Command::Servers => self.list_servers(false).await,
-            Command::TestLatency => self.list_servers(true).await,
+            Command::Servers => self.list_servers().await,
+            // Обычно идёт в фоне (run → test_latency); сюда попадает только как список.
+            Command::TestLatency => self.list_servers().await,
+            Command::Probe => Err(ErrorInfo::new("probe.unexpected")),
+            Command::ProbeShare { id, enabled } => self.set_probe_share(&id, enabled),
             Command::SelectServer { name } => self.select_server(name).await,
             Command::ListAdd { position, rule } => {
                 let rule = self.validate_rule(rule)?;
@@ -738,9 +893,21 @@ impl Engine {
             .map(|c| c.id.clone())
             .collect();
         for id in due {
-            match self.refresh(&id).await {
+            // Под включённым VPN — только скачать: перечитанные ядром серверы обрывают соединения через VPN
+            // (WireGuard и Hysteria2 закрываются вместе со старым сервером). Новый список ядро возьмёт при
+            // следующем подключении или когда страж перечитает конфиг; кнопка «Обновить» применяет сразу.
+            let live = self.running.is_some() && self.settings.active_connection.as_deref() == Some(id.as_str());
+            let done = if live { self.download(&id).await.map(|()| self.emit_state()) } else { self.refresh(&id).await.map(drop) };
+            match done {
                 Ok(_) => tracing::info!("подписка обновлена по расписанию"),
-                Err(e) => tracing::warn!("подписка по расписанию не обновилась: {}", e.code),
+                Err(e) => {
+                    tracing::warn!("подписка по расписанию не обновилась: {}", e.code);
+                    // Панель отказала (лимит устройств, срок вышел…): сказать один раз, пока отказ не пройдёт.
+                    if e.code == "sub.refused" && self.warned.insert((id.clone(), "refused")) {
+                        let name = self.settings.connections.iter().find(|c| c.id == id).map(|c| c.name.clone()).unwrap_or_default();
+                        self.notice("sub.refused", json!({ "name": name, "reason": e.params.get("reason").cloned().unwrap_or(Value::Null) }));
+                    }
+                }
             }
         }
         let mut notices = Vec::new();
@@ -759,7 +926,7 @@ impl Engine {
                 }
                 _ => {}
             }
-            if info.total > 0 && info.upload + info.download >= info.total && self.warned.insert((c.id.clone(), "traffic")) {
+            if info.total > 0 && info.upload.saturating_add(info.download) >= info.total && self.warned.insert((c.id.clone(), "traffic")) {
                 notices.push(("sub.traffic_out", c.name.clone()));
             }
         }
@@ -769,23 +936,39 @@ impl Engine {
     }
 
     /// После сна, смены Wi-Fi или кабеля: сразу проверить связь, а не ждать плановой проверки.
-    async fn on_network_change(&mut self) {
+    /// Проверка — в фоне, как плановая: окно не ждёт, а итог проходит те же правила стража.
+    async fn on_network_change(&mut self, moved: bool) {
+        self.net_seq = self.net_seq.wrapping_add(1);
+        self.net_change_tx.send_replace(self.net_seq);
         // macOS: появилась новая сетевая служба (USB-модем, другой адаптер) — ей тоже прокси и DNS.
         #[cfg(unix)]
         self.refresh_netconf().await;
-        let Some(started) = self.running.as_ref().map(|r| r.started) else { return };
-        if started.elapsed() < Duration::from_secs(10) {
+        // Проверка, которая шла через прежнюю сеть, — не в счёт (её итог запустит новую).
+        let Some(r) = self.running.as_ref() else { return };
+        if r.started.elapsed() < Duration::from_secs(10) || !netwatch::has_network() {
             return;
         }
-        let Some(health) = self.guard.as_ref().map(Guard::health) else { return };
-        if matches!(health, Health::Retrying { .. }) {
+        // Соединения ушли через прежний адрес: ядро их не закрывает само, и программы висят до тайм-аутов
+        // (у UDP-серверов — WireGuard, Hysteria2 — сброса нет вовсе). Закрыть — откроют новые сразу.
+        if moved {
+            // QUIC-сессию Hysteria2 здесь заново не открываем: в проверке на настоящих серверах её прежняя
+            // сессия переживала обрыв, а новое рукопожатие на слабом сервере само висело по 5 с.
+            if let Some(api) = self.api() {
+                match api.close_connections().await {
+                    Ok(()) => tracing::info!("сеть сменилась: старые соединения закрыты"),
+                    Err(e) => tracing::warn!("ядро не закрыло старые соединения: {e:#}"),
+                }
+            }
+        }
+        let Some(r) = self.running.as_ref() else { return };
+        if self.probing == Some(r.generation) {
+            return;
+        }
+        if !matches!(self.guard.as_ref().map(Guard::health), Some(Health::Healthy | Health::Down)) {
             return;
         }
         tracing::info!("сеть изменилась, проверяю связь");
-        let ok = self.probe().await;
-        let now = self.now_ms();
-        let notice = self.guard.as_mut().and_then(|g| g.report(ok, now));
-        self.after_guard(notice);
+        self.spawn_probe(false);
     }
 
     fn save_runtime(&self, connected: bool) {
@@ -861,6 +1044,9 @@ impl Engine {
         }
         if let Some(v) = p.notify {
             self.settings.notify = v;
+        }
+        if let Some(v) = p.servers_by_country {
+            self.settings.servers_by_country = v;
         }
         if let Some(v) = p.on_exit {
             self.settings.on_exit = v;
@@ -946,10 +1132,10 @@ impl Engine {
             mode: self.settings.mode,
             routing: self.settings.routing,
             kill_switch: self.settings.kill_switch.enabled,
-            connection: active.map(|c| ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() }),
+            connection: active.map(|c| self.connection_view(c)),
             server: active.and_then(|c| c.selected_server.clone()),
             since: self.since,
-            attempt: if self.vpn == VpnState::Reconnecting { self.guard.as_ref().and_then(Guard::attempt_shown) } else { None },
+            attempt: None,
             error: self.error.clone(),
             system_proxy: self.proxy_applied.then(|| self.proxy_spec()),
         }
@@ -965,6 +1151,16 @@ impl Engine {
 
     fn view_json(&self) -> Value {
         serde_json::to_value(self.view()).unwrap_or(Value::Null)
+    }
+
+    fn connection_view(&self, conn: &Connection) -> ConnectionView {
+        ConnectionView {
+            id: conn.id.clone(),
+            name: conn.name.clone(),
+            info: conn.info.clone(),
+            probe_share: conn.probe_share,
+            probe_last: self.last_probe.get(&conn.id).cloned(),
+        }
     }
 
     fn emit(&self, event: Event) {
@@ -987,7 +1183,12 @@ impl Engine {
     }
 
     fn save(&self) -> Result<(), ErrorInfo> {
-        storage::save_settings(&self.paths, &self.settings).map_err(|e| {
+        // Адрес страницы подписки несёт её ключ: в settings.json его нет, он — в зашифрованных секретах.
+        let mut disk = self.settings.clone();
+        for i in disk.connections.iter_mut().filter_map(|c| c.info.as_mut()) {
+            i.page_url = None;
+        }
+        storage::save_settings(&self.paths, &disk).map_err(|e| {
             tracing::error!("настройки не сохранились: {e:#}");
             ErrorInfo::new("storage.write_failed")
         })?;
@@ -1053,32 +1254,42 @@ impl Engine {
             return Err(e);
         }
         self.after_start().await;
-        let ok = self.probe().await;
-        let now = self.now_ms();
-        let mut guard = Guard::new(now);
-        if !ok {
-            guard.report(false, now);
+        // Windows: ядро изредка зависает в первые секунды после запуска TUN (mihomo #3300: процесс жив, API
+        // молчит). Страж заметил бы это через минуту; проверяем сразу и один раз перезапускаем.
+        #[cfg(windows)]
+        if capture == Capture::Tun && !self.core_answers().await {
+            tracing::warn!("ядро не отвечает после запуска TUN — перезапускаю");
+            if !self.restart_core().await {
+                self.set_state(VpnState::Error, Some("core.start_failed".into()));
+                return Err(ErrorInfo::new("core.start_failed"));
+            }
         }
-        self.guard = Some(guard);
+        // «Подключено» — как только ядро поднято. Первая проверка сервера идёт в фоне, как плановая: на
+        // медленном или мёртвом сервере она длится до 12 с, и кнопка всё это время висела на «Подключаюсь».
+        // Не прошла — страж перепроверит сам; «Переподключаюсь» — только когда он возьмётся чинить.
+        self.guard = Some(Guard::new(self.now_ms()));
         self.since = Some(unix_now());
         self.restarts = 0;
-        self.set_state(if ok { VpnState::Connected } else { VpnState::Reconnecting }, None);
+        self.set_state(VpnState::Connected, None);
+        self.spawn_probe(false);
         #[cfg(windows)]
         self.reset_ks_drops();
         self.save_runtime(true);
-        let found = neighbors::scan(&self.paths.core_exe);
-        if capture == Capture::Tun {
-            let conflicts: Vec<String> = found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect();
-            if !conflicts.is_empty() {
-                self.notice("neighbors.conflict", json!({ "names": conflicts }));
+        // Соседи (другие VPN, расширения браузеров) — тоже в фоне: это обход процессов и профилей на диске.
+        let (exe, events) = (self.paths.core_exe.clone(), self.events.clone());
+        tokio::spawn(async move {
+            let found = tokio::task::spawn_blocking(move || neighbors::scan(&exe)).await.unwrap_or_default();
+            let (code, names): (&str, Vec<String>) = if capture == Capture::Tun {
+                ("neighbors.conflict", found.iter().filter(|n| n.conflicts_with_tun).map(|n| n.name.clone()).collect())
+            } else {
+                // Браузер с VPN-расширением берёт прокси у расширения и идёт мимо kl!ck.
+                ("neighbors.browser_proxy", found.iter().filter(|n| n.conflicts_with_proxy).map(|n| n.name.clone()).collect())
+            };
+            if !names.is_empty() {
+                tracing::info!("уведомление {code}");
+                let _ = events.send(Event::Notice { code: code.into(), params: json!({ "names": names }) });
             }
-        } else {
-            // Браузер с VPN-расширением берёт прокси у расширения и идёт мимо kl!ck.
-            let browsers: Vec<String> = found.iter().filter(|n| n.conflicts_with_proxy).map(|n| n.name.clone()).collect();
-            if !browsers.is_empty() {
-                self.notice("neighbors.browser_proxy", json!({ "names": browsers }));
-            }
-        }
+        });
         Ok(())
     }
 
@@ -1151,7 +1362,7 @@ impl Engine {
                 self.server_dns = found;
             }
         }
-        let config_path = self.write_config(&layout, capture, &conn_id)?;
+        let (config_path, config) = self.write_config(&layout, capture, &conn_id)?;
         self.generation += 1;
         let generation = self.generation;
         let tx = self.tx.clone();
@@ -1167,19 +1378,35 @@ impl Engine {
         tracing::info!("ядро запущено (pid {:?}, {:?})", process.pid, capture);
         let traffic = self.spawn_traffic(api.clone());
         let logs = self.spawn_logs(api);
-        self.running = Some(Running { process, generation, capture, layout, traffic, logs, started: Instant::now() });
-        // macOS: ядро работает и без адаптера, если его не удалось создать, — тогда трафик шёл бы мимо
-        // VPN, а подменённый DNS вёл бы в никуда. Это неудачный запуск: переподключение попробует снова.
-        #[cfg(unix)]
-        if capture == Capture::Tun && !wait_tun(Duration::from_secs(10)).await {
-            tracing::error!("адаптер {TUN_DEVICE} не появился за 10 с");
+        self.running = Some(Running { process, generation, capture, layout, traffic, logs, started: Instant::now(), config });
+        // Ядро работает и без адаптера, если его не удалось создать, — тогда трафик шёл бы мимо VPN при
+        // «Подключено» (а на macOS подменённый DNS вёл бы в никуда). Это неудачный запуск. На Windows ядро
+        // само повторяет создание адаптера примерно через 15 с (занятое имя после прошлого запуска), поэтому ждём дольше.
+        let limit = Duration::from_secs(if cfg!(windows) { 20 } else { 10 });
+        if capture == Capture::Tun && !wait_tun(limit).await {
+            tracing::error!("адаптер {TUN_DEVICE} не появился за {} с", limit.as_secs());
             self.stop_core().await;
             return Err(ErrorInfo::new("core.start_failed"));
         }
         Ok(())
     }
 
-    fn write_config(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<PathBuf, ErrorInfo> {
+    /// Конфиг ядра и рядом — файлы правил со своими списками (если их можно так держать, `compile::user_sets`).
+    /// Возвращает путь и текст: по тексту видно, поменяет ли правка списка сам конфиг.
+    fn write_config(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<(PathBuf, Vec<u8>), ErrorInfo> {
+        if let Some(sets) = compile::user_sets(&self.settings, &self.catalog, layout.os) {
+            std::fs::create_dir_all(self.paths.core_home.join("user")).map_err(internal)?;
+            for u in sets {
+                storage::write_atomic(&self.paths.core_home.join(&u.path), u.body.as_bytes()).map_err(internal)?;
+            }
+        }
+        let text = self.config_text(layout, capture, conn_id)?;
+        let path = self.paths.core_home.join("config.yaml");
+        storage::write_atomic(&path, &text).map_err(internal)?;
+        Ok((path, text))
+    }
+
+    fn config_text(&self, layout: &CoreLayout, capture: Capture, conn_id: &str) -> Result<Vec<u8>, ErrorInfo> {
         let provider = Paths::provider_rel(conn_id);
         let sets = self.set_files();
         let cfg = compile::compile(&CompileInput {
@@ -1191,10 +1418,7 @@ impl Engine {
             sets: &sets,
             server_dns: &self.server_dns,
         });
-        let path = self.paths.core_home.join("config.yaml");
-        let text = serde_json::to_vec_pretty(&cfg).map_err(internal)?;
-        storage::write_atomic(&path, &text).map_err(internal)?;
-        Ok(path)
+        serde_json::to_vec_pretty(&cfg).map_err(internal)
     }
 
     fn spawn_traffic(&self, api: CoreApi) -> tokio::task::JoinHandle<()> {
@@ -1354,24 +1578,32 @@ impl Engine {
         }
     }
 
-    async fn probe(&self) -> bool {
-        match self.api() {
-            Some(api) => matches!(api.proxy_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await, Ok(Some(_))),
-            None => false,
-        }
-    }
-
     /// Тумблер, списки, Kill Switch: ядро перечитывает конфиг без отключения.
     async fn reload_rules(&mut self) {
         let Some((layout, capture)) = self.running.as_ref().map(|r| (r.layout.clone(), r.capture)) else { return };
         let Some(conn_id) = self.settings.active_connection.clone() else { return };
         let Some(api) = self.api() else { return };
-        let path = match self.write_config(&layout, capture, &conn_id) {
+        // WireGuard и AmneziaWG: после перечитывания старое устройство ядра живёт рядом с новым с тем же
+        // ключом (mihomo #3255, не исправлено), сервер прыгает между ними, и каждая вторая проверка не проходит —
+        // до перезапуска. Поэтому с таким сервером — сразу перезапуск.
+        if self.active_is_wireguard(&api).await {
+            tracing::info!("сервер WireGuard: вместо перечитывания конфига перезапускаю ядро");
+            if !self.restart_core().await {
+                self.set_state(VpnState::Error, Some("core.start_failed".into()));
+            }
+            return;
+        }
+        let (path, text) = match self.write_config(&layout, capture, &conn_id) {
             Ok(p) => p,
             Err(_) => return,
         };
         match api.reload(&path).await {
-            Ok(()) => self.apply_selected_server().await,
+            Ok(()) => {
+                if let Some(r) = self.running.as_mut() {
+                    r.config = text;
+                }
+                self.apply_selected_server().await
+            }
             Err(e) => {
                 tracing::warn!("ядро не перечитало конфиг ({e:#}), перезапускаю");
                 if !self.restart_core().await {
@@ -1381,28 +1613,79 @@ impl Engine {
         }
     }
 
+    /// Ядро отвечает на API за 5 с.
+    #[cfg(windows)]
+    async fn core_answers(&self) -> bool {
+        match self.api() {
+            Some(api) => api.call_within(hyper::Method::GET, "/version", None, Duration::from_secs(5)).await.is_ok(),
+            None => false,
+        }
+    }
+
+    /// Выбранный сервер — WireGuard (в том числе AmneziaWG).
+    async fn active_is_wireguard(&self, api: &CoreApi) -> bool {
+        self.active_kind(api).await.as_deref() == Some("wireguard")
+    }
+
+    /// Протокол сервера, через который идёт VPN: выбранного, а если не выбирали — того, что взяло ядро.
+    async fn active_kind(&self, api: &CoreApi) -> Option<String> {
+        let name = match self.settings.active().and_then(|c| c.selected_server.clone()) {
+            Some(name) => name,
+            None => api.selected(VPN_GROUP).await.ok().flatten()?,
+        };
+        api.provider_proxies(PROVIDER).await.ok()?.into_iter().find(|(n, _)| *n == name).map(|(_, kind)| kind)
+    }
+
     // ── Страж ──────────────────────────────────────────────────────────────
 
     async fn on_guard(&mut self) {
         let Some((_, action)) = self.guard.as_ref().map(Guard::next) else { return };
+        // Сети нет (сон, выключенный Wi-Fi): сервер ни при чём — ждать, а не переподключаться.
+        if !netwatch::has_network() {
+            if !self.no_network {
+                tracing::info!("сети нет — проверку сервера откладываю");
+                self.no_network = true;
+            }
+            let now = self.now_ms();
+            if let Some(g) = self.guard.as_mut() {
+                g.wait(now);
+            }
+            return;
+        }
+        self.no_network = false;
         match action {
-            Action::Probe => self.spawn_probe(false),
-            Action::Retry { attempt, .. } => {
-                self.set_state(VpnState::Reconnecting, None);
-                match attempt {
-                    1 => self.spawn_probe(true),
-                    2 => {
-                        self.reload_rules().await;
-                        self.spawn_probe(true);
-                    }
-                    _ => {
-                        if self.restart_core().await {
-                            self.spawn_probe(true);
-                        } else {
-                            self.probed(true, false).await;
-                        }
-                    }
+            // Сервер молчит уже 2 минуты, а сеть есть. У клиентов на mihomo в этом месте помогает только
+            // перезапуск ядра: после сна или смены сети «застревают» адаптер или исходящие сокеты ядра.
+            // Один раз за 10 минут — дальше снова тихая проверка.
+            Action::Probe if self.down_since.is_some_and(|t| t.elapsed() >= Duration::from_secs(120))
+                && self.down_restart_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(600)) =>
+            {
+                self.down_restart_at = Some(Instant::now());
+                tracing::info!("страж: сервер молчит 2 минуты — перезапускаю ядро");
+                if !self.restart_core().await {
+                    tracing::warn!("ядро не перезапустилось");
                 }
+                self.spawn_probe(false);
+            }
+            Action::Probe => self.spawn_probe(false),
+            Action::Retry => self.spawn_probe(true),
+            Action::Reload => {
+                // Перечитать конфиг — значит оборвать соединения через VPN. Пока данные идут, сервер жив.
+                if self.traffic_through_vpn().await {
+                    self.probed(true, true, false).await;
+                    return;
+                }
+                tracing::info!("страж: связи через сервер нет 20 с, перечитываю конфиг");
+                if let Some(g) = self.guard.as_mut() {
+                    g.reloading();
+                }
+                self.set_state(VpnState::Reconnecting, None);
+                // «Следующий рабочий» / «самый быстрый» — сначала другой сервер; не вышло — новые соединения
+                // к этому же (не перечитался конфиг — reload_rules сам перезапустит ядро).
+                if self.settings.on_server_down == ServerDownPolicy::Reconnect || !self.switch_to_alternative().await {
+                    self.reload_rules().await;
+                }
+                self.spawn_probe(true);
             }
             Action::GiveUp => {
                 let now = self.now_ms();
@@ -1416,38 +1699,61 @@ impl Engine {
     fn spawn_probe(&mut self, retry: bool) {
         let Some((api, generation)) = self.api().zip(self.running.as_ref().map(|r| r.generation)) else { return };
         self.probing = Some(generation);
-        let tx = self.tx.clone();
+        let (tx, net) = (self.tx.clone(), self.net_seq);
         tokio::spawn(async move {
-            let ok = matches!(api.proxy_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await, Ok(Some(_)));
-            let _ = tx.send(Msg::Probed { generation, retry, ok }).await;
+            // Данные через сервер считаем только за время самой проверки: скачанное до неё (за прошлые 30 с)
+            // сервер, умерший сразу после прошлой проверки, «оживляло» — и страж замечал сбой на 30 с позже.
+            let before = vpn_rx(&api).await;
+            let ok = server_alive(&api).await;
+            let rx = vpn_rx(&api).await;
+            let flowing = rx.iter().any(|(id, d)| *d > before.get(id).copied().unwrap_or(0));
+            let _ = tx.send(Msg::Probed { generation, retry, ok, flowing, rx, net }).await;
         });
     }
 
-    /// Итог проверки: обычной (`retry = false`) или попытки переподключения.
-    async fn probed(&mut self, retry: bool, mut ok: bool) {
-        if !retry {
-            if !ok && self.settings.on_server_down != ServerDownPolicy::Reconnect && self.guard.as_ref().map(Guard::health) == Some(Health::Healthy) {
-                ok = self.switch_to_alternative().await;
-            }
-            if ok && self.running.as_ref().is_some_and(|r| r.started.elapsed() > Duration::from_secs(60)) {
-                self.restarts = 0;
-            }
+    /// Итог проверки: обычной (`retry = false`) или повторной после неудачи.
+    async fn probed(&mut self, retry: bool, mut ok: bool, flowing: bool) {
+        // Проверка не успела, а соединения через сервер за это время скачали ещё — сервер жив.
+        // Так у людей, у кого VPN работал, страж не рвал связь и не писал «Сервер не отвечает».
+        let soft = !ok && flowing;
+        if soft && !self.probe_soft {
+            tracing::info!("проверка сервера не прошла, но данные через него идут — связь не трогаю");
+        }
+        self.probe_soft = soft;
+        ok |= flowing;
+        if !retry && ok && self.running.as_ref().is_some_and(|r| r.started.elapsed() > Duration::from_secs(60)) {
+            self.restarts = 0;
         }
         let now = self.now_ms();
         let notice = self.guard.as_mut().and_then(|g| g.report(ok, now));
         self.after_guard(notice);
     }
 
+    /// Пришло ли что-нибудь через сервер с прошлого раза: хоть одно соединение через VPN скачало ещё.
+    async fn traffic_through_vpn(&mut self) -> bool {
+        let Some(api) = self.api() else { return false };
+        let Ok(v) = api.get_json("/connections").await else { return false };
+        let now = ipcheck::vpn_downloads(&v);
+        let grew = now.iter().any(|(id, d)| *d > self.vpn_rx.get(id).copied().unwrap_or(0));
+        self.vpn_rx = now;
+        grew
+    }
+
     fn after_guard(&mut self, notice: Option<Notice>) {
         let Some(health) = self.guard.as_ref().map(Guard::health) else { return };
+        // Пока страж только перепроверяет, человек видит «Подключено»: тревога — когда kl!ck уже чинит связь.
         let vpn = match health {
-            Health::Healthy => VpnState::Connected,
-            Health::Retrying { .. } => VpnState::Reconnecting,
+            Health::Healthy | Health::Retrying { reloaded: false } => VpnState::Connected,
+            Health::Retrying { reloaded: true } => VpnState::Reconnecting,
             Health::Down => VpnState::ServerDown,
         };
-        if vpn != self.vpn || vpn == VpnState::Reconnecting {
+        if vpn != self.vpn {
             self.set_state(vpn, None);
         }
+        self.down_since = match health {
+            Health::Down => self.down_since.or_else(|| Some(Instant::now())),
+            _ => None,
+        };
         let server = self.settings.active().and_then(|c| c.selected_server.clone());
         match notice {
             Some(Notice::Down) => self.notice("vpn.down", json!({ "server": server })),
@@ -1460,7 +1766,7 @@ impl Engine {
     async fn switch_to_alternative(&mut self) -> bool {
         let Some(api) = self.api() else { return false };
         let Ok(list) = api.provider_proxies(PROVIDER).await else { return false };
-        let delays = api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default();
+        let delays = measure_all(&api, &list).await;
         let current = self.settings.active().and_then(|c| c.selected_server.clone());
         let pick = match self.settings.on_server_down {
             ServerDownPolicy::Fastest => delays.iter().filter(|(n, _)| Some(*n) != current.as_ref()).min_by_key(|(_, d)| **d).map(|(n, _)| n.clone()),
@@ -1477,6 +1783,7 @@ impl Engine {
             c.selected_server = Some(name.clone());
         }
         let _ = self.save();
+        self.after_switch().await;
         self.notice("server.switched", json!({ "server": name, "reason": "down" }));
         true
     }
@@ -1532,7 +1839,14 @@ impl Engine {
         if !ks.enabled {
             return Vec::new();
         }
-        ks.programs.iter().filter(|p| p.enabled).map(|p| (p.folder.clone(), killswitch::scan_folder(Path::new(&p.folder)))).collect()
+        // Само ядро и служба — никогда: закрытое ядро не дотянется до сервера VPN, и сети не будет ни у кого.
+        let own = [self.paths.core_exe.clone(), std::env::current_exe().unwrap_or_default()];
+        let ours = |e: &PathBuf| own.iter().any(|o| e.to_string_lossy().eq_ignore_ascii_case(&o.to_string_lossy()));
+        ks.programs
+            .iter()
+            .filter(|p| p.enabled)
+            .map(|p| (p.folder.clone(), killswitch::scan_folder(Path::new(&p.folder)).into_iter().filter(|e| !ours(e)).collect()))
+            .collect()
     }
 
     async fn apply_killswitch(&mut self) {
@@ -1647,24 +1961,27 @@ impl Engine {
 
     /// Поставить (`Some`) или снять (`None`) системный прокси всем сетевым службам Mac.
     #[cfg(unix)]
-    async fn netconf_proxy(&self, spec: Option<SystemProxy>) {
+    async fn netconf_proxy(&self, spec: Option<SystemProxy>) -> netconf::Outcome {
         if !self.netconf_allowed() {
-            return;
+            return netconf::Outcome::Nothing;
         }
         let marker = self.paths.data.join(netconf::PROXY_MARKER);
         let on = spec.is_some();
-        let ok = tokio::task::spawn_blocking(move || match spec {
+        let out = tokio::task::spawn_blocking(move || match spec {
             Some(s) => netconf::proxy_apply(&s, &marker),
             None => netconf::proxy_clear(&marker),
         })
         .await
-        .unwrap_or(false);
-        match (on, ok) {
-            (true, true) => tracing::info!("системный прокси поставлен"),
-            (true, false) => tracing::warn!("системный прокси не поставился: нет включённых сетевых служб или настройки не записались"),
-            (false, true) => tracing::info!("системный прокси снят"),
-            (false, false) => {}
+        .unwrap_or(netconf::Outcome::Failed);
+        match (on, out) {
+            (true, netconf::Outcome::Done) => tracing::info!("системный прокси поставлен"),
+            (true, netconf::Outcome::Failed) => tracing::warn!("системный прокси не поставился: нет включённых сетевых служб или настройки не записались, повторю"),
+            (false, netconf::Outcome::Done) => tracing::info!("системный прокси снят"),
+            // Отметка осталась: прокси смотрит на остановленный порт, пока возврат не получится.
+            (false, netconf::Outcome::Failed) => tracing::warn!("системный прокси не снялся, повторю"),
+            _ => {}
         }
+        out
     }
 
     /// Режим VPN (TUN): DNS сетевых служб — на адрес внутри адаптера, иначе DNS из локальной сети
@@ -1676,14 +1993,16 @@ impl Engine {
         }
         self.dns_overridden = on;
         let marker = self.paths.data.join(netconf::DNS_MARKER);
-        let ok = tokio::task::spawn_blocking(move || if on { netconf::dns_apply(&marker) } else { netconf::dns_restore(&marker) })
+        let out = tokio::task::spawn_blocking(move || if on { netconf::dns_apply(&marker) } else { netconf::dns_restore(&marker) })
             .await
-            .unwrap_or(false);
-        match (on, ok) {
-            (true, true) => tracing::info!("DNS на время VPN: {}", netconf::DNS_ADDR),
-            (true, false) => tracing::warn!("DNS не подменился: нет включённых сетевых служб или настройки не записались"),
-            (false, true) => tracing::info!("DNS возвращён"),
-            (false, false) => {}
+            .unwrap_or(netconf::Outcome::Failed);
+        match (on, out) {
+            (true, netconf::Outcome::Done) => tracing::info!("DNS на время VPN: {}", netconf::DNS_ADDR),
+            (true, netconf::Outcome::Failed) => tracing::warn!("DNS не подменился: нет включённых сетевых служб или настройки не записались, повторю"),
+            (false, netconf::Outcome::Done) => tracing::info!("DNS возвращён"),
+            // Не считаем восстановленным: отметка осталась, DNS 198.18.0.2 стоит, пока возврат не получится.
+            (false, netconf::Outcome::Failed) => tracing::warn!("DNS не вернулся, повторю"),
+            _ => {}
         }
     }
 
@@ -1700,7 +2019,17 @@ impl Engine {
             let marker = self.paths.data.join(netconf::DNS_MARKER);
             let _ = tokio::task::spawn_blocking(move || netconf::dns_apply(&marker)).await;
         }
-        // Прошлый раз вернуть настройки не удалось (настройки сети были заняты) — пробуем снова при смене сети.
+        self.retry_netconf_leftovers().await;
+    }
+
+    /// Прошлый раз вернуть настройки не удалось (настройки сети были заняты, пропала служба) — отметка осталась.
+    /// Повторяем при смене сети и раз в 10 с (сторож Kill Switch): пока не получилось,
+    /// у сетевых служб стоит DNS 198.18.0.2 или прокси на остановленный порт — интернета нет.
+    #[cfg(unix)]
+    async fn retry_netconf_leftovers(&mut self) {
+        if !self.netconf_allowed() {
+            return;
+        }
         let proxy_left = self.paths.data.join(netconf::PROXY_MARKER);
         if !self.proxy_applied && netconf::has_leftover(&proxy_left) {
             let _ = tokio::task::spawn_blocking(move || netconf::proxy_clear(&proxy_left)).await;
@@ -1756,6 +2085,7 @@ impl Engine {
     /// Раз в 10 с: правила pf на месте (их могла сбросить другая программа), страж работает.
     #[cfg(unix)]
     async fn ks_watchdog(&mut self) {
+        self.retry_netconf_leftovers().await;
         if !self.profile.wfp_allowed {
             return;
         }
@@ -1914,9 +2244,34 @@ impl Engine {
     async fn lists_changed(&mut self, position: Routing) -> Result<Value, ErrorInfo> {
         self.save()?;
         if position == self.settings.routing {
-            self.reload_rules().await;
+            self.apply_lists().await;
         }
         serde_json::to_value(self.settings.lists.get(position)).map_err(internal)
+    }
+
+    /// Правка своих списков. Конфиг ядра от неё не меняется (поменялось только содержимое файлов правил) —
+    /// ядро перечитывает эти файлы и ничего не обрывает. Иначе — весь конфиг, а с ним и соединения через VPN.
+    async fn apply_lists(&mut self) {
+        let Some((layout, capture, running)) = self.running.as_ref().map(|r| (r.layout.clone(), r.capture, r.config.clone())) else { return };
+        let Some(conn_id) = self.settings.active_connection.clone() else { return };
+        let same = self.config_text(&layout, capture, &conn_id).is_ok_and(|t| t == running);
+        let sets = compile::user_sets(&self.settings, &self.catalog, layout.os);
+        let (true, Some(sets), Some(api)) = (same, sets, self.api()) else { return self.reload_rules().await };
+        for u in sets {
+            let path = self.paths.core_home.join(&u.path);
+            if std::fs::read(&path).is_ok_and(|b| b == u.body.as_bytes()) {
+                continue;
+            }
+            if let Err(e) = storage::write_atomic(&path, u.body.as_bytes()).map_err(anyhow::Error::from) {
+                tracing::warn!("файл правил {} не записался ({e:#}), перечитываю конфиг", u.name);
+                return self.reload_rules().await;
+            }
+            if let Err(e) = api.refresh_rule_provider(&u.name).await {
+                tracing::warn!("ядро не перечитало {} ({e:#}), перечитываю конфиг", u.name);
+                return self.reload_rules().await;
+            }
+        }
+        tracing::info!("списки применены без перечитывания конфига");
     }
 
     // ── Подключения ────────────────────────────────────────────────────────
@@ -1948,10 +2303,11 @@ impl Engine {
                     updated_at: Some(unix_now()),
                     update_interval_hours: f.interval_hours,
                     selected_server: None,
+                    probe_share: false,
                 }
             }
             SourceKind::Link => {
-                self.write_provider(&id, &format!("{source}\n"))?;
+                self.write_provider(&id, &subparse::link_file(&source))?;
                 Connection {
                     id: id.clone(),
                     name: name.or_else(|| subparse::link_name(&source)).unwrap_or_else(|| "Сервер".into()),
@@ -1960,10 +2316,14 @@ impl Engine {
                     updated_at: Some(unix_now()),
                     update_interval_hours: None,
                     selected_server: None,
+                    probe_share: false,
                 }
             }
         };
         self.secrets.0.insert(id.clone(), source);
+        if let Some(page) = conn.info.as_ref().and_then(|i| i.page_url.clone()) {
+            self.secrets.0.insert(page_key(&id), page);
+        }
         self.secrets.save(&self.paths).map_err(internal)?;
         self.push_connection(conn)
     }
@@ -1986,12 +2346,13 @@ impl Engine {
             updated_at: Some(unix_now()),
             update_interval_hours: None,
             selected_server: None,
+            probe_share: false,
         };
         self.push_connection(conn)
     }
 
     fn push_connection(&mut self, conn: Connection) -> Result<Value, ErrorInfo> {
-        let view = ConnectionView { id: conn.id.clone(), name: conn.name.clone(), info: conn.info.clone() };
+        let view = self.connection_view(&conn);
         if self.settings.active_connection.is_none() {
             self.settings.active_connection = Some(conn.id.clone());
         }
@@ -1999,6 +2360,21 @@ impl Engine {
         self.save()?;
         self.emit_state();
         serde_json::to_value(view).map_err(internal)
+    }
+
+    /// Адрес страницы подписки — в секреты (на диск он пишется только туда, см. `save`).
+    fn keep_page_secret(&mut self, id: &str) {
+        let page = self.settings.connections.iter().find(|c| c.id == id).and_then(|c| c.info.as_ref()?.page_url.clone());
+        let key = page_key(id);
+        let changed = match page {
+            Some(p) => self.secrets.0.insert(key, p.clone()).as_deref() != Some(p.as_str()),
+            None => self.secrets.0.remove(&key).is_some(),
+        };
+        if changed {
+            if let Err(e) = self.secrets.save(&self.paths) {
+                tracing::warn!("секреты не сохранились: {e:#}");
+            }
+        }
     }
 
     fn write_provider(&self, id: &str, body: &str) -> Result<(), ErrorInfo> {
@@ -2011,7 +2387,23 @@ impl Engine {
         match conn.kind {
             ConnectionKind::Subscription => {
                 let url = self.secrets.0.get(id).cloned().ok_or_else(|| ErrorInfo::new("conn.secret_missing"))?;
-                let f = subs::fetch(&url, self.vpn_port()).await?;
+                let f = match subs::fetch(&url, self.vpn_port()).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        // Отказ панели: серверы не трогаем, а срок, трафик, объявление и интервал запоминаем;
+                        // updated_at — чтобы не стучаться каждые 10 минут.
+                        if let Some(r) = e.refusal {
+                            if let Some(c) = self.settings.connections.iter_mut().find(|c| c.id == id) {
+                                c.info = r.info.or(c.info.take());
+                                c.updated_at = Some(unix_now());
+                                c.update_interval_hours = r.interval_hours.or(c.update_interval_hours);
+                            }
+                            self.keep_page_secret(id);
+                            self.save()?;
+                        }
+                        return Err(e.error);
+                    }
+                };
                 self.write_provider(id, &f.body)?;
                 if let Some(c) = self.settings.connections.iter_mut().find(|c| c.id == id) {
                     c.info = f.info.or(c.info.take());
@@ -2019,11 +2411,14 @@ impl Engine {
                     c.update_interval_hours = f.interval_hours.or(c.update_interval_hours);
                 }
                 self.servers.remove(id);
+                self.last_probe.remove(id);
+                self.warned.remove(&(id.to_string(), "refused"));
+                self.keep_page_secret(id);
                 self.save()
             }
             ConnectionKind::Link => {
                 let link = self.secrets.0.get(id).cloned().ok_or_else(|| ErrorInfo::new("conn.secret_missing"))?;
-                self.write_provider(id, &format!("{link}\n"))
+                self.write_provider(id, &subparse::link_file(&link))
             }
             ConnectionKind::File => {
                 if self.paths.provider_file(id).exists() {
@@ -2037,6 +2432,7 @@ impl Engine {
 
     async fn refresh(&mut self, id: &str) -> Result<Value, ErrorInfo> {
         self.download(id).await?;
+        self.last_probe.remove(id);
         if self.settings.active_connection.as_deref() == Some(id) {
             if let Some(api) = self.api() {
                 if let Err(e) = api.refresh_provider(PROVIDER).await {
@@ -2047,7 +2443,7 @@ impl Engine {
         }
         self.emit_state();
         let c = self.settings.connections.iter().find(|c| c.id == id).ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
-        serde_json::to_value(ConnectionView { id: c.id.clone(), name: c.name.clone(), info: c.info.clone() }).map_err(internal)
+        serde_json::to_value(self.connection_view(c)).map_err(internal)
     }
 
     async fn remove(&mut self, id: &str) -> Result<Value, ErrorInfo> {
@@ -2063,9 +2459,13 @@ impl Engine {
             self.settings.active_connection = self.settings.connections.first().map(|c| c.id.clone());
         }
         self.secrets.0.remove(id);
+        self.secrets.0.remove(&page_key(id));
         self.secrets.save(&self.paths).map_err(internal)?;
         let _ = std::fs::remove_file(self.paths.provider_file(id));
         self.servers.remove(id);
+        self.last_probe.remove(id);
+        self.shared_at.remove(id);
+        self.warned.retain(|(conn, _)| conn != id);
         self.save()?;
         self.emit_state();
         Ok(self.view_json())
@@ -2089,11 +2489,11 @@ impl Engine {
 
     // ── Серверы ────────────────────────────────────────────────────────────
 
-    /// Список серверов активного подключения. `measure` — заодно проверить задержку.
+    /// Список серверов активного подключения (задержка — с прошлой проверки).
     /// При выключенном VPN служба на пару секунд запускает проверочное ядро без перехвата.
-    async fn list_servers(&mut self, measure: bool) -> Result<Value, ErrorInfo> {
+    async fn list_servers(&mut self) -> Result<Value, ErrorInfo> {
         let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
-        if !measure && self.running.is_none() {
+        if self.running.is_none() {
             if let Some(cached) = self.servers.get(&conn.id) {
                 return serde_json::to_value(cached).map_err(internal);
             }
@@ -2101,73 +2501,187 @@ impl Engine {
         if !self.paths.provider_file(&conn.id).exists() {
             self.download(&conn.id).await?;
         }
-        let (list, delays, now) = match self.api() {
-            Some(api) => {
-                let list = api.provider_proxies(PROVIDER).await.map_err(internal)?;
-                let delays = if measure { api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default() } else { HashMap::new() };
-                let now = api.selected(VPN_GROUP).await.ok().flatten();
-                (list, delays, now)
-            }
-            None => {
-                let (list, delays) = self.tester(&conn.id, measure).await?;
-                (list, delays, None)
-            }
+        let (list, now) = match self.api() {
+            Some(api) => (api.provider_proxies(PROVIDER).await.map_err(internal)?, api.selected(VPN_GROUP).await.ok().flatten()),
+            None => (run_tester(self.paths.clone(), self.profile.tester_pipe.clone(), conn.id.clone(), false).await?.0, None),
         };
+        serde_json::to_value(self.store_servers(&conn, list, None, now, None)).map_err(internal)
+    }
+
+    fn probe(&mut self, reply: Reply) {
+        self.probe_waiters.push(reply);
+        if self.probe_waiters.len() > 1 {
+            return;
+        }
+        if let Err(error) = self.start_probe() {
+            for waiter in self.probe_waiters.drain(..) {
+                let _ = waiter.send(Err(error.clone()));
+            }
+        }
+    }
+
+    fn start_probe(&mut self) -> Result<(), ErrorInfo> {
+        let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
+        if !self.paths.provider_file(&conn.id).is_file() {
+            return Err(ErrorInfo::new("sub.no_servers"));
+        }
+        let vpn = self.vpn == VpnState::Connected;
+        let direct_port = self.running.as_ref().map(|running| running.layout.check_direct_port);
+        let vpn_port = vpn.then(|| self.vpn_port()).flatten();
+        let share_target = if conn.probe_share && conn.kind == ConnectionKind::Subscription {
+            conn.info.as_ref().and_then(|info| info.probe_report).and_then(|version| {
+                let url = self.secrets.0.get(&conn.id).and_then(|source| subs::report_url(source))?;
+                Some(ShareTarget { url, version, vpn_port })
+            })
+        } else {
+            None
+        };
+        let (share, share_later) = match share_target {
+            Some(_) if self.shared_at.get(&conn.id).is_some_and(|at| at.elapsed() < Duration::from_secs(600)) => (None, true),
+            Some(target) => (Some(target), false),
+            None => (None, false),
+        };
+        let (paths, profile, tx, net_change, net) =
+            (self.paths.clone(), self.profile.clone(), self.tx.clone(), self.net_change_tx.subscribe(), self.net_seq);
+        let (conn_id, tun) = (conn.id, sys::tun_up());
+        tokio::spawn(async move {
+            let result = probe::run(paths, profile, conn_id.clone(), vpn, tun, direct_port, share, net_change, net)
+                .await
+                .map(|mut outcome| {
+                    if share_later && outcome.shared.is_none() {
+                        outcome.shared = Some("later".into());
+                    }
+                    outcome
+                });
+            let _ = tx.send(Msg::ProbeDone { conn: conn_id, net, result }).await;
+        });
+        Ok(())
+    }
+
+    fn probe_done(&mut self, conn_id: String, net: u64, result: Result<ProbeOutcome, ErrorInfo>) {
+        let result = if net == self.net_seq {
+            result.and_then(|outcome| {
+                let conn = self.settings.connections.iter().find(|conn| conn.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+                let ProbeOutcome { list, servers, network, shared, attempted_share, .. } = outcome;
+                if attempted_share {
+                    self.shared_at.insert(conn_id.clone(), Instant::now());
+                }
+                self.store_servers(&conn, list, None, conn.selected_server.clone(), Some(&servers));
+                let report = ProbeReport { network, servers: servers.len(), shared };
+                self.last_probe.insert(conn_id.clone(), ProbeLast { checked_at: unix_now(), report: report.clone() });
+                self.emit(Event::Servers { connection: conn_id.clone() });
+                if self.settings.active_connection.as_deref() == Some(&conn_id) {
+                    self.emit_state();
+                }
+                serde_json::to_value(report).map_err(internal)
+            })
+        } else {
+            Err(ErrorInfo::new("probe.network_changed"))
+        };
+        for waiter in self.probe_waiters.drain(..) {
+            let _ = waiter.send(result.clone());
+        }
+    }
+
+    fn set_probe_share(&mut self, id: &str, enabled: bool) -> Result<Value, ErrorInfo> {
+        let Some(index) = self.settings.connections.iter().position(|conn| conn.id == id) else {
+            return Err(ErrorInfo::new("conn.not_found"));
+        };
+        if enabled {
+            let conn = &self.settings.connections[index];
+            let supported = conn.kind == ConnectionKind::Subscription
+                && conn.info.as_ref().and_then(|info| info.probe_report).is_some()
+                && self.secrets.0.get(id).and_then(|source| subs::report_url(source)).is_some();
+            if !supported {
+                return Err(ErrorInfo::new("probe.share_unavailable"));
+            }
+        }
+        if self.settings.connections[index].probe_share != enabled {
+            self.settings.connections[index].probe_share = enabled;
+            self.save()?;
+            self.emit_state();
+        }
+        let conn = &self.settings.connections[index];
+        serde_json::to_value(self.connection_view(conn)).map_err(internal)
+    }
+
+    /// Проверка задержки — в фоне: десятки серверов проверяются до минуты, а «Отключить» и другие команды
+    /// окна ждать её не должны. Запросы, пришедшие во время проверки (окно и трей), получат её итог.
+    async fn test_latency(&mut self, reply: Reply) {
+        self.latency_waiters.push(reply);
+        if self.latency_waiters.len() > 1 {
+            return;
+        }
+        if let Err(e) = self.start_latency().await {
+            for w in self.latency_waiters.drain(..) {
+                let _ = w.send(Err(e.clone()));
+            }
+        }
+    }
+
+    async fn start_latency(&mut self) -> Result<(), ErrorInfo> {
+        let conn = self.settings.active().cloned().ok_or_else(|| ErrorInfo::new("vpn.no_connection"))?;
+        if !self.paths.provider_file(&conn.id).exists() {
+            self.download(&conn.id).await?;
+        }
+        let (api, paths, pipe, tx, net) = (self.api(), self.paths.clone(), self.profile.tester_pipe.clone(), self.tx.clone(), self.net_seq);
+        tokio::spawn(async move {
+            let result = match api {
+                Some(api) => match api.provider_proxies(PROVIDER).await {
+                    Ok(list) => {
+                        let delays = measure_all(&api, &list).await;
+                        Ok((list, delays, api.selected(VPN_GROUP).await.ok().flatten()))
+                    }
+                    Err(e) => Err(internal(e)),
+                },
+                None => run_tester(paths, pipe, conn.id.clone(), true).await.map(|(list, delays)| (list, delays, None)),
+            };
+            let _ = tx.send(Msg::Measured { conn: conn.id, net, result }).await;
+        });
+        Ok(())
+    }
+
+    fn measured(&mut self, conn_id: String, net: u64, result: Result<Measured, ErrorInfo>) {
+        // Сеть сменилась во время замера: половина задержек — из прежней сети.
+        let result = if net == self.net_seq { result } else { Err(ErrorInfo::new("latency.network_changed")) };
+        let reply = result.and_then(|(list, delays, now)| {
+            let conn = self.settings.connections.iter().find(|c| c.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+            let views = self.store_servers(&conn, list, Some(&delays), now, None);
+            self.emit(Event::Servers { connection: conn_id });
+            serde_json::to_value(views).map_err(internal)
+        });
+        for w in self.latency_waiters.drain(..) {
+            let _ = w.send(reply.clone());
+        }
+    }
+
+    /// Запомнить список серверов: `delays` — свежий замер; без него задержка остаётся с прошлого раза.
+    fn store_servers(
+        &mut self,
+        conn: &Connection,
+        list: Vec<(String, String)>,
+        delays: Option<&HashMap<String, u32>>,
+        now: Option<String>,
+        probes: Option<&HashMap<String, ServerProbe>>,
+    ) -> Vec<ServerView> {
         let selected = now.or(conn.selected_server.clone());
         let old = self.servers.get(&conn.id).cloned().unwrap_or_default();
         let views: Vec<ServerView> = list
             .into_iter()
             .map(|(name, kind)| {
-                let delay = if measure { delays.get(&name).copied() } else { old.iter().find(|s| s.name == name).and_then(|s| s.delay) };
-                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay }
+                let delay = match delays {
+                    Some(d) => d.get(&name).copied(),
+                    None => old.iter().find(|s| s.name == name).and_then(|s| s.delay),
+                };
+                let probe = match probes {
+                    Some(probes) => probes.get(&name).cloned(),
+                    None => old.iter().find(|s| s.name == name).and_then(|s| s.probe.clone()),
+                };
+                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay, probe }
             })
             .collect();
         self.servers.insert(conn.id.clone(), views.clone());
-        if measure {
-            self.emit(Event::Servers { connection: conn.id.clone() });
-        }
-        serde_json::to_value(views).map_err(internal)
-    }
-
-    async fn tester(&self, conn_id: &str, measure: bool) -> Result<(Vec<(String, String)>, HashMap<String, u32>), ErrorInfo> {
-        let layout = CoreLayout {
-            os: Os::CURRENT,
-            controller: self.profile.tester_pipe.clone(),
-            secret: random_secret(),
-            mixed_port: 0,
-            check_vpn_port: 0,
-            check_direct_port: 0,
-            tun_device: TUN_DEVICE.into(),
-            log_level: "warning".into(),
-            core_exe: String::new(),
-        };
-        let cfg = compile::compile_tester(&layout, &Paths::provider_rel(conn_id));
-        let path = self.paths.core_home.join("tester.yaml");
-        storage::write_atomic(&path, &serde_json::to_vec_pretty(&cfg).map_err(internal)?).map_err(internal)?;
-        let api = CoreApi::new(&layout.controller, &layout.secret);
-        let process = CoreProcess::start(&self.paths.core_exe, &self.paths.core_home, &path, api.clone(), false, |_| {}).await.map_err(|e| {
-            tracing::error!("проверочное ядро не запустилось: {e:#}");
-            ErrorInfo::new("core.start_failed")
-        })?;
-        // Ядро отвечает раньше, чем дочитает файл подписки: первые запросы бывают с пустым списком.
-        let mut list = api.provider_proxies(PROVIDER).await;
-        for _ in 0..30 {
-            if matches!(&list, Ok(l) if !l.is_empty()) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            list = api.provider_proxies(PROVIDER).await;
-        }
-        let delays = if measure { api.group_delay(VPN_GROUP, PROBE_URL, PROBE_TIMEOUT_MS).await.unwrap_or_default() } else { HashMap::new() };
-        process.stop().await;
-        let list = list.map_err(|e| {
-            tracing::warn!("проверочное ядро не отдало серверы: {e:#}");
-            ErrorInfo::new("sub.no_servers")
-        })?;
-        if list.is_empty() {
-            return Err(ErrorInfo::new("sub.no_servers"));
-        }
-        Ok((list, delays))
+        views
     }
 
     async fn select_server(&mut self, name: String) -> Result<Value, ErrorInfo> {
@@ -2192,14 +2706,39 @@ impl Engine {
         }
         self.save()?;
         if self.running.is_some() {
+            self.after_switch().await;
+            // Новый сервер — страж начинает с чистого листа и сразу его проверяет: счёт неудач прежнего
+            // (мёртвого) сервера к нему не относится.
+            self.guard = Some(Guard::new(self.now_ms()));
+            self.down_since = None;
+            if matches!(self.vpn, VpnState::Reconnecting | VpnState::ServerDown) {
+                self.set_state(VpnState::Connected, None);
+            }
+            self.spawn_probe(false);
             self.notice("server.switched", json!({ "server": name, "reason": "user" }));
         }
         self.emit_state();
         Ok(self.view_json())
     }
+
+    /// Сервер сменили при работающем VPN: соединения через прежний остались бы на нём до своих тайм-аутов
+    /// (на мёртвом — минутами, и смена «не работает» до переподключения). Закрыть — программы сразу откроют
+    /// новые через выбранный.
+    async fn after_switch(&self) {
+        if let Some(api) = self.api() {
+            if let Err(e) = api.close_connections().await {
+                tracing::warn!("ядро не закрыло соединения после смены сервера: {e:#}");
+            }
+        }
+    }
 }
 
 /// Подключение, добавленное по этой же ссылке. Ссылки сравниваются как есть: токен в них точный.
+/// Ключ адреса страницы подписки в секретах (рядом с самой ссылкой, у которой ключ — id подключения).
+fn page_key(id: &str) -> String {
+    format!("page:{id}")
+}
+
 fn added_by_source<'a>(connections: &'a [Connection], secrets: &HashMap<String, String>, source: &str) -> Option<&'a Connection> {
     let source = source.trim();
     connections.iter().find(|c| secrets.get(&c.id).is_some_and(|s| s.trim() == source))
@@ -2221,6 +2760,7 @@ mod tests {
             updated_at: None,
             update_interval_hours: None,
             selected_server: None,
+            probe_share: false,
         };
         let connections = [conn("a"), conn("b")];
         let secrets = HashMap::from([

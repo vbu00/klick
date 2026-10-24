@@ -1,0 +1,312 @@
+proxies:
+- name: awg20.mihomo.yaml::de1 · AWG 2.0
+  type: wireguard
+  server: 203.0.113.10
+  port: 43210
+  ip: 10.66.8.5/32
+  private-key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+  public-key: wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t8=
+  pre-shared-key: gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8=
+  allowed-ips:
+  - 0.0.0.0/0
+  udp: true
+  mtu: 1280
+  persistent-keepalive: 25
+  remote-dns-resolve: true
+  dns:
+  - 1.1.1.1
+  - 8.8.8.8
+  amnezia-wg-option:
+    jc: 5
+    jmin: 12
+    jmax: 60
+    s1: 40
+    s2: 60
+    s3: 25
+    s4: 18
+    h1: 100000-200000
+    h2: 300000-400000
+    h3: 500000-600000
+    h4: 700000-800000
+    i1: <r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>
+- name: awg31.mihomo.yaml::de1 · AWG 3.1
+  type: wireguard
+  server: 203.0.113.10
+  port: 51842
+  ip: 10.66.4.5/32
+  ipv6: fd66:66:0:1::5/128
+  private-key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+  public-key: wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t8=
+  pre-shared-key: gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8=
+  allowed-ips:
+  - 0.0.0.0/0
+  - ::/0
+  udp: true
+  mtu: 1280
+  persistent-keepalive: 25
+  remote-dns-resolve: true
+  dns:
+  - 1.1.1.1
+  - 8.8.8.8
+  amnezia-wg-option:
+    version: 3
+    jc: 6
+    jmin: 10
+    jmax: 50
+    s1: 24
+    s2: 24
+    s3: 24
+    s4: 24
+    h1: '1'
+    h2: '2'
+    h3: '3'
+    h4: '4'
+    i1: <r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>
+    header-protection-key: QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=
+    content-padding-addition: 2-10
+    rekey-after-time: 100-120
+    rekey-timeout: 3-7
+    reject-after-time: 150-180
+    keepalive-timeout: 5-15
+    max-handshake-attempts: 15-20
+    random-trailers: true
+    disable-cookies: true
+- name: awg31.perdevice.mihomo.yaml::de1 · AWG 3.1
+  type: wireguard
+  server: 203.0.113.10
+  port: 51842
+  ip: 10.66.4.5/32
+  ipv6: fd66:66:0:1::5/128
+  private-key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+  public-key: wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t8=
+  pre-shared-key: gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8=
+  allowed-ips:
+  - 0.0.0.0/0
+  - ::/0
+  udp: true
+  mtu: 1280
+  persistent-keepalive: 25
+  remote-dns-resolve: true
+  dns:
+  - 1.1.1.1
+  - 8.8.8.8
+  amnezia-wg-option:
+    version: 3
+    jc: 6
+    jmin: 10
+    jmax: 50
+    s1: 24
+    s2: 24
+    s3: 24
+    s4: 24
+    h1: '1'
+    h2: '2'
+    h3: '3'
+    h4: '4'
+    i1: <r 2><b 0x01000001000000000001076578616d706c6503636f6d00001c00010000291000000000000000>
+    i2: <r 2><b 0x01000001000000000001076578616d706c6503636f6d00004100010000291000000000000000>
+    i3: <r 2><b 0x01000001000000000001076578616d706c6503636f6d00000100010000291000000000000000>
+    header-protection-key: QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=
+    content-padding-addition: 2-10
+    rekey-after-time: 100-120
+    rekey-timeout: 3-7
+    reject-after-time: 150-180
+    keepalive-timeout: 5-15
+    max-handshake-attempts: 15-20
+    random-trailers: true
+    disable-cookies: true
+- name: mihomo_gecko_hop.yaml::de2 · hy2 · 443
+  type: hysteria2
+  server: de2.example.com
+  port: 443
+  ports: 20000-30000
+  hop-interval: '30'
+  password: tok-DEVICE_secret_0123456789abcdefghijklmn
+  obfs: gecko
+  obfs-password: gawrgura-pw
+  sni: de1.example.com
+  skip-cert-verify: false
+  alpn:
+  - h3
+- name: mihomo_noobfs.yaml::de2 · hy2 · 443
+  type: hysteria2
+  server: de2.example.com
+  port: 443
+  password: tok-DEVICE_secret_0123456789abcdefghijklmn
+  skip-cert-verify: false
+  alpn:
+  - h3
+- name: mihomo_pinned.yaml::de2 · hy2 · 443
+  type: hysteria2
+  server: de2.example.com
+  port: 443
+  password: tok-DEVICE_secret_0123456789abcdefghijklmn
+  obfs: salamander
+  obfs-password: gawrgura-pw
+  skip-cert-verify: false
+  fingerprint: abababababababababababababababababababababababababababababababab
+  alpn:
+  - h3
+- name: mihomo_salamander.yaml::de2 · hy2 · 443
+  type: hysteria2
+  server: de2.example.com
+  port: 443
+  password: tok-DEVICE_secret_0123456789abcdefghijklmn
+  obfs: salamander
+  obfs-password: gawrgura-pw
+  sni: de1.example.com
+  skip-cert-verify: false
+  alpn:
+  - h3
+- name: "mihomo_hostile_name.yaml::x\"\n  - type: evil #c: {a} · vless · 443"
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: www.example.org
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: auto
+  reality-opts:
+    public-key: B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
+    short-id: 0f1e2d3c4b5a6978
+- name: mihomo_self_reality.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: de1.example.com
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: auto
+  reality-opts:
+    public-key: B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
+    short-id: 0f1e2d3c4b5a6978
+- name: mihomo_tcp_reality.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: www.example.org
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: tcp
+  flow: xtls-rprx-vision
+  reality-opts:
+    public-key: B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
+    short-id: 0f1e2d3c4b5a6978
+- name: mihomo_tls_cdn_ws.yaml::de1 · vless · 443
+  type: vless
+  server: cdn.example.org
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: cdn.example.org
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: ws
+  ws-opts:
+    path: /ws
+    headers:
+      Host: cdn.example.org
+- name: mihomo_tls_cdn_xhttp.yaml::de1 · vless · 443
+  type: vless
+  server: cdn.example.org
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: cdn.example.org
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: packet-up
+    host: cdn.example.org
+- name: mihomo_tls_direct_ws.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: origin.example.com
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: ws
+  ws-opts:
+    path: /ws
+- name: mihomo_tls_direct_xhttp.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: origin.example.com
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: auto
+    host: origin.example.com
+- name: mihomo_xhttp_full.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: second.example.org
+  client-fingerprint: firefox
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: packet-up
+    host: cover.example.org
+    x-padding-bytes: 120-360
+  reality-opts:
+    public-key: B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
+    short-id: ab
+- name: mihomo_xhttp_reality.yaml::de1 · vless · 443
+  type: vless
+  server: de1.example.com
+  port: 443
+  uuid: 8a3b5c2d-1e4f-4a6b-8c0d-123456789abc
+  udp: true
+  packet-encoding: xudp
+  tls: true
+  servername: www.example.org
+  client-fingerprint: chrome
+  skip-cert-verify: false
+  network: xhttp
+  xhttp-opts:
+    path: /q8x2kd7w
+    mode: auto
+  reality-opts:
+    public-key: B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9_AsrhtHHw
+    short-id: 0f1e2d3c4b5a6978

@@ -1,0 +1,70 @@
+proxies:
+  - name: "This app does not report a device ID. Turn on HWID in the settings of Happ, or use kl!ck"
+    type: hysteria2
+    server: "0.0.0.0"
+    port: 1
+    password: "off"
+proxy-groups:
+  - name: "Mistgate"
+    type: select
+    proxies:
+      - "This app does not report a device ID. Turn on HWID in the settings of Happ, or use kl!ck"
+      - "DIRECT"
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - "1.1.1.1#Mistgate"
+    - "8.8.8.8#Mistgate"
+    - "1.0.0.1#Mistgate"
+    - "8.8.4.4#Mistgate"
+  nameserver-policy:
+    "+.ru":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.su":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.xn--p1ai":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yandex.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.yastatic.net":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vk.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.userapi.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.sberbank.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+    "+.vtb.com":
+      - "77.88.8.8"
+      - "77.88.8.1"
+  proxy-server-nameserver:
+    - "1.1.1.1"
+    - "8.8.8.8"
+    - "1.0.0.1"
+    - "8.8.4.4"
+rules:
+  - "DOMAIN-SUFFIX,ru,DIRECT"
+  - "DOMAIN-SUFFIX,su,DIRECT"
+  - "DOMAIN-SUFFIX,xn--p1ai,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.com,DIRECT"
+  - "DOMAIN-SUFFIX,yandex.net,DIRECT"
+  - "DOMAIN-SUFFIX,yastatic.net,DIRECT"
+  - "DOMAIN-SUFFIX,vk.com,DIRECT"
+  - "DOMAIN-SUFFIX,userapi.com,DIRECT"
+  - "DOMAIN-SUFFIX,sberbank.com,DIRECT"
+  - "DOMAIN-SUFFIX,vtb.com,DIRECT"
+  - "MATCH,Mistgate"

@@ -1,11 +1,11 @@
 # CI (GitHub Actions, Windows runner): the same checks as in Windows Sandbox, on the runner itself,
 # which is a fresh VM too. Stages the build into C:\klick like sandbox\start.ps1, runs one scenario in
 # Windows PowerShell 5.1 (as in the Sandbox), prints its report and fails when the report has failures.
-#   pwsh -File sandbox\ci.ps1 -Scenario run|setup|ks-browser|real -Build <folder> [-Old <kl!ck 0.3.0 NSIS setup>]
+#   pwsh -File sandbox\ci.ps1 -Scenario run|setup|ks-browser|real|servers -Build <folder> [-Old <kl!ck 0.3.0 NSIS setup>]
 # <folder>: klick-service.exe, klick-cli.exe, klick.exe, klick-setup.exe and resources\ (with core\mihomo.exe).
-# real: the subscription link comes in KLICK_TEST_SUB.
+# real, servers: the subscription link comes in KLICK_TEST_SUB.
 param(
-    [Parameter(Mandatory)][ValidateSet('run', 'setup', 'ks-browser', 'real')][string]$Scenario,
+    [Parameter(Mandatory)][ValidateSet('run', 'setup', 'ks-browser', 'real', 'servers')][string]$Scenario,
     [Parameter(Mandatory)][string]$Build,
     [string]$Old
 )
@@ -19,7 +19,7 @@ Copy-Item "$Build\klick-service.exe", "$Build\klick-cli.exe", "$Build\klick.exe"
 Copy-Item "$Build\klick-setup.exe" "$root\klick-setup.exe"
 Copy-Item "$Build\resources" "$root\resources" -Recurse
 # Windows PowerShell 5.1 reads a script as UTF-8 only when it has a BOM.
-foreach ($s in 'run.ps1', 'setup-test.ps1', 'ks-browser.ps1', 'real-test.ps1', 'ui.ps1') {
+foreach ($s in 'run.ps1', 'setup-test.ps1', 'ks-browser.ps1', 'real-test.ps1', 'servers-test.ps1', 'ui.ps1') {
     $text = [IO.File]::ReadAllText("$PSScriptRoot\$s", [Text.Encoding]::UTF8)
     [IO.File]::WriteAllText("$root\$s", $text, (New-Object Text.UTF8Encoding $true))
 }
@@ -36,6 +36,7 @@ $plan = @{
     'setup'      = @('setup-test.ps1', @('setup-report.txt', 'report.txt'), 'ИТОГ УСТАНОВЩИКА: провалов (\d+)', 30)
     'ks-browser' = @('ks-browser.ps1', @('ks-browser.txt'), 'ИТОГ: шагов \d+, провалов (\d+)', 25)
     'real'       = @('real-test.ps1', @('real-report.txt'), 'ИТОГ: провалов (\d+)', 25)
+    'servers'    = @('servers-test.ps1', @('servers-report.txt'), 'ИТОГ: провалов (\d+)', 35)
 }[$Scenario]
 $entry, $reports, $summary, $minutes = $plan
 
