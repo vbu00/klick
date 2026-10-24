@@ -249,9 +249,7 @@ scripts/ios/build.sh               # dist/klick-ios.ipa (ветка ios; ещё 
 
 - [**vbu00**](https://github.com/vbu00) — разработка
 - [**Dmitriy Medvedev**](https://github.com/aleuuu) — дизайн интерфейса и логотип
-- [**limeflash**](https://github.com/limeflash) — порты на macOS, iPhone и iPad; стабильность VPN (без
-  самопроизвольных переподключений, сеть и сон, списки без обрыва), проверка серверов из своей сети,
-  исправления ошибок, проверки в CI
+- [**limeflash**](https://github.com/limeflash) — порты на macOS и iOS, стабильность и исправления
 
 Логотип-клавиша в пяти цветах и вордмарк — в [`docs/logo`](docs/logo).
 
