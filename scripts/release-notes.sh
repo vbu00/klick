@@ -26,8 +26,9 @@ open -a 'kl!ck'
 Удаление на Mac: \`sudo '/Applications/kl!ck.app/Contents/Resources/uninstall.sh'\`
 
 **iPhone и iPad:** в App Store kl!ck нет — \`klick-ios.ipa\` подписывает тот, кто ставит, и для VPN нужен
-**платный** аккаунт разработчика Apple (с бесплатным Apple ID приложение встанет, но VPN не включится).
-Проще всего — добавить источник в SideStore, AltStore, Feather или ESign, kl!ck будет обновляться оттуда:
+**платный** аккаунт разработчика Apple или купленный сертификат с правами VPN (с бесплатным Apple ID приложение
+встанет, но VPN не включится). Проверено с сертификатом FlareStore. Источник для SideStore, AltStore, Feather
+и ESign — kl!ck будет обновляться оттуда:
 \`https://github.com/$repo/releases/latest/download/klick-altstore.json\`. Все способы —
 [как поставить на iPhone и iPad](https://github.com/$repo/blob/ios/docs/ios-install.md).
 NOTES

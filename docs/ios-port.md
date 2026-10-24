@@ -133,7 +133,7 @@ Program, $99 в год); одобрения Apple для пакетного ту
 | SideStore + платный аккаунт | Скорее да: SideSign включает для платной команды Network Extensions и App Groups на App ID. Отчётов о VPN-приложениях нет; известны баги App Group у расширений ([SideStore#1437](https://github.com/SideStore/SideStore/issues/1437)) и подписи вложенных расширений на iOS 26 ([#1467](https://github.com/SideStore/SideStore/issues/1467)) |
 | Sideloadly + платный аккаунт | Возможно: платный аккаунт поддерживается, но про Network Extension у расширений публично ничего нет — проверить на устройстве |
 | AltStore Classic + платный аккаунт | Скорее нет: AltSign не включает capability Network Extensions (issue #1091 открыт) |
-| FlareStore и другие сервисы подписи | Не проверено. FlareStore заявляет VPN/Network Extension и App Groups в сертификате на устройство (UDID, на год), p12 подходит для ESign/KSign/Feather. Отзывы о VPN-приложениях через него не найдены; если сертификат отзовут, приложение перестанет открываться |
+| FlareStore | Да — проверено с kl!ck на iPhone. Сертификат на устройство (UDID, на год) с VPN/Network Extension и App Groups; подписчик в браузере или p12 для ESign/KSign/Feather. Если сертификат отзовут, приложение перестанет открываться до переподписи |
 | TrollStore | Только iOS 14.0–16.6.1, 16.7 RC и 17.0 — для современных iPhone не подходит |
 
 Как kl!ck переживает переподпись. Подписчики меняют идентификаторы под свой аккаунт (AltStore и
