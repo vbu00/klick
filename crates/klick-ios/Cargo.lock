@@ -2256,7 +2256,7 @@ dependencies = [
 
 [[package]]
 name = "klick-core"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "base64 0.22.1",
  "percent-encoding",
@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "klick-ios"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "klick-core",
  "klick-proto",
@@ -2284,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "klick-proto"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "klick-core",
  "serde",
@@ -2293,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "klick-service"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "aes-gcm",
  "anyhow",

@@ -2,7 +2,7 @@
 name = "klick-ios"
 description = "kl!ck для iOS: окно, движок службы в приложении, туннель — расширение Network Extension"
 # Та же версия, что у всего kl!ck (Cargo.toml в корне); scripts/ios/build.sh сверяет.
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 license = "MIT"
 

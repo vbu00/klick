@@ -5,7 +5,7 @@ members = ["crates/klick-core", "crates/klick-proto", "crates/klick-service", "c
 exclude = ["crates/klick-ios"]
 
 [workspace.package]
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 license = "MIT"
 
