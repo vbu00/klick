@@ -67,7 +67,7 @@ GitHub: macOS 14–27, Apple Silicon и Intel, с установкой служ�
 
 ## Выпуск и обновление в один клик
 
-1. Версия в `Cargo.toml`, `Cargo.lock` (пакеты `klick-*`), `crates/klick-*/tauri.conf.json`, `ui/package.json`,
+1. Версия в `Cargo.toml`, `Cargo.lock` (пакеты `klick-*`), `crates/klick-ios/Cargo.toml` и `Cargo.lock`, `crates/klick-*/tauri.conf.json`, `ui/package.json`,
    `ui/package-lock.json`; что нового — `docs/release-notes.md`. Пуш в `main`.
 2. Windows: дождаться зелёного запуска Windows и выпустить его установщик — Actions → Windows → Run workflow,
    `release_run` = номер запуска. macOS: Actions → macOS → Run workflow с флажком «Выпустить». iOS: Actions → iOS →
