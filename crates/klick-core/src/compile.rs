@@ -278,8 +278,8 @@ fn rule_providers(s: &Settings, sets: &SetFiles, user: Option<&[UserSet]>) -> Va
 }
 
 fn preset_providers(s: &Settings, sets: &SetFiles, file: impl Fn(&str, &str) -> Value) -> Value {
-    match s.routing {
-        Routing::Selected if s.blocked_preset => json!({
+    let blocked = || {
+        json!({
             SET_BLOCKED_DOMAINS: file("domain", &sets.blocked_domains),
             SET_BLOCKED_IPS: file("ipcidr", &sets.blocked_ips),
             SET_BLOCKED_COMMUNITY: {
@@ -292,11 +292,19 @@ fn preset_providers(s: &Settings, sets: &SetFiles, file: impl Fn(&str, &str) -> 
                 // С GitHub из России бывает плохо — качаем через VPN.
                 "proxy": VPN_GROUP,
             },
-        }),
+        })
+    };
+    match s.routing {
+        Routing::Selected if s.blocked_preset => blocked(),
         Routing::Selected => json!({}),
-        Routing::AllVpn if s.russia_direct.domains => json!({
-            SET_RU_DOMAINS: file("domain", &sets.ru_domains),
-        }),
+        // «Россия напрямую» — и заблокированное тоже нужно: оно идёт через VPN раньше российских правил.
+        Routing::AllVpn if russia_direct(s) => {
+            let mut out = blocked();
+            if s.russia_direct.domains {
+                out[SET_RU_DOMAINS] = file("domain", &sets.ru_domains);
+            }
+            out
+        }
         Routing::AllVpn => json!({}),
     }
 }
@@ -535,6 +543,20 @@ fn cidr_inside(a: &str, b: &str) -> bool {
     ia & mask == ib & mask
 }
 
+/// «Россию напрямую» включили хоть как-то — доменами или адресами.
+fn russia_direct(s: &Settings) -> bool {
+    s.russia_direct.domains || s.russia_direct.ips
+}
+
+/// Набор «Заблокированное в РФ»: свой список доменов и подсетей и общий список сообщества — через VPN.
+fn blocked_rules() -> [String; 3] {
+    [
+        format!("RULE-SET,{SET_BLOCKED_DOMAINS},{VPN_GROUP}"),
+        format!("RULE-SET,{SET_BLOCKED_IPS},{VPN_GROUP},no-resolve"),
+        format!("RULE-SET,{SET_BLOCKED_COMMUNITY},{VPN_GROUP}"),
+    ]
+}
+
 /// Правила целиком: локальная сеть, Kill Switch, пользовательские (строками или файлами), наборы, остальное.
 fn compose(s: &Settings, os: Os, user: Vec<String>) -> Vec<String> {
     let mut out = lan_rules();
@@ -553,13 +575,17 @@ fn compose(s: &Settings, os: Os, user: Vec<String>) -> Vec<String> {
     match s.routing {
         Routing::Selected => {
             if s.blocked_preset {
-                out.push(format!("RULE-SET,{SET_BLOCKED_DOMAINS},{VPN_GROUP}"));
-                out.push(format!("RULE-SET,{SET_BLOCKED_IPS},{VPN_GROUP},no-resolve"));
-                out.push(format!("RULE-SET,{SET_BLOCKED_COMMUNITY},{VPN_GROUP}"));
+                out.extend(blocked_rules());
             }
             out.push("MATCH,DIRECT".into());
         }
         Routing::AllVpn => {
+            // Заблокированное в РФ и то, что само не пускает из России (игры Supercell, Spotify…), — через
+            // VPN, даже если адрес российский: у их CDN есть узлы в России, российский DNS отдаёт их, и
+            // «российские адреса напрямую» уводили часть трафика мимо VPN — сервис видел российский IP.
+            if russia_direct(s) {
+                out.extend(blocked_rules());
+            }
             if s.russia_direct.domains {
                 out.push(format!("RULE-SET,{SET_RU_DOMAINS},DIRECT"));
             }
@@ -819,6 +845,8 @@ mod tests {
         assert_eq!(r[n - 3], format!("RULE-SET,{SET_RU_DOMAINS},DIRECT"));
         assert_eq!(r[n - 2], "GEOIP,RU,DIRECT");
         assert_eq!(r[n - 1], "MATCH,klick-vpn");
+        // Заблокированное (игры Supercell, у которых узлы CDN в России) — через VPN раньше российских правил.
+        assert_eq!(r[n - 6..n - 3], blocked_rules());
     }
 
     #[test]
@@ -829,12 +857,16 @@ mod tests {
         let r = rules(&s, &catalog(), Os::Windows);
         assert!(!r.iter().any(|x| x.contains(SET_RU_DOMAINS)));
         assert!(r.contains(&"GEOIP,RU,DIRECT".to_string()));
-        assert_eq!(rule_providers(&s, &sets(), None), json!({}));
+        let providers = rule_providers(&s, &sets(), None);
+        assert!(providers.get(SET_RU_DOMAINS).is_none());
+        assert!(providers.get(SET_BLOCKED_COMMUNITY).is_some(), "российские адреса напрямую — заблокированное раньше них через VPN");
         assert!(dns(&s, &catalog(), Os::Windows, &[], None)["nameserver-policy"].as_object().unwrap().is_empty());
 
         s.russia_direct.ips = false;
         let r = rules(&s, &catalog(), Os::Windows);
         assert!(!r.iter().any(|x| x.starts_with("GEOIP")));
+        assert!(!r.iter().any(|x| x.starts_with("RULE-SET")), "всё через VPN — наборы не нужны");
+        assert_eq!(rule_providers(&s, &sets(), None), json!({}));
         assert!(r.iter().any(|x| x == "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve"), "локальная сеть напрямую всегда");
         assert_eq!(r.last().unwrap(), "MATCH,klick-vpn");
     }

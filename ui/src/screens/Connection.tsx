@@ -188,7 +188,7 @@ function Main({
         ) : (
           <>
             <Preset title=".ru и .рф напрямую" desc="Госуслуги, банки, Яндекс — без VPN" on={russia.domains} onChange={(v) => void store.setRussia('ru_domains', v)} />
-            <Preset title="Российские IP напрямую" desc="По базе стран, даже без .ru в адресе" on={russia.ips} onChange={(v) => void store.setRussia('ru_ips', v)} />
+            <Preset title="Российские IP напрямую" desc="По базе стран — кроме заблокированного в РФ: оно всё равно через VPN" on={russia.ips} onChange={(v) => void store.setRussia('ru_ips', v)} />
             <Preset title="Локальная сеть — напрямую" desc="Роутер, принтер, игры по локалке" />
           </>
         )}
