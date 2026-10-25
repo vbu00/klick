@@ -57,12 +57,14 @@ pub fn os_short() -> (String, String) {
     ("iOS".into(), sysctl_string("kern.osproductversion").unwrap_or_default())
 }
 
-/// Модель — ей устройство и подписано в панели: `iPhone15,2`. Имя телефона iOS приложениям не отдаёт.
+/// Модель — ей устройство и подписано в панели: «iPhone 17» (по коду `iPhone18,3`; незнакомая модель —
+/// сам код). Имя телефона iOS приложениям не отдаёт.
 pub fn device_name() -> Option<String> {
-    std::env::var("SIMULATOR_MODEL_IDENTIFIER").ok().or_else(|| sysctl_string("hw.machine")).filter(|m| !m.is_empty())
+    let code = std::env::var("SIMULATOR_MODEL_IDENTIFIER").ok().or_else(|| sysctl_string("hw.machine")).filter(|m| !m.is_empty())?;
+    Some(klick_core::apple::model_label(&code))
 }
 
-/// «iOS 18.1 · iPhone15,2».
+/// «iOS 18.1 · iPhone 14 Pro».
 pub fn os_name() -> String {
     let (os, version) = os_short();
     format!("{os} {version} · {}", device_name().unwrap_or_else(|| std::env::consts::ARCH.into()))
