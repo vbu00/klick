@@ -1,6 +1,7 @@
 //! Обновление в один клик. Служба смотрит последний выпуск на GitHub, по кнопке в окне скачивает
-//! установщик, проверяет подпись владельца и ставит его без окна (`klick-setup.exe --silent`) —
-//! без вопроса «Разрешить изменения?»: служба и так работает от имени системы.
+//! установщик, проверяет подпись владельца и ставит его без окна — без вопроса «Разрешить
+//! изменения?» или пароля администратора: служба и так работает от имени системы (root на Mac).
+//! Windows — `klick-setup.exe --silent`, macOS — `installer -pkg klick-<версия>.pkg`.
 //!
 //! Ставится только подписанное: Ed25519 владельца над `klick-update-v1\n<имя файла>\n<sha256>\n`.
 //! Закрытый ключ — только у владельца (`tools/sign-release.py`), не в репозитории и не в CI: кто
@@ -10,8 +11,9 @@
 //!
 //! Установщик останавливает службу и окно. Перед запуском служба оставляет отметку
 //! `update.json`; новая служба (или прежняя, если установщик откатился) по ней понимает, чем
-//! кончилось, говорит об этом окну и открывает его снова. VPN, если был включён, служба
-//! восстанавливает сама: остановка не стирает отметку «был включён» (`runtime.json`).
+//! кончилось, и говорит об этом окну. Окно снова открывает на Windows служба, на Mac — сам пакет
+//! (postinstall). VPN, если был включён, служба восстанавливает сама: остановка не стирает
+//! отметку «был включён» (`runtime.json`).
 
 use crate::paths::Paths;
 use klick_proto::{ErrorInfo, UpdateView};
@@ -32,11 +34,18 @@ const UPDATE_KEY: &str = match option_env!("KLICK_UPDATE_KEY") {
 
 /// Установщик больше этого — не наш (сейчас ~40 МБ).
 const MAX_INSTALLER: u64 = 300 << 20;
+/// Где умеем ставить сами.
+const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
 /// Отметка старше часа — не про это обновление (компьютер выключили посреди установки и т. п.).
 const PENDING_FRESH_SECS: i64 = 3600;
 
+/// Установщик этой системы в выпуске.
 pub fn installer_name(version: &str) -> String {
-    format!("klick-{version}-x64-setup.exe")
+    if cfg!(target_os = "macos") {
+        format!("klick-{version}.pkg")
+    } else {
+        format!("klick-{version}-x64-setup.exe")
+    }
 }
 
 /// Что подписывает владелец.
@@ -91,9 +100,9 @@ struct Release {
 }
 
 impl Release {
-    /// Ставится в один клик: Windows, есть установщик этой версии и его подпись.
+    /// Ставится в один клик: Windows или Mac, есть установщик этой версии и его подпись.
     fn installable(&self) -> bool {
-        cfg!(windows) && self.installer.is_some() && self.signature.is_some()
+        SUPPORTED && self.installer.is_some() && self.signature.is_some()
     }
 }
 
@@ -166,7 +175,7 @@ fn updates_dir(paths: &Paths) -> PathBuf {
 /// Скачать, проверить и запустить установщик последнего выпуска. `Ok(версия)` — установщик
 /// запущен: скоро он остановит службу и окно, а потом новая служба откроет окно снова.
 pub async fn install(paths: &Paths) -> Result<String, ErrorInfo> {
-    if !cfg!(windows) {
+    if !SUPPORTED {
         return Err(ErrorInfo::new("update.manual"));
     }
     let release = latest().await?.ok_or_else(|| ErrorInfo::new("update.none"))?;
@@ -263,9 +272,28 @@ fn start_installer(exe: &Path, log: &Path) -> std::io::Result<()> {
         .map(drop)
 }
 
-#[cfg(not(windows))]
+/// macOS: системный установщик пакетов. Своя группа процессов: launchd, перезапуская службу
+/// (postinstall → `klick-service install`), завершает всю её группу — установщик должен пережить это.
+#[cfg(target_os = "macos")]
+fn start_installer(pkg: &Path, log: &Path) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let out = std::fs::File::create(log)?;
+    let err = out.try_clone()?;
+    std::process::Command::new("/usr/sbin/installer")
+        .arg("-pkg")
+        .arg(pkg)
+        .args(["-target", "/"])
+        .stdin(std::process::Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .process_group(0)
+        .spawn()
+        .map(drop)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn start_installer(_exe: &Path, _log: &Path) -> std::io::Result<()> {
-    Err(std::io::Error::other("только Windows"))
+    Err(std::io::Error::other("только Windows и macOS"))
 }
 
 /// Служба запустилась: если перед этим она ставила обновление — чем кончилось. Уведомление окну
@@ -319,16 +347,20 @@ mod tests {
             "tag_name": "v0.5.3",
             "html_url": "https://github.com/vbu00/klick/releases/tag/v0.5.3",
             "assets": [
-                { "name": "klick-macos.pkg", "browser_download_url": "https://x/pkg", "size": 1 },
+                { "name": "klick-macos.pkg", "browser_download_url": "https://x/latest-pkg", "size": 1 },
+                { "name": "klick-0.5.3.pkg", "browser_download_url": "https://x/pkg", "size": 56 },
+                { "name": "klick-0.5.3.pkg.sig", "browser_download_url": "https://x/pkg-sig", "size": 89 },
                 { "name": "klick-0.5.3-x64-setup.exe", "browser_download_url": "https://x/exe", "size": 40 },
                 { "name": "klick-0.5.3-x64-setup.exe.sig", "browser_download_url": "https://x/sig", "size": 89 }
             ]
         });
         let r = parse_release(&v);
         assert_eq!(r.version, "0.5.3");
-        assert_eq!(r.installer.as_ref().map(|a| (a.url.as_str(), a.size)), Some(("https://x/exe", 40)));
+        // Своей системы: на Mac — версионный пакет, а не «последний» klick-macos.pkg.
+        let want = if cfg!(target_os = "macos") { ("https://x/pkg", 56) } else { ("https://x/exe", 40) };
+        assert_eq!(r.installer.as_ref().map(|a| (a.url.as_str(), a.size)), Some(want));
         assert!(r.signature.is_some());
-        assert_eq!(r.installable(), cfg!(windows));
+        assert_eq!(r.installable(), SUPPORTED);
         // Установщик другой версии под видом этой не подходит.
         let other = json!({ "tag_name": "v0.5.4", "assets": v["assets"] });
         assert!(parse_release(&other).installer.is_none());

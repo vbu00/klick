@@ -7,7 +7,7 @@ GitHub): даже тот, кто может выпускать релизы в �
 
     python -I tools/sign-release.py keygen            # один раз: ключ и открытый ключ для службы
     python -I tools/sign-release.py pub               # открытый ключ ещё раз
-    python -I tools/sign-release.py sign v0.5.3       # подписать установщик выпуска и выложить .sig
+    python -I tools/sign-release.py sign v0.5.3       # подписать установщики выпуска и выложить .sig
 
 Подписывается строка `klick-update-v1\\n<имя файла>\\n<sha256>\\n`: имя файла с версией не даёт
 выдать старый подписанный установщик за новый. Перед подписью sha256 скачанного файла сверяется
@@ -66,26 +66,32 @@ def gh(*args):
 def sign(tag):
     key = load_key()
     version = tag.removeprefix('v')
-    name = f'klick-{version}-x64-setup.exe'
+    # Установщики, которые служба ставит сама: Windows и macOS (версионный пакет, не klick-macos.pkg).
+    names = [f'klick-{version}-x64-setup.exe', f'klick-{version}.pkg']
     release = json.loads(gh('api', f'repos/{REPO}/releases/tags/{tag}'))
-    asset = next((a for a in release['assets'] if a['name'] == name), None)
-    if asset is None:
-        sys.exit(f'в выпуске {tag} нет {name}')
-    expected = (asset.get('digest') or '').removeprefix('sha256:')
+    assets = {a['name']: a for a in release['assets']}
+    found = [n for n in names if n in assets]
+    if not found:
+        sys.exit(f'в выпуске {tag} нет ни {names[0]}, ни {names[1]}')
+    for name in names:
+        if name not in assets:
+            print(f'{name}: нет в выпуске — пропускаю (выложите и подпишите ещё раз)')
     with tempfile.TemporaryDirectory() as tmp:
-        gh('release', 'download', tag, '--repo', REPO, '--pattern', name, '--dir', tmp)
-        digest = hashlib.sha256((Path(tmp) / name).read_bytes()).hexdigest()
-        if expected and digest != expected:
-            sys.exit(f'sha256 скачанного {digest} не совпал с записанным GitHub {expected} — не подписываю')
-        sig = Path(tmp) / f'{name}.sig'
-        sig.write_text(base64.b64encode(key.sign(message(name, digest))).decode() + '\n')
-        gh('release', 'upload', tag, str(sig), '--repo', REPO, '--clobber')
-    print(f'{name}: sha256 {digest}' + (' (совпал с GitHub)' if expected else ' (GitHub digest не дал)'))
-    print(f'подпись выложена: {name}.sig')
+        for name in found:
+            expected = (assets[name].get('digest') or '').removeprefix('sha256:')
+            gh('release', 'download', tag, '--repo', REPO, '--pattern', name, '--dir', tmp)
+            digest = hashlib.sha256((Path(tmp) / name).read_bytes()).hexdigest()
+            if expected and digest != expected:
+                sys.exit(f'{name}: sha256 скачанного {digest} не совпал с записанным GitHub {expected} — не подписываю')
+            sig = Path(tmp) / f'{name}.sig'
+            sig.write_text(base64.b64encode(key.sign(message(name, digest))).decode() + '\n')
+            gh('release', 'upload', tag, str(sig), '--repo', REPO, '--clobber')
+            print(f'{name}: sha256 {digest}' + (' (совпал с GitHub)' if expected else ' (GitHub digest не дал)') + f' — подпись {name}.sig выложена')
 
 
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     cmd = sys.argv[1:2]
     if cmd == ['keygen']:
         keygen()
