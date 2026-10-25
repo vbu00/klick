@@ -1,0 +1,113 @@
+# kl!ck β — родной интерфейс iOS (SwiftUI). Из этого файла `xcodegen` собирает klick-native.xcodeproj
+# (scripts/ios/build-native.sh). Движок — crates/klick-native (Rust, статическая библиотека), ядро mihomo —
+# crates/klick-ios/core (Go), расширение VPN, туннель, QR и иконка — общие с веб-версией (../gen/apple).
+# Свои идентификаторы и App Group: бета ставится рядом с обычным kl!ck, а не вместо него.
+name: klick-native
+options:
+  bundleIdPrefix: app.klick
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    MARKETING_VERSION: ${KLICK_VERSION}
+    CURRENT_PROJECT_VERSION: ${KLICK_BUILD}
+    ARCHS: arm64
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SWIFT_VERSION: "5.0"
+    ENABLE_BITCODE: NO
+    DEAD_CODE_STRIPPING: YES
+    # Ядро mihomo (Go) и движок (Rust) — для устройства или симулятора.
+    KLICK_CORE_DIR: $(PROJECT_DIR)/../core/build/$(PLATFORM_NAME)
+    KLICK_RUST_DIR: $(PROJECT_DIR)/lib/$(PLATFORM_NAME)
+targets:
+  KlickNative:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../gen/apple/Sources/klick-ios/Host.swift
+      - path: ../gen/apple/Sources/klick-ios/QRScanner.swift
+      - path: ../gen/apple/Shared
+      - path: ../gen/apple/Assets.xcassets
+      # Наборы правил, каталог сервисов и база стран (кладёт scripts/ios/build-native.sh).
+      - path: klick-resources
+        type: folder
+        buildPhase: resources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck β
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIRequiredDeviceCapabilities: [arm64]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Камера нужна, чтобы отсканировать QR-код подписки.
+        # Имя общей папки в этой сборке; подписчики переписывают его — см. ../gen/apple/Shared/AppGroup.swift.
+        KlickAppGroup: group.app.klick.native
+    entitlements:
+      path: KlickNative.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.app.klick.native]
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_NAME: KlickNative
+        PRODUCT_BUNDLE_IDENTIFIER: app.klick.native
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_OBJC_BRIDGING_HEADER: Bridging.h
+        LIBRARY_SEARCH_PATHS: $(inherited) $(KLICK_RUST_DIR) $(KLICK_CORE_DIR)
+        OTHER_LDFLAGS: $(inherited) -lklick_native -lklickcore -lresolv
+    dependencies:
+      - target: KlickNativeTunnel
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: AVFoundation.framework
+      - sdk: PhotosUI.framework
+      - sdk: CoreImage.framework
+
+  # Расширение VPN — то же, что у веб-версии: ядро работает в нём, пока туннель включён.
+  KlickNativeTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../gen/apple/KlickTunnel
+        excludes: ["*.entitlements", "Info.plist"]
+      - path: ../gen/apple/Shared
+    info:
+      path: Tunnel-Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck β
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        KlickAppGroup: group.app.klick.native
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: KlickNativeTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.app.klick.native]
+    settings:
+      base:
+        PRODUCT_NAME: KlickTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: app.klick.native.tunnel
+        SWIFT_OBJC_BRIDGING_HEADER: ../gen/apple/KlickTunnel/KlickCore.h
+        APPLICATION_EXTENSION_API_ONLY: YES
+        LIBRARY_SEARCH_PATHS: $(inherited) $(KLICK_CORE_DIR)
+        OTHER_LDFLAGS: $(inherited) -lklickcore -lresolv
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: Security.framework

@@ -1,0 +1,10 @@
+# Проект Xcode, Info.plist и права пишет xcodegen из project.yml (scripts/ios/build-native.sh).
+*.xcodeproj/
+xcuserdata/
+build/
+Info.plist
+Tunnel-Info.plist
+*.entitlements
+# Ресурсы kl!ck и библиотека движка (Rust) кладёт scripts/ios/build-native.sh.
+klick-resources/
+lib/

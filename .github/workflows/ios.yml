@@ -75,6 +75,7 @@ jobs:
           workspaces: |
             . -> target
             crates/klick-ios -> target
+            crates/klick-native -> target
 
       - name: Ядро mihomo для iOS (Go)
         working-directory: crates/klick-ios/core
@@ -113,6 +114,24 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/ios/altstore-source.sh dist/klick-ios.ipa
 
+      # kl!ck β — родной интерфейс (SwiftUI). Пока бета: её сбой не мешает собрать и выпустить klick-ios.ipa.
+      - name: Сборка kl!ck β (родной интерфейс)
+        id: native
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          KLICK_BUILD: ${{ github.run_number }}
+        run: scripts/ios/build-native.sh --sim
+
+      - name: kl!ck β в симуляторе
+        if: ${{ !cancelled() && steps.native.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          [ -n "$sub" ] || sub="$(cat "$RUNNER_TEMP/sub.txt" 2>/dev/null || true)"
+          KLICK_TEST_SUB="$sub" scripts/ios/native-sim-test.sh dist/klick-ios-beta-sim.app
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -124,6 +143,16 @@ jobs:
             dist/ios-sim-service.log
             dist/ios-sim-system.log
             dist/klick*.ips
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-ios-beta
+          path: |
+            dist/klick-ios-beta.ipa
+            dist/ios-beta-*.png
+            dist/ios-beta-service.log
           if-no-files-found: ignore
 
   release:
