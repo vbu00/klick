@@ -115,6 +115,16 @@ jobs:
         run: scripts/ios/altstore-source.sh dist/klick-ios.ipa
 
       # kl!ck β — родной интерфейс (SwiftUI). Пока бета: её сбой не мешает собрать и выпустить klick-ios.ipa.
+      # Liquid Glass есть только в SDK iOS 26: бету собирает самый новый Xcode 26 на машине (не бета-версия),
+      # если он есть; klick-ios.ipa выше уже собран прежним.
+      - name: Xcode 26 для kl!ck β
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          x="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          [ -n "$x" ] && sudo xcode-select -s "$x"
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
       - name: Сборка kl!ck β (родной интерфейс)
         id: native
         if: ${{ !cancelled() }}

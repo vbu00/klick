@@ -8,9 +8,12 @@ app="${1:?путь к .app для симулятора}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 bundle_id="app.klick.native"
 
-device="$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | test("^iPhone"))] | last | .udid')"
+# iPhone на самой новой iOS: на iOS 26 видно Liquid Glass.
+device="$(xcrun simctl list devices available -j | jq -r '[.devices | to_entries[] | select(.key | test("iOS"))
+    | (.key | capture("iOS-(?<a>[0-9]+)-(?<b>[0-9]+)") | [(.a | tonumber), (.b | tonumber)]) as $v
+    | .value[] | select(.name | test("^iPhone")) | {udid, v: $v}] | sort_by(.v) | last | .udid')"
 [[ -n "$device" && "$device" != null ]] || { echo "нет симулятора iPhone" >&2; exit 1; }
-echo "симулятор: $(xcrun simctl list devices -j | jq -r --arg d "$device" '.devices[][] | select(.udid == $d) | .name')"
+echo "симулятор: $(xcrun simctl list devices -j | jq -r --arg d "$device" '.devices | to_entries[] | .key as $k | .value[] | select(.udid == $d) | "\(.name) · \($k | sub(".*SimRuntime."; ""))"')"
 xcrun simctl boot "$device" 2>/dev/null || true
 xcrun simctl bootstatus "$device" -b >/dev/null
 xcrun simctl install "$device" "$app"

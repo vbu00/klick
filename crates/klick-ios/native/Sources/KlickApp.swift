@@ -1,36 +1,18 @@
 import SwiftUI
 
-extension Color {
-    /// Акцент kl!ck — тот же зелёный, что у веб-версии.
-    static let klickAccent = Color(red: 0.19, green: 0.82, blue: 0.35)
-}
-
-extension View {
-    /// iOS 26 и Xcode 26: стекло Liquid Glass вокруг круглой кнопки; раньше — как было.
-    @ViewBuilder
-    func glassCircle() -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: .circle)
-        } else {
-            self
-        }
-        #else
-        self
-        #endif
-    }
-}
-
 @main
 struct KlickApp: App {
     @StateObject private var engine = Engine.shared
-    @AppStorage("theme") private var theme = "system"
+    /// Как у веб-версии: по умолчанию тёмная («Графит»).
+    @AppStorage("theme") private var theme = "dark"
+    @AppStorage("glass") private var glass = true
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(engine)
-                .tint(.klickAccent)
+                .environment(\.klickGlass, glass)
+                .tint(K.accent)
                 .preferredColorScheme(theme == "light" ? .light : theme == "dark" ? .dark : nil)
                 .onAppear { engine.start() }
         }
@@ -39,35 +21,52 @@ struct KlickApp: App {
 
 struct RootView: View {
     @EnvironmentObject var engine: Engine
+    @Environment(\.klickGlass) private var glass
     /// Вкладка при запуске: `KLICK_TAB` — для снимков экрана в симуляторе (scripts/ios/native-sim-test.sh).
     @State private var tab = Int(ProcessInfo.processInfo.environment["KLICK_TAB"] ?? "") ?? 0
 
     var body: some View {
-        Group {
+        ZStack {
+            KBackground()
             if let error = engine.startError {
                 VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundColor(.orange)
-                    Text("kl!ck не запустился").font(.headline)
-                    Text(error).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundColor(K.orange)
+                    Text("kl!ck не запустился").font(.headline).foregroundColor(K.text)
+                    Text(error).font(.footnote).foregroundColor(K.dim).multilineTextAlignment(.center)
                 }
                 .padding()
             } else if !engine.up {
-                ProgressView("Запускаю kl!ck…")
+                ProgressView().tint(K.dim)
             } else {
-                TabView(selection: $tab) {
-                    HomeView()
-                        .tabItem { Label("Главная", systemImage: "power") }
-                        .tag(0)
-                    AddView(tab: $tab)
-                        .tabItem { Label("Добавить", systemImage: "plus.circle") }
-                        .tag(1)
-                    SettingsView()
-                        .tabItem { Label("Настройки", systemImage: "gearshape") }
-                        .tag(2)
+                Group {
+                    switch tab {
+                    case 1: AddView(tab: $tab)
+                    case 2: SettingsView()
+                    default: HomeView()
+                    }
                 }
+                .overlay(alignment: .bottom) { bottomBar }
             }
         }
-        .overlay(alignment: .top) { ToastView() }
+    }
+
+    /// Панель вкладок и уведомление над ней. Без стекла под панелью — затухание содержимого, со стеклом
+    /// оно не нужно: под стеклом и так видно, что под ним (как в веб-версии).
+    private var bottomBar: some View {
+        VStack(spacing: 10) {
+            ToastView()
+            KTabBar(tab: $tab, items: [("power", "Главная"), ("plus", "Добавить"), ("gearshape.fill", "Настройки")])
+        }
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(alignment: .bottom) {
+            if !glass {
+                LinearGradient(colors: [K.win.opacity(0), K.win.opacity(0.85), K.win], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 110)
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
@@ -77,15 +76,14 @@ struct ToastView: View {
     var body: some View {
         if let toast = engine.toast {
             HStack(spacing: 8) {
-                Circle().fill(toast.bad ? Color.orange : Color.klickAccent).frame(width: 8, height: 8)
-                Text(toast.text).font(.subheadline.weight(.medium))
+                Circle().fill(toast.bad ? K.orange : K.accent).frame(width: 7, height: 7)
+                Text(toast.text).font(.system(size: 13, weight: .medium)).foregroundColor(K.text)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.regularMaterial, in: Capsule())
-            .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .padding(.vertical, 11)
+            .kSurface(Capsule(), solid: K.elem)
+            .padding(.horizontal, 24)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
             .onTapGesture { engine.toast = nil }
             .task(id: toast.id) {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
