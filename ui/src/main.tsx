@@ -13,6 +13,7 @@ import './styles/cx.css';
 import './styles/settings.css';
 import './styles/tray.css';
 import './styles/ios.css';
+import './styles/glass.css';
 
 // Сразу последняя тема, пока служба не прислала настройки.
 applyCachedTheme();

@@ -38,6 +38,24 @@ export const THEME_DESC: Record<ThemeMode, string> = {
   custom: 'Выберите основу и цвет акцента ниже.',
 };
 
+/** «Стекло»: поверхности полупрозрачные (их размывает glass.css), кромка и блик — светлые. */
+const GLASS: Record<'dark' | 'light', Palette> = {
+  dark: {
+    card: 'rgba(255,255,255,0.07)', cardHover: 'rgba(255,255,255,0.11)', hover: 'rgba(255,255,255,0.10)', elem: 'rgba(255,255,255,0.10)',
+    elemHover: 'rgba(255,255,255,0.15)', line: 'rgba(255,255,255,0.10)', raised: 'rgba(255,255,255,0.18)', sunken: 'rgba(0,0,0,0.22)',
+    sunken2: 'rgba(255,255,255,0.05)', dots: 'rgba(255,255,255,0.14)',
+    glassEdge: 'rgba(255,255,255,0.12)', glassHi: 'rgba(255,255,255,0.14)', glassShadow: 'rgba(0,0,0,0.28)', glassSheen: 'rgba(255,255,255,0.06)',
+    glassBar: 'rgba(40,40,46,0.55)', glassSheet: 'rgba(28,28,32,0.78)', glassLift: '#ffffff',
+  },
+  light: {
+    card: 'rgba(255,255,255,0.58)', cardHover: 'rgba(255,255,255,0.70)', hover: 'rgba(255,255,255,0.66)', elem: 'rgba(0,0,0,0.05)',
+    elemHover: 'rgba(0,0,0,0.08)', line: 'rgba(0,0,0,0.07)', raised: 'rgba(255,255,255,0.88)', sunken: 'rgba(255,255,255,0.45)',
+    sunken2: 'rgba(255,255,255,0.35)', dots: 'rgba(0,0,0,0.10)',
+    glassEdge: 'rgba(255,255,255,0.75)', glassHi: 'rgba(255,255,255,0.90)', glassShadow: 'rgba(31,38,90,0.10)', glassSheen: 'rgba(255,255,255,0.35)',
+    glassBar: 'rgba(255,255,255,0.62)', glassSheet: 'rgba(250,250,252,0.82)', glassLift: '#dfe3ec',
+  },
+};
+
 const lum = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
   return (0.2126 * ((n >> 16) & 255)) / 255 + (0.7152 * ((n >> 8) & 255)) / 255 + (0.0722 * (n & 255)) / 255;
@@ -55,7 +73,10 @@ export function resolveTheme(a: Appearance, systemDark: boolean): Palette {
     base = dark ? 'graphite' : 'light';
     accent = dark ? '#30d158' : '#1fa34a';
   }
-  return { ...PALETTES[base], accent, onAccent: base === 'light' || lum(accent) < 0.45 ? '#ffffff' : '#0b0b0c', scheme: base === 'light' ? 'light' : 'dark' };
+  const scheme = base === 'light' ? 'light' : 'dark';
+  const palette = { ...PALETTES[base], accent, onAccent: base === 'light' || lum(accent) < 0.45 ? '#ffffff' : '#0b0b0c', scheme };
+  if (!a.glass) return { ...palette, glass: '0' };
+  return { ...palette, ...GLASS[scheme], glass: '1' };
 }
 
 const CACHE = 'klick-theme';
@@ -67,9 +88,10 @@ export function applyTheme(v: Palette) {
   last = key;
   const root = document.documentElement;
   for (const [k, value] of Object.entries(v)) {
-    if (k !== 'scheme') root.style.setProperty(`--${k}`, value);
+    if (k !== 'scheme' && k !== 'glass') root.style.setProperty(`--${k}`, value);
   }
   root.style.colorScheme = v.scheme;
+  root.toggleAttribute('data-glass', v.glass === '1');
   // iOS: тем же цветом — WKWebView и окно (WebKit не рисует полосу внизу экрана).
   if (isIos && isTauri()) void invoke('set_background', { color: v.win }).catch(() => undefined);
   try {

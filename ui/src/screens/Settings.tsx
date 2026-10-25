@@ -525,6 +525,19 @@ function ThemeScreen({ onBack }: { onBack: () => void }) {
         })}
       </div>
       <div className="hint">{THEME_DESC[a.theme]}</div>
+      <SectionHead title="Материал" />
+      <div className="card-list">
+        <Row
+          wrap
+          title="Стекло"
+          sub={
+            isIos || isMac
+              ? 'Полупрозрачные карточки и панели с размытием и бликом по краю'
+              : 'Полупрозрачные карточки и панели с размытием и бликом по краю. Размытие нагружает видеокарту — в играх лучше выключить'
+          }
+          right={<Toggle label="Стекло" on={!!a.glass} onChange={(glass) => set({ glass })} />}
+        />
+      </div>
       {a.theme === 'custom' ? (
         <>
           <SectionHead title="Основа" />

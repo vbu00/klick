@@ -294,7 +294,7 @@ class MockService {
       // `?countries=1` — список серверов сразу по странам.
       servers_by_country: new URLSearchParams(location.search).get('countries') !== '0',
       // `?theme=light` — посмотреть превью в светлой теме.
-      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158' },
+      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158', glass: PARAMS.get('glass') === '1' },
       on_exit: 'ask',
       language: 'ru',
     };

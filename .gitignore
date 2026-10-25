@@ -16,3 +16,4 @@ resources/core/mihomo.exe
 resources/core/mihomo
 resources/core/Country.mmdb
 crates/klick-ui/binaries/
+__pycache__/

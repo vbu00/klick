@@ -1,0 +1,49 @@
+/* «Стекло» (Оформление → Стекло): полупрозрачные поверхности с размытием и усилением цвета,
+   светлая кромка и блик сверху. Сочетается с любой темой — цвета поверхностей
+   подставляет resolveTheme (theme.ts), здесь — фон, размытие и кромки. Всё под `:root[data-glass]`. */
+
+/* Фон: спокойный перелив сверху вниз в цвете темы, без цветных пятен. */
+:root[data-glass] .window {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--win) 86%, var(--glassLift)) 0%, var(--win) 60%);
+}
+
+/* Поверхности: карточки, плитки, списки. */
+:root[data-glass] :is(.pcard, .tile, .graph, .card-list, .speedtest, .ip-card, .empty-card, .note-card, .step, .detect, .schema, .pchip) {
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  background-image: linear-gradient(160deg, var(--glassSheen), transparent 46%);
+  border: 1px solid var(--glassEdge);
+  box-shadow: inset 0 1px 0 var(--glassHi), 0 10px 30px var(--glassShadow);
+}
+:root[data-glass] .pchip.on { background-color: var(--raised); }
+
+/* Нижняя панель — стеклянная таблетка; затемнение под ней не нужно, под стеклом и так видно, что под ней. */
+:root[data-glass] .nav-fade { display: none; }
+:root[data-glass] .nav-inner {
+  background: var(--glassBar);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--glassEdge);
+  box-shadow: inset 0 1px 0 var(--glassHi), 0 12px 34px var(--glassShadow);
+}
+
+/* Шторки — плотнее, чтобы текст читался над чем угодно. */
+:root[data-glass] .sheet {
+  background: var(--glassSheet);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border-top: 1px solid var(--glassEdge);
+  box-shadow: inset 0 1px 0 var(--glassHi);
+}
+
+/* Заголовок окна (Windows, macOS) — поверх фона, без своей полосы. */
+:root[data-glass] .titlebar { background: transparent; border-bottom-color: var(--glassEdge); }
+
+/* «Понижение прозрачности» в настройках системы — без размытия, поверхности плотные. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-glass] :is(.pcard, .tile, .graph, .card-list, .speedtest, .ip-card, .empty-card, .note-card, .step, .detect, .schema, .pchip, .nav-inner, .sheet) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--glassSheet);
+  }
+}

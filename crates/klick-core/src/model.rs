@@ -137,11 +137,13 @@ pub struct Appearance {
     pub base: String,
     /// Цвет акцента своей темы, `#rrggbb`.
     pub accent: String,
+    /// «Стекло»: полупрозрачные поверхности с размытием над цветным фоном — поверх любой темы.
+    pub glass: bool,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
-        Appearance { theme: "system".into(), base: "graphite".into(), accent: "#30d158".into() }
+        Appearance { theme: "system".into(), base: "graphite".into(), accent: "#30d158".into(), glass: false }
     }
 }
 
