@@ -1,5 +1,6 @@
 // Живая схема: компьютер → через VPN или напрямую → интернет, на линиях — сервисы и программы из реальных соединений.
 
+import { isIos } from '../lib/platform';
 import { flowLabel, plural } from '../lib/rules';
 import type { ConnView, Mode, Route, Service } from '../lib/types';
 import { Icon } from './Icon';
@@ -39,8 +40,8 @@ export function LiveSchema({ running, mode, server, conns, catalog }: { running:
               <b />
             </span>
           </div>
-          <b>Компьютер</b>
-          <span>{running ? plural(programs, ['программа', 'программы', 'программ']) : 'приложения'}</span>
+          <b>{isIos ? 'Устройство' : 'Компьютер'}</b>
+          <span>{running && !isIos ? plural(programs, ['программа', 'программы', 'программ']) : 'приложения'}</span>
         </div>
         <div className={running ? 'switch-chip live' : 'switch-chip off'} style={{ top: '24%' }}>
           <i />

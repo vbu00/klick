@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { StoreProvider } from './lib/store';
-import { PLATFORM } from './lib/platform';
+import { isIos, PLATFORM } from './lib/platform';
 import { applyCachedTheme } from './lib/theme';
 import { createTransport } from './lib/transport';
 import { Preview } from './Preview';
@@ -12,6 +12,7 @@ import './styles/connection.css';
 import './styles/cx.css';
 import './styles/settings.css';
 import './styles/tray.css';
+import './styles/ios.css';
 
 // Сразу последняя тема, пока служба не прислала настройки.
 applyCachedTheme();
@@ -22,7 +23,8 @@ createTransport().then((transport) => {
   // иначе они 60 раз в секунду дёргают видеокарту, которая нужна не нам. Разовые (появление
   // экрана, всплывающие уведомления) не трогаем: остановленные на первом кадре, они прозрачны.
   const syncLoops = () => {
-    const idle = !document.hasFocus() || document.hidden;
+    // iOS: hasFocus() у WKWebView ненадёжен, там важно только, видна ли страница.
+    const idle = (!isIos && !document.hasFocus()) || document.hidden;
     for (const a of document.getAnimations()) {
       if (a.effect?.getTiming().iterations !== Infinity) continue;
       if (idle) a.pause();

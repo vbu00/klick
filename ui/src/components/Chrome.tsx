@@ -6,7 +6,7 @@ import statusError from '../assets/status/error.svg';
 import statusEmpty from '../assets/status/no-connection.svg';
 import statusSuccess from '../assets/status/success.svg';
 import statusWarning from '../assets/status/warning.svg';
-import { isMac } from '../lib/platform';
+import { isIos, isMac } from '../lib/platform';
 import { useStore } from '../lib/store';
 import type { VpnState } from '../lib/types';
 import { Icon, type IconName } from './Icon';
@@ -31,18 +31,20 @@ function statusIcon(vpn: VpnState | undefined, empty: boolean, serviceUp: boolea
 }
 
 /** Окно фиксированного размера: кнопки «развернуть» нет. На macOS кнопки окна — системные «светофоры»
- *  слева (заголовок окна прозрачный), свои кнопки не рисуем. */
+ *  слева (заголовок окна прозрачный), свои кнопки не рисуем. На iOS окно во весь экран: ни кнопок,
+ *  ни перетаскивания — только значок и название. */
 export function TitleBar() {
   const { transport, state, serviceUp } = useStore();
   const icon = statusIcon(state?.vpn, !!state && !state.connection, serviceUp);
+  const drag = isIos ? {} : { 'data-tauri-drag-region': true };
   return (
-    <header className="titlebar" data-tauri-drag-region>
-      <img className="logo" src={icon} alt="" draggable={false} data-tauri-drag-region />
-      <span className="app-name" data-tauri-drag-region>
+    <header className="titlebar" {...drag}>
+      <img className="logo" src={icon} alt="" draggable={false} {...drag} />
+      <span className="app-name" {...drag}>
         kl!ck
       </span>
-      <div className="drag" data-tauri-drag-region />
-      {isMac ? null : (
+      <div className="drag" {...drag} />
+      {isMac || isIos ? null : (
         <>
           <button className="tb-btn" aria-label="Свернуть" onClick={() => transport.win.minimize()}>
             <Icon name="winMin" size={16} />
@@ -126,6 +128,7 @@ export function Offline() {
   const [busy, setBusy] = useState(false);
   if (serviceUp) return null;
   // macOS: службу можно поднять прямо отсюда — система спросит пароль администратора.
+  // iOS: «службы» нет — движок внутри приложения, чинить нечего.
   const canRepair = isMac;
   const repair = async () => {
     setBusy(true);
@@ -140,13 +143,15 @@ export function Offline() {
   };
   return (
     <div className="offline">
-      <b>Служба kl!ck не отвечает</b>
+      <b>{isIos ? 'Движок kl!ck не запустился' : 'Служба kl!ck не отвечает'}</b>
       <span>
-        {transport.kind !== 'tauri' && !canRepair
-          ? 'Тестовая служба недоступна.'
-          : canRepair
-            ? 'Окно работает, но без службы VPN не включить. Перезапустите её — macOS спросит пароль администратора.'
-            : 'Окно работает, но без службы VPN не включить. Переустановите kl!ck или перезагрузите компьютер.'}
+        {isIos
+          ? 'Без движка VPN не включить. Закройте kl!ck смахиванием и откройте снова — если не помогло, перезагрузите устройство.'
+          : transport.kind !== 'tauri' && !canRepair
+            ? 'Тестовая служба недоступна.'
+            : canRepair
+              ? 'Окно работает, но без службы VPN не включить. Перезапустите её — macOS спросит пароль администратора.'
+              : 'Окно работает, но без службы VPN не включить. Переустановите kl!ck или перезагрузите компьютер.'}
         {isMac && state?.kill_switch ? ' Если в Kill Switch есть программы, прямые подключения закрыты, пока служба не вернётся.' : null}
       </span>
       {canRepair ? (

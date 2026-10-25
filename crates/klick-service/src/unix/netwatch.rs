@@ -98,7 +98,7 @@ fn physical(interfaces: Vec<IfAddr>) -> Vec<(String, IpAddr)> {
 type Clocks = (Duration, Duration);
 
 fn clocks() -> Clocks {
-    #[cfg(target_os = "macos")]
+    #[cfg(target_vendor = "apple")]
     {
         let read = |id: libc::clockid_t| {
             let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
@@ -108,8 +108,8 @@ fn clocks() -> Clocks {
         // mach_continuous_time и mach_absolute_time.
         (read(libc::CLOCK_MONOTONIC_RAW), read(libc::CLOCK_UPTIME_RAW))
     }
-    // Не macOS (сборка для разработки): сон видно по настоящим часам против монотонных; перевод часов даст ложный сигнал.
-    #[cfg(not(target_os = "macos"))]
+    // Не macOS и не iOS (сборка для разработки): сон видно по настоящим часам против монотонных; перевод часов даст ложный сигнал.
+    #[cfg(not(target_vendor = "apple"))]
     {
         static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
         let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();

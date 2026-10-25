@@ -1,5 +1,5 @@
 //! Печатает пример конфига для проверки ядром:
-//! `cargo run -p klick-core --example dump_config -- tun|proxy|tester|probe|guard selected|all_vpn [windows|macos]`.
+//! `cargo run -p klick-core --example dump_config -- tun|proxy|tester|probe|guard selected|all_vpn [windows|macos|ios]`.
 
 use klick_core::compile::{compile, compile_guard, compile_probe, compile_tester, Capture, CompileInput, CoreLayout, SetFiles};
 use klick_core::{Catalog, Os, Route, Routing, Rule, Service, Settings, Target};
@@ -14,6 +14,7 @@ fn main() {
     let os = match args.get(3).map(String::as_str) {
         Some("windows") => Os::Windows,
         Some("macos") => Os::MacOs,
+        Some("ios") => Os::Ios,
         _ => Os::CURRENT,
     };
     let layout = CoreLayout {
@@ -21,6 +22,7 @@ fn main() {
         controller: match os {
             Os::Windows => r"\\.\pipe\klick-check".into(),
             Os::MacOs => "/tmp/klick-check.sock".into(),
+            Os::Ios => "127.0.0.1:27893".into(),
         },
         secret: "check".into(),
         mixed_port: 27890,
@@ -52,6 +54,12 @@ fn main() {
                 Rule { target: Target::Ip("1.2.3.0/24".into()), route: Route::Block, enabled: true },
             ]
         }
+        // iOS: программ в правилах нет.
+        Os::Ios => vec![
+            Rule { target: Target::Service("telegram".into()), route: Route::Vpn, enabled: true },
+            Rule { target: Target::Domain("claude.ai".into()), route: Route::Vpn, enabled: true },
+            Rule { target: Target::Ip("1.2.3.0/24".into()), route: Route::Block, enabled: true },
+        ],
     };
     settings.lists.selected = rules.clone();
     settings.lists.all_vpn = rules;

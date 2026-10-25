@@ -812,6 +812,7 @@ export function createMockTransport(): Transport {
     hideTray: () => console.info('[превью] спрятать окно трея'),
     fitTray: () => undefined,
     clipboardText: async () => 'vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc#Превью',
+    scanQr: async () => 'https://panel.example.com/sub/qr-preview',
     repairService: async () => console.info('[превью] перезапуск службы'),
     exit: async (clearProxy) => console.info('[превью] выход', { clearProxy }),
     isActive: async () => document.visibilityState === 'visible' && document.hasFocus(),

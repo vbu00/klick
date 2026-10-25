@@ -1,7 +1,9 @@
 // Темы из макета: палитры основ, цвета акцента и выбор темы. Тему хранит служба (настройки у ПК одни),
 // а окно держит копию в localStorage, чтобы при запуске сразу открыться в своих цветах.
 
-import { OS_NAME } from './platform';
+import { invoke } from '@tauri-apps/api/core';
+import { isIos, OS_NAME } from './platform';
+import { isTauri } from './transport';
 import type { Appearance, ThemeBase, ThemeMode } from './types';
 
 type Palette = Record<string, string>;
@@ -68,6 +70,8 @@ export function applyTheme(v: Palette) {
     if (k !== 'scheme') root.style.setProperty(`--${k}`, value);
   }
   root.style.colorScheme = v.scheme;
+  // iOS: тем же цветом — WKWebView и окно (WebKit не рисует полосу внизу экрана).
+  if (isIos && isTauri()) void invoke('set_background', { color: v.win }).catch(() => undefined);
   try {
     localStorage.setItem(CACHE, key);
   } catch {

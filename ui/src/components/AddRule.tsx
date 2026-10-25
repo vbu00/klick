@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { routeName } from '../lib/i18n';
-import { isMac } from '../lib/platform';
+import { isIos, isMac } from '../lib/platform';
 import { defaultRoute } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { ProgramView, Routing, Rule, Target } from '../lib/types';
@@ -40,6 +40,7 @@ export function AddRule({ position, onClose }: { position: Routing; onClose: () 
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (isIos) return; // вкладки «Программы» на iOS нет
     void transport
       .call<ProgramView[]>('programs')
       .then(setRunning)
@@ -97,7 +98,7 @@ export function AddRule({ position, onClose }: { position: Routing; onClose: () 
         value={tab}
         options={[
           ['services', 'Сервисы'],
-          ['programs', 'Программы'],
+          ...(isIos ? [] : [['programs', 'Программы'] as [Tab, string]]),
           ['site', 'Сайт или IP'],
         ]}
         onChange={setTab}
@@ -120,7 +121,7 @@ export function AddRule({ position, onClose }: { position: Routing; onClose: () 
           </div>
         ) : null}
 
-        {tab === 'programs' ? (
+        {tab === 'programs' && !isIos ? (
           <>
             <div className="ax-caps">Запущены сейчас</div>
             <div className="ax-card">

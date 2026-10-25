@@ -8,7 +8,7 @@ import { Icon } from '../components/Icon';
 import { KsInfo } from '../components/KsInfo';
 import { ProgramList } from '../components/ProgramList';
 import { errorText, exitName, serverDown } from '../lib/i18n';
-import { isMac, OS_NAME, TRAY_NAME } from '../lib/platform';
+import { isIos, isMac, OS_NAME, TRAY_NAME } from '../lib/platform';
 import { plural, programTitle, shortPath } from '../lib/rules';
 import { useStore, useVisible } from '../lib/store';
 import { ACCENTS, BASES, PALETTES, THEME_DESC, THEMES, systemDark } from '../lib/theme';
@@ -149,12 +149,13 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       <SectionHead title="Подключение" />
       <div className="card-list">
-        <Row title="Kill Switch" sub={ks.enabled ? `Вкл · ${plural(ksOn, ['приложение', 'приложения', 'приложений'])}` : 'Выкл'} onClick={() => onSub('ks')} chevron />
+        {/* iOS не говорит, какое приложение открыло соединение: Kill Switch по программам невозможен. */}
+        {isIos ? null : <Row title="Kill Switch" sub={ks.enabled ? `Вкл · ${plural(ksOn, ['приложение', 'приложения', 'приложений'])}` : 'Выкл'} onClick={() => onSub('ks')} chevron />}
         <Row title="Если сервер недоступен" sub={serverDown[settings.on_server_down].title} onClick={() => onSub('down')} chevron />
         <Row
           wrap
           title="Восстанавливать подключение"
-          sub="Если VPN был включён, после перезагрузки он включится сам"
+          sub={isIos ? 'Система сама включит VPN после перезагрузки и при сбое' : 'Если VPN был включён, после перезагрузки он включится сам'}
           right={<Toggle label="Восстанавливать подключение" on={settings.restore_on_logon} onChange={(v) => void store.setPrefs({ restore_on_logon: v })} />}
         />
       </div>
@@ -172,37 +173,43 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       <SectionHead title="Общие" />
       <div className="card-list">
-        <Row title={autostartTitle} sub={`Свёрнутым в ${TRAY_NAME}`} right={<Toggle label={autostartTitle} on={!!autostart} disabled={autostart === null} onChange={(v) => void setAuto(v)} />} />
+        {isIos ? null : <Row title={autostartTitle} sub={`Свёрнутым в ${TRAY_NAME}`} right={<Toggle label={autostartTitle} on={!!autostart} disabled={autostart === null} onChange={(v) => void setAuto(v)} />} />}
         <Row
           wrap
           title="Обновлять подписки"
           sub="Как просит панель, иначе раз в 12 часов"
           right={<Toggle label="Обновлять подписки" on={settings.auto_update} onChange={(v) => void store.setPrefs({ auto_update: v })} />}
         />
-        <Row
-          wrap
-          title="Уведомлять об обрывах"
-          sub={`Уведомление ${OS_NAME}, когда связь пропала и вернулась`}
-          right={<Toggle label="Уведомлять об обрывах" on={settings.notify} onChange={(v) => void store.setPrefs({ notify: v })} />}
-        />
-        <Row title="При выходе из kl!ck" sub={exitName[settings.on_exit]} onClick={() => setExitSheet(true)} chevron />
+        {isIos ? null : (
+          <Row
+            wrap
+            title="Уведомлять об обрывах"
+            sub={`Уведомление ${OS_NAME}, когда связь пропала и вернулась`}
+            right={<Toggle label="Уведомлять об обрывах" on={settings.notify} onChange={(v) => void store.setPrefs({ notify: v })} />}
+          />
+        )}
+        {isIos ? null : <Row title="При выходе из kl!ck" sub={exitName[settings.on_exit]} onClick={() => setExitSheet(true)} chevron />}
         <Row title="Язык" sub="Русский" onClick={() => setLang(true)} chevron />
       </div>
 
-      <SectionHead title="Продвинутые" />
-      <div className="card-list">
-        <Row
-          wrap
-          title="Порт прокси"
-          sub="Для программ, где прокси указывают вручную. Доступен только с этого компьютера."
-          right={
-            <button className="copy-chip" title="Скопировать адрес" onClick={() => void copy(port, 'Адрес скопирован')}>
-              {port}
-              <Icon name="copy" size={13} />
-            </button>
-          }
-        />
-      </div>
+      {isIos ? null : (
+        <>
+          <SectionHead title="Продвинутые" />
+          <div className="card-list">
+            <Row
+              wrap
+              title="Порт прокси"
+              sub="Для программ, где прокси указывают вручную. Доступен только с этого компьютера."
+              right={
+                <button className="copy-chip" title="Скопировать адрес" onClick={() => void copy(port, 'Адрес скопирован')}>
+                  {port}
+                  <Icon name="copy" size={13} />
+                </button>
+              }
+            />
+          </div>
+        </>
+      )}
 
       <SectionHead title="Диагностика" />
       <div className="card-list">
@@ -586,7 +593,7 @@ function LogScreen({ onBack }: { onBack: () => void }) {
           </button>
         </div>
       </div>
-      <div className="sub-lead">Короткий журнал службы, новые записи сверху. Без адресов сайтов, хранится только на этом компьютере.</div>
+      <div className="sub-lead">Короткий журнал службы, новые записи сверху. Без адресов сайтов, хранится только на этом {isIos ? 'устройстве' : 'компьютере'}.</div>
       <div className="log-box">
         {newest.length === 0 ? <div className="log-empty">{lines === null ? 'Загружаю…' : 'Пусто'}</div> : null}
         {newest.map((l, i) => {

@@ -1,0 +1,144 @@
+# Сборка и проверка kl!ck для iOS (iPhone и iPad) на Mac с Xcode: klick-ios.ipa без подписи сертификатом
+# (права VPN и App Group — в подписи ad-hoc, подписывает тот, кто ставит; docs/ios-install.md).
+# Проверки: тесты ядра mihomo для iOS (Go), юнит-тесты общей логики под iOS прямо в симуляторе, содержимое
+# .ipa (scripts/ios/check-ipa.sh), запуск kl!ck в симуляторе (scripts/ios/sim-test.sh) с подключением к
+# своим серверам Hysteria2 и VLESS Reality на этом Mac (scripts/ios/test-servers.sh).
+# Запуск вручную (Actions → iOS → Run workflow) со ссылкой подписки проверяет в симуляторе вместо них
+# настоящие серверы подписки (и AmneziaWG): задержку через каждый ядром в приложении. Туннель Network Extension симулятор не запускает — подключение
+# VPN проверяется на устройстве. Ссылка не сохраняется в репозитории и скрыта в журнале.
+# С флажком «выпустить» .ipa и источник для AltStore/SideStore (klick-altstore.json) уходят в Releases
+# (тег v<версия из Cargo.toml>; если выпуск уже есть — добавляются в него).
+name: iOS
+
+# Правки только документации и сборок Windows сборку для iOS не запускают.
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml', '.github/workflows/macos.yml']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml', '.github/workflows/macos.yml']
+  workflow_dispatch:
+    inputs:
+      sub:
+        description: Ссылка подписки — проверить серверы в симуляторе (необязательно)
+        required: false
+        default: ''
+      release:
+        description: Выпустить — после проверок выложить klick-ios.ipa и klick-altstore.json в Releases (тег v<версия>)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Новый пуш отменяет текущую сборку: проверки на устройстве CI не заменяет, ждать старую незачем.
+# Выпуск (ручной запуск) не отменяется.
+concurrency:
+  group: ios-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      # Ссылку подписки берём из события, а не из env: значения env шаг печатает в журнал.
+      - name: Скрыть ссылку подписки в журнале
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crates/klick-ios/core/go.mod
+          cache-dependency-path: crates/klick-ios/core/go.sum
+
+      - name: Rust и инструменты
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          brew install xcodegen
+          xcodebuild -version
+          rustc -V && go version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            crates/klick-ios -> target
+
+      - name: Ядро mihomo для iOS (Go)
+        working-directory: crates/klick-ios/core
+        run: |
+          tags=with_gvisor,with_low_memory,no_tailscale,no_zerotier,no_easytier,no_fake_tcp
+          go vet -tags "$tags" .
+          go test -tags "$tags" -count=1 .
+
+      - name: Конфиги ядра для iOS (mihomo -t)
+        run: scripts/check-configs.sh
+
+      - name: Юнит-тесты под iOS в симуляторе
+        run: scripts/ios/test-core.sh
+
+      - name: Сборка klick-ios.ipa
+        env:
+          KLICK_RELEASES_REPO: ${{ github.repository }}
+          KLICK_BUILD: ${{ github.run_number }}
+        run: scripts/ios/build.sh --sim
+
+      # Без ссылки владельца — свои серверы Hysteria2 и VLESS Reality на этом Mac (scripts/ios/test-servers.sh):
+      # kl!ck в симуляторе подключается к ним по-настоящему ядром mihomo, собранным для iOS.
+      - name: Запуск в симуляторе
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -z "$sub" ]; then
+            scripts/ios/test-servers.sh >"$RUNNER_TEMP/sub.txt"
+            sub="$(cat "$RUNNER_TEMP/sub.txt")"
+            export KLICK_TEST_EXPECT="hysteria2 1/1;vless 1/1"
+          fi
+          KLICK_TEST_SUB="$sub" scripts/ios/sim-test.sh dist/klick-ios-sim.app
+
+      - name: Источник для AltStore и SideStore
+        if: ${{ !cancelled() }}
+        run: scripts/ios/altstore-source.sh dist/klick-ios.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-ios
+          path: |
+            dist/klick-ios.ipa
+            dist/klick-altstore.json
+            dist/ios-sim*.png
+            dist/ios-sim-service.log
+            dist/ios-sim-system.log
+            dist/klick*.ips
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: klick-ios
+          path: dist
+
+      - name: Выпуск в Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ios/publish-release.sh

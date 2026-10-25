@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import type { Tab } from '../components/Chrome';
+import { isIos } from '../lib/platform';
 import { detect } from '../lib/source';
 import { useStore } from '../lib/store';
 
@@ -84,6 +85,14 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
     );
   }
 
+  /** iOS: QR-код подписки — камерой или из фото; ссылка встаёт в поле, добавляет её человек сам. */
+  const scan = async () => {
+    const text = (await store.transport.scanQr().catch(() => null))?.trim();
+    if (!text) return;
+    setLink(text);
+    setName('');
+  };
+
   const addFile = async (file: File | undefined) => {
     if (!file || busy) return;
     setBusy(true);
@@ -106,6 +115,12 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
 
       {tab === 'link' ? (
         <>
+          {isIos ? (
+            <button className="btn-card" disabled={busy} onClick={() => void scan()}>
+              <Icon name="qr" size={18} />
+              Сканировать QR-код
+            </button>
+          ) : null}
           <textarea
             className={`link-input ${d.kind === 'bad' ? 'bad' : d.kind === 'empty' ? '' : 'ok'}`}
             value={link}

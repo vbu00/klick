@@ -5,6 +5,8 @@ ui/node_modules/
 ui/dist/
 crates/klick-ui/gen/
 crates/klick-setup/gen/
+# iOS: схемы прав Tauri пишет сборка; проект Xcode (gen/apple) — в репозитории.
+crates/klick-ios/gen/schemas/
 dist/
 sandbox/cache/
 /build*.log

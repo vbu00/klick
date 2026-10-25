@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Окно kl!ck на iOS: события службы, ссылки в браузере",
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:default"]
+}

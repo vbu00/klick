@@ -1,5 +1,5 @@
-//! Ядро mihomo: запуск, готовность, остановка и API через именованный канал (Windows)
-//! или Unix-сокет (macOS).
+//! Ядро mihomo: запуск, готовность, остановка и API через именованный канал (Windows),
+//! Unix-сокет (macOS) или порт на 127.0.0.1 с паролем (iOS, ядро там запускает приложение — `ios`).
 
 #[cfg(windows)]
 use crate::win::Job;
@@ -10,15 +10,23 @@ use hyper::header::{AUTHORIZATION, CONTENT_TYPE, HOST};
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::Path;
-use std::process::Stdio;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ClientOptions;
-use tokio::sync::oneshot;
+// Процесс ядра — только на Windows и macOS; на iOS ядро запускает приложение.
+#[cfg(not(target_os = "ios"))]
+use {
+    std::collections::VecDeque,
+    std::process::Stdio,
+    std::sync::Mutex,
+    std::time::Instant,
+    tokio::io::{AsyncBufReadExt, BufReader},
+    tokio::sync::oneshot,
+};
 
 #[cfg(windows)]
 const ERROR_PIPE_BUSY: i32 = 231;
@@ -58,13 +66,19 @@ impl CoreApi {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "ios")))]
     async fn open(&self) -> Result<Box<dyn CoreStream>> {
         #[cfg(test)]
         if let Some(address) = self.pipe.strip_prefix("tcp://") {
             return Ok(Box::new(tokio::net::TcpStream::connect(address).await?));
         }
         Ok(Box::new(tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")?))
+    }
+
+    #[cfg(target_os = "ios")]
+    async fn open(&self) -> Result<Box<dyn CoreStream>> {
+        let address = self.pipe.strip_prefix("tcp://").unwrap_or(&self.pipe);
+        Ok(Box::new(tokio::net::TcpStream::connect(address).await.context("вход управления ядра недоступен")?))
     }
 
     async fn send(&self, method: Method, path: &str, body: Option<&Value>) -> Result<hyper::Response<hyper::body::Incoming>> {
@@ -345,7 +359,11 @@ pub fn enc(s: &str) -> String {
     out
 }
 
+#[cfg(target_os = "ios")]
+pub use crate::ios::CoreProcess;
+
 /// Работающий процесс ядра.
+#[cfg(not(target_os = "ios"))]
 pub struct CoreProcess {
     pub api: CoreApi,
     pub pid: Option<u32>,
@@ -359,6 +377,7 @@ pub struct CoreProcess {
     tail: Arc<Mutex<VecDeque<String>>>,
 }
 
+#[cfg(not(target_os = "ios"))]
 impl CoreProcess {
     /// Запускает ядро и ждёт, пока ответит API (до 10 с).
     /// `on_exit` вызывается, только если ядро завершилось само, а не по `stop`.

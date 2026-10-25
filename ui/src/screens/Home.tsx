@@ -10,7 +10,7 @@ import { SwitchDiagram } from '../components/SwitchDiagram';
 import { buildPath, daysLeft, fmtBytes, fmtDate, fmtMbps, fmtRate, fmtTimer, fmtTraffic, fmtUsed, pingColor, pingText, protocolName } from '../lib/format';
 import { errorText, modeName, routingName } from '../lib/i18n';
 import { countryName, parseServer } from '../lib/countries';
-import { isMac } from '../lib/platform';
+import { isIos, isMac } from '../lib/platform';
 import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import { useStore, useTraffic } from '../lib/store';
@@ -167,7 +167,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
       <div className="chip-row">
         <button className="mode-chip" onClick={() => onTab('connection')}>
           <span className="dot7" style={{ background: dot }} />
-          {modeName[state.mode]} · {routingName[state.routing]}
+          {isIos ? routingName[state.routing] : `${modeName[state.mode]} · ${routingName[state.routing]}`}
         </button>
       </div>
 
@@ -195,7 +195,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
             <small>{errorText(state.error ?? '')}</small>
           </div>
         </div>
-      ) : neighbors.length && state.mode === 'tun' ? (
+      ) : !isIos && neighbors.length && state.mode === 'tun' ? (
         <button className="banner" onClick={() => setHelpOpen(true)} style={{ cursor: 'pointer' }}>
           <span className="dot7" />
           <div>
@@ -203,7 +203,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
             <small>Нажмите, чтобы узнать, что сделать</small>
           </div>
         </button>
-      ) : browserProxy.length && state.mode === 'sys_proxy' ? (
+      ) : !isIos && browserProxy.length && state.mode === 'sys_proxy' ? (
         <button className="banner" onClick={() => setBrowserHelp(true)} style={{ cursor: 'pointer' }}>
           <span className="dot7" />
           <div>
@@ -730,8 +730,8 @@ function Empty({ onAdd }: { onAdd: () => void }) {
         <div className="step">
           <div className="step-n">2</div>
           <div>
-            <b>Выберите режим</b>
-            <span>По умолчанию VPN (TUN) — работает для всех программ</span>
+            <b>{isIos ? 'Выберите, что пускать в VPN' : 'Выберите режим'}</b>
+            <span>{isIos ? 'Весь трафик или только нужные сайты и сервисы' : 'По умолчанию VPN (TUN) — работает для всех программ'}</span>
           </div>
         </div>
         <div className="step">

@@ -1,0 +1,11 @@
+xcuserdata/
+build/
+Externals/
+# Проект Xcode собирается из project.yml (xcodegen) в scripts/ios/build.sh.
+*.xcodeproj/
+# Ресурсы kl!ck (наборы, каталог, база стран) кладёт scripts/ios/build.sh.
+klick-resources/
+# Info.plist и права обоих таргетов xcodegen пишет из project.yml (info.properties, entitlements.properties).
+klick-ios_iOS/Info.plist
+KlickTunnel/Info.plist
+*.entitlements

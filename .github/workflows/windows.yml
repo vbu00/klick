@@ -18,9 +18,9 @@ name: Windows
 
 on:
   push:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml', 'crates/klick-ios/**', 'scripts/ios/**', '.github/workflows/ios.yml']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'scripts/macos/**', '.github/workflows/macos.yml', 'crates/klick-ios/**', 'scripts/ios/**', '.github/workflows/ios.yml']
   workflow_dispatch:
     inputs:
       source:
