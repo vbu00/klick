@@ -502,6 +502,10 @@ fn code_name<T: serde::Serialize>(v: &T) -> String {
 
 /// Версия ядра из `mihomo -v`: «Mihomo Meta v1.19.31 windows amd64 …» → «v1.19.31».
 fn core_version(exe: &Path) -> Option<String> {
+    // iOS: ядро — библиотека в процессе, отдельной программы нет (Paths::ios).
+    if exe.as_os_str().is_empty() {
+        return None;
+    }
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("-v");
     #[cfg(windows)]

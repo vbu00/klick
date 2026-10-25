@@ -20,9 +20,25 @@ launch() { # launch <вкладка>
     SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$1" xcrun simctl launch "$device" "$bundle_id" >/dev/null
 }
 alive() { xcrun simctl spawn "$device" launchctl list | grep -q "$bundle_id"; }
+# Отчёт о падении (симулятор пишет их в ~/Library/Logs/DiagnosticReports хоста): причина и верх
+# упавшего потока — в журнал CI, сам отчёт — в dist.
+crash() { # crash <метка>
+    local ips
+    ips="$(ls -t "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips 2>/dev/null | head -1)"
+    [[ -n "$ips" ]] || { echo "     отчёта о падении нет"; return 0; }
+    cp "$ips" "$root/dist/ios-beta-crash-$1.ips"
+    tail -n +2 "$ips" | jq -r '
+        "     \(.exception.type // "?") \(.exception.signal // "") \(.exception.subtype // "")",
+        (.asi // {} | to_entries[] | "     \(.key): \(.value | join(" "))"),
+        (.usedImages as $img | .threads[] | select(.triggered == true) | .frames[:25][]
+            | "     \($img[.imageIndex].name // "?") \(.symbol // "0x\(.imageOffset)")")' 2>/dev/null | head -40 || true
+    rm -f "$ips"
+    xcrun simctl spawn "$device" log show --last 2m --style compact --predicate 'process == "KlickNative" AND messageType >= 16' 2>/dev/null | tail -15 || true
+}
 shot() { xcrun simctl io "$device" screenshot "$root/dist/ios-beta-$1.png" >/dev/null 2>&1 && echo "снимок: dist/ios-beta-$1.png"; }
 
 mkdir -p "$root/dist"
+rm -f "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips
 bad=0
 xcrun simctl ui "$device" appearance light
 launch 0
@@ -33,19 +49,19 @@ if grep -q "данные:" "$log" 2>/dev/null; then echo "ok   движок за
 # Подписка, список серверов и задержка через каждый — до полуминуты.
 if [[ -n "${KLICK_TEST_SUB:-}" ]]; then sleep 30; else sleep 6; fi
 shot home-light
-if alive; then echo "ok   приложение работает"; else echo "FAIL приложение закрылось"; bad=1; fi
+if alive; then echo "ok   приложение работает"; else echo "FAIL приложение закрылось"; crash home; bad=1; fi
 for tab in 1 2; do
     launch "$tab"
     sleep 6
     shot "tab$tab-light"
-    alive || { echo "FAIL вкладка $tab: приложение закрылось"; bad=1; }
+    alive || { echo "FAIL вкладка $tab: приложение закрылось"; crash "tab$tab-light"; bad=1; }
 done
 xcrun simctl ui "$device" appearance dark
 for tab in 0 2; do
     launch "$tab"
     sleep 6
     shot "tab$tab-dark"
-    alive || { echo "FAIL тёмная тема, вкладка $tab: приложение закрылось"; bad=1; }
+    alive || { echo "FAIL тёмная тема, вкладка $tab: приложение закрылось"; crash "tab$tab-dark"; bad=1; }
 done
 xcrun simctl ui "$device" appearance light
 grep -E "ERROR|паника|panicked" "$log" 2>/dev/null | tail -5 || true
