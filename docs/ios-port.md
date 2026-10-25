@@ -153,7 +153,7 @@ SideStore — с суффиксом команды, `ALTBundleIdentifier`, `ALTA
 
 `scripts/ios/altstore-source.sh` пишет `klick-altstore.json`; выпуск кладёт его рядом с `.ipa`, и
 постоянная ссылка на источник —
-`https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`. Один файл понимают
+`https://github.com/vbu00/klick/releases/latest/download/klick-altstore.json`. Один файл понимают
 все: список `versions` (AltStore, SideStore, Feather), те же сведения плоско в приложении (ESign и
 старые AltStore), `"version": 2` наверху (без него SideStore не сверяет права), `sha256` у версии
 (AltStore и SideStore проверяют `.ipa`). Права в `appPermissions` — ровно те, что в `.ipa`.

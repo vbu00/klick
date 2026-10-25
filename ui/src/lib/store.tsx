@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { DROP_NOTICES, errorText, noticeTarget, noticeText } from './i18n';
+import { isIos } from './platform';
 import { detect } from './source';
 import { planToggle, positionVerb } from './live';
 import { probeCounts } from './probe';
@@ -479,7 +480,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
   // Ссылка на подписку или сервер в буфере обмена — предложить добавить (при запуске и когда окно снова
   // в фокусе). Одну и ту же ссылку предлагаем один раз; хранится только её отметка, не сама ссылка.
   useEffect(() => {
-    if (transport.window !== 'main') return;
+    // iOS на каждое чтение буфера спрашивает «Разрешить вставку?» — там только кнопка «Вставить».
+    if (transport.window !== 'main' || isIos) return;
     const check = async () => {
       const text = (await transport.clipboardText().catch(() => '')).trim();
       if (!text || text.length > 4096) return;

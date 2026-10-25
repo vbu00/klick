@@ -28,7 +28,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 # Новый пуш отменяет текущую сборку: проверки на устройстве CI не заменяет, ждать старую незачем.
 # Выпуск (ручной запуск) не отменяется.
@@ -130,6 +130,8 @@ jobs:
     needs: build
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.release && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 

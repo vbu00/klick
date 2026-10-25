@@ -12,10 +12,10 @@ Extension), и для него в подписи нужны два права: *
 
 Где взять файл:
 
-* выпуск: `https://github.com/limeflash/klick/releases/latest/download/klick-ios.ipa`;
+* выпуск: `https://github.com/vbu00/klick/releases/latest/download/klick-ios.ipa`;
 * источник для FlareStore, AltStore, SideStore, Feather и ESign (приложение появится в списке и будет
   обновляться):
-  `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`;
+  `https://github.com/vbu00/klick/releases/latest/download/klick-altstore.json`;
 * сборка из любой ветки — артефакт `klick-ios` в Actions → iOS.
 
 ## Сначала: режим разработчика (iOS 16 и новее)
@@ -42,7 +42,7 @@ Groups, а его приложение подписывает и ставит `.
    их подписчик в браузере — сертификат подхватится сам. Если нет: FlareStore → Settings → Certificates →
    Add Certificate, добавить `.p12` и `.mobileprovision` из пакета (и пароль `.p12`, если он есть).
 2. Добавить источник kl!ck — FlareStore понимает формат AltStore/SideStore:
-   `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json` — и скачать kl!ck
+   `https://github.com/vbu00/klick/releases/latest/download/klick-altstore.json` — и скачать kl!ck
    оттуда. Или на главной «+ Import» → `klick-ios.ipa`.
 3. Library → kl!ck → **Sign**, затем **Install** и согласиться на запрос установки.
 
@@ -77,7 +77,7 @@ kl!ck). `.p12` и профиль из пакета подходят и для ES
 ## Способ 3. SideStore с платным аккаунтом
 
 1. Поставить SideStore по [инструкции SideStore](https://docs.sidestore.io/) и войти **платным** Apple ID.
-2. Sources → + → `https://github.com/limeflash/klick/releases/latest/download/klick-altstore.json`,
+2. Sources → + → `https://github.com/vbu00/klick/releases/latest/download/klick-altstore.json`,
    установить kl!ck. Или Browse → + → выбрать `klick-ios.ipa`.
 
 SideStore сам заведёт App ID с правами VPN и App Groups. Подпись — на год. На время обновления через

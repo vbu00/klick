@@ -7,7 +7,7 @@
 set -euo pipefail
 ipa="${1:?путь к .ipa}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-repo="${GITHUB_REPOSITORY:-limeflash/klick}"
+repo="${GITHUB_REPOSITORY:-vbu00/klick}"
 # Версии — из самого .ipa: AltStore и SideStore сверяют их с источником.
 plist="$(mktemp)"
 trap 'rm -f "$plist"' EXIT
