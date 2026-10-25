@@ -63,6 +63,11 @@ def gh(*args):
     return subprocess.run(['gh', *args], check=True, capture_output=True, encoding='utf-8').stdout
 
 
+def download(url, path):
+    """curl с повторами и докачкой: с GitHub из России канал бывает в сотни КБ/с и рвётся."""
+    subprocess.run(['curl', '-fsSL', '--retry', '8', '--retry-all-errors', '--retry-delay', '3', '-C', '-', '-o', str(path), url], check=True)
+
+
 def sign(tag):
     key = load_key()
     version = tag.removeprefix('v')
@@ -76,10 +81,15 @@ def sign(tag):
     for name in names:
         if name not in assets:
             print(f'{name}: нет в выпуске — пропускаю (выложите и подпишите ещё раз)')
+    # Уже подписанное не трогаем: подпись одна на файл, а канал до GitHub бывает в сотни КБ/с.
+    signed = [n for n in found if f'{n}.sig' in assets]
+    for name in signed:
+        print(f'{name}: подпись уже есть — пропускаю')
+    found = [n for n in found if n not in signed]
     with tempfile.TemporaryDirectory() as tmp:
         for name in found:
             expected = (assets[name].get('digest') or '').removeprefix('sha256:')
-            gh('release', 'download', tag, '--repo', REPO, '--pattern', name, '--dir', tmp)
+            download(assets[name]['browser_download_url'], Path(tmp) / name)
             digest = hashlib.sha256((Path(tmp) / name).read_bytes()).hexdigest()
             if expected and digest != expected:
                 sys.exit(f'{name}: sha256 скачанного {digest} не совпал с записанным GitHub {expected} — не подписываю')

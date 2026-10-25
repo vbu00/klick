@@ -344,6 +344,8 @@ pub enum Event {
     Settings,
     /// Задержку серверов подключения измерили (в любом окне): окна перечитывают список серверов.
     Servers { connection: String },
+    /// Ход обновления в один клик: `stage` — `download` (скачано `got` из `total` байт), `verify`, `install`.
+    UpdateProgress { stage: String, got: u64, total: u64 },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

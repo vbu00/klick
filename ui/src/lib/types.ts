@@ -305,4 +305,6 @@ export type KEvent =
   /** Настройки изменились (в этом окне, в другом или из консоли) — перечитать. */
   | { ev: 'settings' }
   /** Задержку серверов подключения измерили — в этом окне или в другом. */
-  | { ev: 'servers'; connection: string };
+  | { ev: 'servers'; connection: string }
+  /** Ход обновления в один клик: скачано `got` из `total` байт, потом проверка подписи и установка. */
+  | { ev: 'update_progress'; stage: 'download' | 'verify' | 'install'; got: number; total: number };

@@ -28,6 +28,19 @@ const AUTHORS: [string, string, string][] = [
   ['limeflash', 'Порты на macOS и iOS', 'https://github.com/limeflash'],
 ];
 
+type UpdateProgress = { stage: 'download' | 'verify' | 'install'; got: number; total: number } | null;
+
+const updatePct = (p: UpdateProgress) => (p && p.total ? Math.min(100, Math.floor((p.got / p.total) * 100)) : 0);
+
+/** Что сейчас с обновлением: «Скачиваю 12.4 из 40.1 МБ», «Проверяю подпись», «Ставлю…». */
+function updateStage(p: UpdateProgress): string {
+  if (!p) return 'Готовлюсь к загрузке…';
+  const mb = (b: number) => (b / 1048576).toFixed(1);
+  if (p.stage === 'download') return `Скачиваю ${mb(p.got)} из ${mb(p.total)} МБ`;
+  if (p.stage === 'verify') return 'Проверяю подпись автора';
+  return 'Ставлю — окно закроется и через минуту откроется снова';
+}
+
 /** Скопировать в буфер обмена и сказать об этом. */
 function useCopy() {
   const { toast } = useStore();
@@ -137,13 +150,18 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
           <Row
             wrap
             title={`Доступна kl!ck ${store.state.update}`}
-            sub={store.updating ? 'Скачиваю и ставлю — окно закроется и откроется снова' : 'Обновление в один клик, настройки и подключения останутся'}
+            sub={store.updating ? updateStage(store.updateProgress) : 'Обновление в один клик, настройки и подключения останутся'}
             right={
               <button className="btn-elem strong" disabled={store.updating} onClick={() => void store.installUpdate()}>
-                {store.updating ? 'Ставлю…' : 'Обновить'}
+                {!store.updating ? 'Обновить' : store.updateProgress?.stage === 'download' ? `${updatePct(store.updateProgress)}%` : 'Ставлю…'}
               </button>
             }
           />
+          {store.updating ? (
+            <div className="update-bar">
+              <i style={{ width: `${store.updateProgress?.stage === 'download' ? updatePct(store.updateProgress) : store.updateProgress ? 100 : 0}%` }} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 

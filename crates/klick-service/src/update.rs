@@ -172,9 +172,12 @@ fn updates_dir(paths: &Paths) -> PathBuf {
     paths.data.join("updates")
 }
 
+/// Как идёт обновление — окну: этап (`download`, `verify`, `install`), скачано и всего байт.
+pub type Progress<'a> = &'a (dyn Fn(&str, u64, u64) + Send + Sync);
+
 /// Скачать, проверить и запустить установщик последнего выпуска. `Ok(версия)` — установщик
 /// запущен: скоро он остановит службу и окно, а потом новая служба откроет окно снова.
-pub async fn install(paths: &Paths) -> Result<String, ErrorInfo> {
+pub async fn install(paths: &Paths, progress: Progress<'_>) -> Result<String, ErrorInfo> {
     if !SUPPORTED {
         return Err(ErrorInfo::new("update.manual"));
     }
@@ -206,9 +209,10 @@ pub async fn install(paths: &Paths) -> Result<String, ErrorInfo> {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|_| ErrorInfo::new("update.download"))?;
     let part = dir.join(format!("{name}.part"));
-    let digest = download(&http, &installer.url, &part, installer.size).await.inspect_err(|_| {
+    let digest = download(&http, &installer.url, &part, installer.size, progress).await.inspect_err(|_| {
         let _ = std::fs::remove_file(&part);
     })?;
+    progress("verify", installer.size, installer.size);
     if !signature_ok(UPDATE_KEY, &name, &digest, &sig) {
         let _ = std::fs::remove_file(&part);
         tracing::warn!("обновление {}: подпись не прошла проверку, установка отменена", release.version);
@@ -220,6 +224,7 @@ pub async fn install(paths: &Paths) -> Result<String, ErrorInfo> {
     let pending = Pending { from: current(), to: release.version.clone(), at: crate::engine::unix_now() };
     crate::storage::write_atomic(&pending_path(paths), &serde_json::to_vec(&pending).map_err(|_| ErrorInfo::new("update.start_failed"))?)
         .map_err(|_| ErrorInfo::new("update.start_failed"))?;
+    progress("install", installer.size, installer.size);
     if let Err(e) = start_installer(&exe, &paths.logs.join("update.log")) {
         let _ = std::fs::remove_file(pending_path(paths));
         tracing::error!("установщик обновления не запустился: {e}");
@@ -230,7 +235,7 @@ pub async fn install(paths: &Paths) -> Result<String, ErrorInfo> {
 }
 
 /// Скачать в `path` ровно `size` байт; sha256 скачанного.
-async fn download(http: &reqwest::Client, url: &str, path: &Path, size: u64) -> Result<String, ErrorInfo> {
+async fn download(http: &reqwest::Client, url: &str, path: &Path, size: u64, progress: Progress<'_>) -> Result<String, ErrorInfo> {
     use sha2::{Digest, Sha256};
     use std::io::Write;
     let fail = |_| ErrorInfo::new("update.download");
@@ -238,8 +243,15 @@ async fn download(http: &reqwest::Client, url: &str, path: &Path, size: u64) -> 
     let mut file = std::fs::File::create(path).map_err(|_| ErrorInfo::new("update.download"))?;
     let mut hash = Sha256::new();
     let mut got = 0u64;
+    let mut told = std::time::Instant::now();
+    progress("download", 0, size);
     while let Some(chunk) = resp.chunk().await.map_err(fail)? {
         got += chunk.len() as u64;
+        // Окну — не чаще раза в 300 мс: полоса и так плавная, а событий не тысячи.
+        if told.elapsed() >= std::time::Duration::from_millis(300) || got >= size {
+            told = std::time::Instant::now();
+            progress("download", got.min(size), size);
+        }
         if got > size {
             return Err(ErrorInfo::new("update.download"));
         }

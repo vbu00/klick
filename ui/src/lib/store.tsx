@@ -78,6 +78,8 @@ interface S {
   incoming: IncomingLink | null;
   /** Ставится обновление: окно скоро закроется и откроется уже новой версией. */
   updating: boolean;
+  /** Как идёт обновление — от службы; null — ещё не началось. */
+  updateProgress: { stage: 'download' | 'verify' | 'install'; got: number; total: number } | null;
 }
 
 type A =
@@ -102,6 +104,7 @@ type A =
   | { t: 'nav'; target: string | null }
   | { t: 'incoming'; link: IncomingLink | null }
   | { t: 'updating'; on: boolean }
+  | { t: 'updateProgress'; progress: S['updateProgress'] }
   | { t: 'list'; position: Routing; list: Rule[] };
 
 const HIST = 60;
@@ -128,6 +131,7 @@ const initial: S = {
   nav: null,
   incoming: null,
   updating: false,
+  updateProgress: null,
 };
 
 const running = (st: StateView | null) => !!st && (st.vpn === 'connected' || st.vpn === 'reconnecting' || st.vpn === 'server_down');
@@ -171,7 +175,9 @@ function reducer(s: S, a: A): S {
     case 'incoming':
       return { ...s, incoming: a.link };
     case 'updating':
-      return { ...s, updating: a.on };
+      return { ...s, updating: a.on, updateProgress: a.on ? s.updateProgress : null };
+    case 'updateProgress':
+      return { ...s, updateProgress: a.progress };
     case 'names':
       return { ...s, programNames: { ...s.programNames, ...a.names } };
     case 'killswitch':
@@ -397,6 +403,8 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
             void loadServers(settings.active_connection);
           });
         }
+      } else if (e.ev === 'update_progress') {
+        dispatch({ t: 'updateProgress', progress: { stage: e.stage, got: e.got, total: e.total } });
       } else if (e.ev === 'servers') {
         // Замерили в другом окне (или в этом): свежие задержки и «нет ответа» — после замера.
         // Команда `servers` отдаёт список активного подключения: событие о другом не грузим, иначе чужой список ляжет под его ID.

@@ -1070,9 +1070,12 @@ impl Engine {
             return;
         }
         self.updating = true;
-        let (paths, tx) = (self.paths.clone(), self.tx.clone());
+        let (paths, tx, events) = (self.paths.clone(), self.tx.clone(), self.events.clone());
         tokio::spawn(async move {
-            let result = update::install(&paths).await;
+            let progress = move |stage: &str, got: u64, total: u64| {
+                let _ = events.send(Event::UpdateProgress { stage: stage.into(), got, total });
+            };
+            let result = update::install(&paths, &progress).await;
             let ok = result.is_ok();
             let _ = reply.send(result.map(|v| json!({ "version": v })));
             let _ = tx.send(Msg::UpdateFinished { ok }).await;

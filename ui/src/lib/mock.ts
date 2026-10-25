@@ -675,9 +675,17 @@ class MockService {
         const u: UpdateView = { current: '0.4.0', latest: '0.3.0', url: 'https://github.com/vbu00/klick/releases/tag/v0.3.0', newer: false, installable: false };
         return u;
       }
-      case 'install_update':
-        await wait(1500);
-        return { version: '0.5.3' };
+      case 'install_update': {
+        const total = 41 * 1048576;
+        for (let got = 0; got < total; got += 2.3 * 1048576) {
+          this.emit({ ev: 'update_progress', stage: 'download', got, total });
+          await wait(250);
+        }
+        this.emit({ ev: 'update_progress', stage: 'verify', got: total, total });
+        await wait(600);
+        this.emit({ ev: 'update_progress', stage: 'install', got: total, total });
+        return { version: '0.5.4' };
+      }
       case 'catalog':
         return { services: CATALOG };
       case 'programs':

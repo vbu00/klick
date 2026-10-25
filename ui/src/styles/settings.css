@@ -160,3 +160,7 @@
 .btn-elem.strong { background: var(--text); color: var(--onText); font-weight: 600; flex-shrink: 0; }
 .btn-elem.strong:hover { background: var(--text); opacity: 0.9; }
 .btn-elem.strong:disabled { background: var(--elem); color: var(--dim); opacity: 1; cursor: default; transform: none; }
+
+/* Ход обновления под строкой «Доступна kl!ck …» */
+.update-bar { height: 4px; margin: 0 16px 14px; border-radius: 2px; background: var(--elem); overflow: hidden; }
+.update-bar i { display: block; height: 100%; border-radius: 2px; background: var(--text); transition: width 0.3s ease; }
