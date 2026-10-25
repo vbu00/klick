@@ -437,6 +437,7 @@
 .srv-name { font-size: 14px; font-weight: 500; }
 .srv-proto { font-size: 12px; color: var(--dim); }
 .srv .num { font-size: 13px; }
+.srv-note { font-size: 12px; color: var(--dim); margin: -2px 0 8px; }
 .srv-empty { padding: 4px 8px 8px; font-size: 12px; color: var(--dim); line-height: 1.45; }
 .kv { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 10px; }
 .kv div { display: flex; justify-content: space-between; font-size: 13px; }

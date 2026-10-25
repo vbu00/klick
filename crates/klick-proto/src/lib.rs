@@ -55,6 +55,8 @@ pub enum Command {
     SelectConnection { id: String },
     /// Серверы активного подключения.
     Servers,
+    /// Серверы любого подключения — посмотреть, не переключаясь на него.
+    ConnectionServers { id: String },
     SelectServer { name: String },
     /// Проверить задержку всех серверов активного подключения.
     TestLatency,

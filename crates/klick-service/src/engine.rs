@@ -756,6 +756,7 @@ impl Engine {
             Command::RemoveConnection { id } => self.remove(&id).await,
             Command::SelectConnection { id } => self.select_connection(&id).await,
             Command::Servers => self.list_servers().await,
+            Command::ConnectionServers { id } => self.connection_servers(&id).await,
             // Обычно идёт в фоне (run → test_latency); сюда попадает только как список.
             Command::TestLatency => self.list_servers().await,
             Command::Probe => Err(ErrorInfo::new("probe.unexpected")),
@@ -2559,6 +2560,27 @@ impl Engine {
             None => (run_tester(self.paths.clone(), self.profile.tester_pipe.clone(), conn.id.clone(), false).await?.0, None),
         };
         serde_json::to_value(self.store_servers(&conn, list, None, now, None)).map_err(internal)
+    }
+
+    /// Серверы подключения, на которое не переключались: из запомненного списка или проверочным ядром.
+    /// Работающий VPN не трогаем — у проверочного ядра свой вход управления и ни одного порта.
+    async fn connection_servers(&mut self, id: &str) -> Result<Value, ErrorInfo> {
+        if self.settings.active_connection.as_deref() == Some(id) {
+            return self.list_servers().await;
+        }
+        let conn = self.settings.connections.iter().find(|c| c.id == id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+        if let Some(cached) = self.servers.get(id) {
+            return serde_json::to_value(cached).map_err(internal);
+        }
+        if !self.paths.provider_file(id).exists() {
+            self.download(id).await?;
+        }
+        // Без VPN тем же проверочным ядром меряется задержка: пока замер идёт, второе ядро не запускаем.
+        if self.running.is_none() && !self.latency_waiters.is_empty() {
+            return Err(ErrorInfo::new("servers.busy"));
+        }
+        let list = run_tester(self.paths.clone(), self.profile.tester_pipe.clone(), id.to_string(), false).await?.0;
+        serde_json::to_value(self.store_servers(&conn, list, None, None, None)).map_err(internal)
     }
 
     fn probe(&mut self, reply: Reply) {

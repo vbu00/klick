@@ -38,6 +38,8 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const [viewId, setViewId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [switchTo, setSwitchTo] = useState<string | null>(null);
+  /** Сервер, выбранный в другой подписке под VPN: поставить его после переключения. */
+  const [switchServer, setSwitchServer] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [browserHelp, setBrowserHelp] = useState(false);
   const { nav, consumeNav } = store;
@@ -115,16 +117,27 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
     await store.connect();
   };
 
-  const pickConnection = async (c: Connection) => {
+  // Нажатие на подписку только показывает её: активной она станет, когда в ней включат VPN или выберут сервер.
+  const pickConnection = (c: Connection) => {
     setExpanded(false);
     setViewId(c.id);
-    if (!isRunning && c.id !== activeId) await store.selectConnection(c.id);
+  };
+
+  // Сервер в подписке, которая сейчас не активна: это и есть переключение на неё. Под VPN — с вопросом.
+  const pickOtherServer = async (name: string) => {
+    if (isRunning) {
+      setSwitchServer(name);
+      setSwitchTo(view.id);
+      return;
+    }
+    if (await store.selectConnection(view.id)) await store.selectServer(name);
   };
 
   const toggleExpand = () => {
     const next = !expanded;
     setExpanded(next);
     if (next && isActiveView && list.length > 1 && list.every((s) => s.delay == null)) void store.testLatency();
+    if (next && !isActiveView && !servers[view.id]) void store.viewServers(view.id);
   };
 
   return (
@@ -203,7 +216,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
       {conns.length > 1 ? (
         <div className="pchips">
           {conns.map((c) => (
-            <button key={c.id} className={c.id === view.id ? 'pchip on' : 'pchip'} onClick={() => void pickConnection(c)}>
+            <button key={c.id} className={c.id === view.id ? 'pchip on' : 'pchip'} onClick={() => pickConnection(c)}>
               {isRunning && c.id === liveId ? <span className="live" /> : null}
               <span>
                 <FlagName name={c.name} />
@@ -222,15 +235,24 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
         list={list}
         current={current}
         expanded={expanded}
-        pinging={pinging}
+        pinging={pinging && isActiveView}
         onToggle={toggleExpand}
-        onExpand={() => setExpanded(true)}
+        onExpand={() => {
+          setExpanded(true);
+          if (!isActiveView && !servers[view.id]) void store.viewServers(view.id);
+        }}
+        onPickOther={(name) => void pickOtherServer(name)}
       />
 
       <Speed />
 
       {switchTo ? (
-        <Sheet onClose={() => setSwitchTo(null)}>
+        <Sheet
+          onClose={() => {
+            setSwitchTo(null);
+            setSwitchServer(null);
+          }}
+        >
           <h3>Сменить подключение?</h3>
           <p>
             Сейчас работает <b>{conns.find((c) => c.id === liveId)?.name}</b>. Текущее соединение разорвётся на пару секунд, и трафик пойдёт через{' '}
@@ -238,13 +260,21 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
           </p>
           <SwitchDiagram liveName={conns.find((c) => c.id === liveId)?.name ?? ''} targetName={conns.find((c) => c.id === switchTo)?.name ?? ''} />
           <div className="sheet-actions" style={{ marginTop: 16 }}>
-            <button onClick={() => setSwitchTo(null)}>Отмена</button>
+            <button
+              onClick={() => {
+                setSwitchTo(null);
+                setSwitchServer(null);
+              }}
+            >
+              Отмена
+            </button>
             <button
               className="accent"
               onClick={() => {
-                const id = switchTo;
+                const [id, server] = [switchTo, switchServer];
                 setSwitchTo(null);
-                void store.selectConnection(id);
+                setSwitchServer(null);
+                void store.selectConnection(id).then((ok) => (ok && server ? store.selectServer(server) : undefined));
               }}
             >
               Переключить
@@ -316,8 +346,12 @@ function ProfileCard(props: {
   pinging: boolean;
   onToggle: () => void;
   onExpand: () => void;
+  /** Выбрать сервер в подписке, которая сейчас не активна. */
+  onPickOther: (name: string) => void;
 }) {
   const store = useStore();
+  // В активной подписке — сменить сервер; в другой — перейти в неё (решает Home).
+  const pick = (name: string) => (props.isActive ? void store.selectServer(name) : props.onPickOther(name));
   const { conn, list, current, pinging } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -459,24 +493,27 @@ function ProfileCard(props: {
 
         {props.expanded ? (
           <div className="servers">
-            {!props.isActive ? (
-              <div className="srv-empty">Серверы этого подключения появятся, когда вы переключитесь на него.</div>
-            ) : isSub || list.length > 1 ? (
+            {isSub || list.length > 1 || !props.isActive ? (
               <>
                 <div className="servers-head">
                   <div className="caps">
                     Серверы · {list.length}
                     {byCountry ? ` · ${plural(countries, ['страна', 'страны', 'стран'])}` : ''}
                   </div>
-                  <button className="btn-elem" onClick={() => void store.testLatency()} disabled={pinging}>
-                    {pinging ? 'Проверяем…' : 'Проверить задержку'}
-                  </button>
+                  {props.isActive ? (
+                    <button className="btn-elem" onClick={() => void store.testLatency()} disabled={pinging}>
+                      {pinging ? 'Проверяем…' : 'Проверить задержку'}
+                    </button>
+                  ) : null}
                 </div>
-                {list.length === 0 ? <div className="srv-empty">Серверов пока нет. Обновите подписку — список придёт от панели.</div> : null}
+                {!props.isActive && list.length ? <div className="srv-note">Выберите сервер — kl!ck перейдёт на это подключение.</div> : null}
+                {list.length === 0 ? (
+                  <div className="srv-empty">{props.isActive || store.servers[conn.id] ? 'Серверов пока нет. Обновите подписку — список придёт от панели.' : 'Загружаю список серверов…'}</div>
+                ) : null}
                 {byCountry ? (
-                  <ServerCountries list={list} current={current} pinging={pinging} tested={!!store.tested[conn.id]} onPick={(name) => void store.selectServer(name)} />
+                  <ServerCountries list={list} current={current} pinging={pinging} tested={!!store.tested[conn.id]} onPick={pick} />
                 ) : list.map((s) => (
-                  <button key={s.name} className={s.name === current?.name ? 'srv on' : 'srv'} onClick={() => s.name !== current?.name && void store.selectServer(s.name)}>
+                  <button key={s.name} className={s.name === current?.name ? 'srv on' : 'srv'} onClick={() => (props.isActive ? s.name !== current?.name : true) && pick(s.name)}>
                     <span className="radio">
                       <i />
                     </span>

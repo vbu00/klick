@@ -478,6 +478,9 @@ class MockService {
         return this.st;
       case 'servers':
         return this.servers[this.settings.active_connection ?? ''] ?? [];
+      case 'connection_servers':
+        await wait(500);
+        return this.servers[args.id as string] ?? [];
       case 'test_latency': {
         await wait(1400);
         const list = this.servers[this.settings.active_connection ?? ''] ?? [];

@@ -227,6 +227,8 @@ export interface Store extends S {
   setRuleEnabled(position: Routing, index: number, enabled: boolean): Promise<void>;
   /** Тумблер «через VPN» из «Сейчас в сети», трея и «Не открывается?»: правило в мой список текущего положения. */
   routeTarget(target: Target, vpn: boolean, label: string, quiet?: boolean): Promise<boolean>;
+  /** Серверы подключения, на которое не переключались: посмотреть, не трогая работающий VPN. */
+  viewServers(id: string): Promise<void>;
   /** Обновление в один клик: служба скачивает, проверяет подпись и ставит; окно закроется и откроется снова. */
   installUpdate(): Promise<void>;
   toast(title: string, text?: string, tone?: Tone, action?: Toast['action']): void;
@@ -727,6 +729,14 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         dispatch({ t: 'list', position, list });
         if (!quiet) toast(`${label} → ${vpn ? 'через VPN' : 'напрямую'}`, `Правило в «${positionVerb(position)} · мой список»`, 'ok');
         return true;
+      },
+      viewServers: async (id) => {
+        try {
+          const list = await transport.call<ServerView[]>('connection_servers', { id });
+          dispatch({ t: 'servers', id, list });
+        } catch {
+          /* подписка без серверов или идёт замер задержки — список останется пустым */
+        }
       },
       installUpdate,
       toast,
