@@ -13,6 +13,11 @@ export function fmtBytes(bytes: number): string {
   return bytes >= GB ? (bytes / GB).toFixed(2) + ' ГБ' : (bytes / MB).toFixed(1) + ' МБ';
 }
 
+/** Скорость замера: «52.3 Мбит/с», «187 Мбит/с». */
+export function fmtMbps(v: number): string {
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} Мбит/с`;
+}
+
 /** Потрачено без лимита: «393.7 ГБ», «512.4 МБ». */
 export function fmtUsed(used: number): string {
   return used >= GB ? (used / GB).toFixed(1) + ' ГБ' : (used / MB).toFixed(1) + ' МБ';

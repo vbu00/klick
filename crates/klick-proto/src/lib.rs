@@ -57,6 +57,8 @@ pub enum Command {
     Servers,
     /// Серверы любого подключения — посмотреть, не переключаясь на него.
     ConnectionServers { id: String },
+    /// Замерить скорость через текущий сервер (VPN должен быть включён).
+    SpeedTest,
     SelectServer { name: String },
     /// Проверить задержку всех серверов активного подключения.
     TestLatency,
@@ -470,6 +472,17 @@ pub struct ServerView {
     pub selected: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe: Option<ServerProbe>,
+    /// Скачивание через сервер по последнему замеру скорости, Мбит/с.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f32>,
+}
+
+/// Итог «Проверить скорость»: Мбит/с скачивания и отдачи через сервер; `None` — не получилось.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpeedView {
+    pub server: Option<String>,
+    pub down: Option<f32>,
+    pub up: Option<f32>,
 }
 
 #[cfg(test)]
@@ -534,6 +547,7 @@ mod tests {
                 host: "secret.example.com".into(),
                 port: 443,
             }),
+            speed: None,
         };
         let json = serde_json::to_string(&server).unwrap();
         assert!(json.contains("freeze"));

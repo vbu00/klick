@@ -478,6 +478,14 @@ class MockService {
         return this.st;
       case 'servers':
         return this.servers[this.settings.active_connection ?? ''] ?? [];
+      case 'speed_test': {
+        await wait(3000);
+        const list = this.servers[this.settings.active_connection ?? ''] ?? [];
+        const cur = list.find((s) => s.selected) ?? list[0];
+        const down = Math.round((40 + Math.random() * 60) * 10) / 10;
+        if (cur) cur.speed = down;
+        return { server: cur?.name ?? null, down, up: Math.round((10 + Math.random() * 20) * 10) / 10 };
+      }
       case 'connection_servers':
         await wait(500);
         return this.servers[args.id as string] ?? [];

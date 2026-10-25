@@ -193,6 +193,13 @@ export interface LogLine {
   text: string;
 }
 
+/** Итог «Проверить скорость», Мбит/с. */
+export interface SpeedView {
+  server: string | null;
+  down: number | null;
+  up: number | null;
+}
+
 export interface UpdateView {
   current: string;
   latest: string | null;
@@ -211,6 +218,8 @@ export interface ServerView {
   selected: boolean;
   /** Итог последней проверки серверов; нет — не проверяли. */
   probe?: ServerProbe;
+  /** Скачивание через сервер по последнему замеру скорости, Мбит/с. */
+  speed?: number | null;
 }
 
 /** Сервис из каталога: понятное имя для набора доменов и подсетей. */

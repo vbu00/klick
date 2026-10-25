@@ -7,14 +7,14 @@ import { Icon } from '../components/Icon';
 import { ServerCountries } from '../components/ServerCountries';
 import { Sheet, type Tab } from '../components/Chrome';
 import { SwitchDiagram } from '../components/SwitchDiagram';
-import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, fmtUsed, pingColor, pingText, protocolName } from '../lib/format';
+import { buildPath, daysLeft, fmtBytes, fmtDate, fmtMbps, fmtRate, fmtTimer, fmtTraffic, fmtUsed, pingColor, pingText, protocolName } from '../lib/format';
 import { errorText, modeName, routingName } from '../lib/i18n';
 import { countryName, parseServer } from '../lib/countries';
 import { isMac } from '../lib/platform';
 import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import { useStore, useTraffic } from '../lib/store';
-import type { Connection, ServerView } from '../lib/types';
+import type { Connection, ErrorInfo, ServerView, SpeedView } from '../lib/types';
 
 export function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -526,6 +526,7 @@ function ProfileCard(props: {
                       </span>
                     </span>
                     <ProbeMark probe={s.probe} />
+                    {s.speed != null ? <span className="srv-speed num">{fmtMbps(s.speed)}</span> : null}
                     {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
                     {!pinging && s.delay == null && probeMark(s.probe) ? null : (
                       <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
@@ -611,8 +612,46 @@ function ProfileCard(props: {
 /** Плитки скорости и график: единственное на главной, что меняется раз в секунду от трафика. */
 function Speed() {
   const traffic = useTraffic();
+  const store = useStore();
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<SpeedView | null>(null);
+  const connected = store.state?.vpn === 'connected' && !store.pending;
+
+  const test = async () => {
+    setTesting(true);
+    try {
+      setResult(await store.transport.call<SpeedView>('speed_test'));
+    } catch (e) {
+      const err = e as ErrorInfo;
+      store.toast(errorText(err?.code ?? 'unknown', err?.params), undefined, 'bad');
+    }
+    setTesting(false);
+  };
+
   return (
     <>
+      {connected || result ? (
+        <div className="speedtest">
+          <div className="speedtest-text">
+            {testing ? (
+              <span>Меряю скорость через сервер… до полуминуты</span>
+            ) : result ? (
+              <>
+                <b>
+                  ↓ {result.down != null ? fmtMbps(result.down) : '—'} · ↑ {result.up != null ? fmtMbps(result.up) : '—'}
+                </b>
+                {result.server ? <span>{result.server}</span> : null}
+              </>
+            ) : (
+              <span>Сколько реально даёт сервер</span>
+            )}
+          </div>
+          <button className="btn-elem" onClick={() => void test()} disabled={testing || !connected}>
+            <Icon name="refresh" size={13} className={testing ? 'spin' : undefined} />
+            {testing ? 'Меряю…' : result ? 'Ещё раз' : 'Проверить скорость'}
+          </button>
+        </div>
+      ) : null}
       <div className="tiles">
         <div className="tile">
           <div className="tile-head">

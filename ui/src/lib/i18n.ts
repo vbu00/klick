@@ -148,6 +148,12 @@ export function errorText(code: string, params?: Params): string {
       return 'Не удалось узнать о новой версии';
     case 'update.none':
       return 'Обновлений нет';
+    case 'speed.vpn_off':
+      return 'Включите VPN — скорость меряется через сервер';
+    case 'speed.busy':
+      return 'Скорость уже меряется';
+    case 'speed.failed':
+      return 'Через сервер ничего не скачалось — он не отвечает или режет скорость';
     case 'update.unsigned':
       return 'Эта версия не подписана для обновления в один клик — скачайте её со страницы выпуска';
     case 'update.bad_signature':

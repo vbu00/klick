@@ -9,6 +9,7 @@ mod logring;
 mod paths;
 mod pipe;
 mod probe;
+mod speedtest;
 mod storage;
 mod subs;
 mod update;

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { DROP_NOTICES, errorText, noticeTarget, noticeText } from './i18n';
+import { detect } from './source';
 import { planToggle, positionVerb } from './live';
 import { probeCounts } from './probe';
 import type { Transport } from './transport';
@@ -24,6 +25,15 @@ export interface IncomingLink {
   name: string;
   host: string;
   seq: number;
+  /** Из буфера обмена, а не со страницы подписки: экран «Добавить» — обычный, с вставленной ссылкой. */
+  clipboard?: boolean;
+}
+
+/** FNV-1a: отметка «эту ссылку из буфера уже предлагали», не храня саму ссылку. */
+function clipMark(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16);
 }
 
 export interface Traffic {
@@ -464,6 +474,41 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     const off = transport.onAddLink(() => void take());
     void take();
     return off;
+  }, [transport, toast]);
+
+  // Ссылка на подписку или сервер в буфере обмена — предложить добавить (при запуске и когда окно снова
+  // в фокусе). Одну и ту же ссылку предлагаем один раз; хранится только её отметка, не сама ссылка.
+  useEffect(() => {
+    if (transport.window !== 'main') return;
+    const check = async () => {
+      const text = (await transport.clipboardText().catch(() => '')).trim();
+      if (!text || text.length > 4096) return;
+      const d = detect(text);
+      if (d.kind !== 'link' && !(d.kind === 'sub' && !/^http:/i.test(text))) return;
+      const mark = clipMark(text);
+      try {
+        if (localStorage.getItem('klick-clip-seen') === mark) return;
+        localStorage.setItem('klick-clip-seen', mark);
+      } catch {
+        /* без хранилища — предложим и в следующий раз */
+      }
+      const found = await transport.call<ConnectionView | null>('find_connection', { source: text }).catch(() => null);
+      if (found) return;
+      let host = '';
+      try {
+        host = d.kind === 'sub' ? new URL(text).hostname : '';
+      } catch {
+        /* не URL — без адреса */
+      }
+      toast(d.kind === 'sub' ? 'В буфере ссылка на подписку' : 'В буфере ссылка на сервер', host || d.title, 'ok', {
+        label: 'Добавить',
+        run: () => dispatch({ t: 'incoming', link: { url: text, name: '', host: '', seq: ++linkSeq.current, clipboard: true } }),
+      });
+    };
+    const onFocus = () => void check();
+    void check();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [transport, toast]);
 
   const call = useCallback(

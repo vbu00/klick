@@ -16,6 +16,7 @@ use crate::netwatch::{self, NetWatch};
 use crate::paths::{Paths, Profile};
 use crate::programs;
 use crate::probe::{self, ProbeOutcome, ShareTarget};
+use crate::speedtest;
 use crate::update;
 use crate::storage::{self, Secrets};
 use crate::subs;
@@ -31,7 +32,7 @@ use klick_core::{
 };
 use klick_proto::{
     AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ProbeLast, ProbeReport, ServerProbe, ServerView,
-    StateView, SystemProxy, VpnState,
+    SpeedView, StateView, SystemProxy, VpnState,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -78,6 +79,8 @@ pub enum Msg {
     #[cfg(unix)]
     KsWatchdog,
     Shutdown(oneshot::Sender<()>),
+    /// Замер скорости через сервер `server` подключения `conn` закончился.
+    SpeedDone { conn: String, server: Option<String>, down: Option<f32>, up: Option<f32>, reply: Reply },
     /// Установка обновления кончилась: `ok` — установщик запущен и скоро остановит службу.
     UpdateFinished { ok: bool },
     /// Уведомление, отложенное до подключения окна (итог обновления: служба стартует раньше окна).
@@ -240,6 +243,8 @@ pub struct Engine {
     next_update_check: Instant,
     /// Идёт установка обновления: вторая не запускается.
     updating: bool,
+    /// Идёт замер скорости.
+    speed_running: bool,
     /// Итог прошлого обновления — сказать окну, когда оно подключится.
     update_notice: Option<(&'static str, Value)>,
     /// VPN был включён, когда Windows выключили: окно вернёт его после входа, если включено «Восстанавливать подключение».
@@ -466,6 +471,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         update_available: None,
         next_update_check: Instant::now() + Duration::from_secs(90),
         updating: false,
+        speed_running: false,
         update_notice,
         resume_on_logon,
         ks_applied: Vec::new(),
@@ -638,6 +644,8 @@ impl Engine {
                         Msg::Cmd(Command::TestLatency, reply) => self.test_latency(reply).await,
                         Msg::Cmd(Command::Probe, reply) => self.probe(reply),
                         Msg::Cmd(Command::InstallUpdate, reply) => self.install_update(reply),
+                        Msg::Cmd(Command::SpeedTest, reply) => self.speed_test(reply),
+                        Msg::SpeedDone { conn, server, down, up, reply } => self.speed_done(conn, server, down, up, reply),
                         Msg::UpdateFinished { ok } => self.updating = ok,
                         Msg::DelayedNotice(code, params) => self.notice(code, params),
                         // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
@@ -861,6 +869,7 @@ impl Engine {
                 serde_json::to_value(u).map_err(internal)
             }
             Command::InstallUpdate => Err(ErrorInfo::new("update.unexpected")),
+            Command::SpeedTest => Err(ErrorInfo::new("speed.unexpected")),
             Command::SetPreferences { prefs } => self.set_preferences(prefs).await,
             Command::IpCheck => serde_json::to_value(ipcheck::run(self.ip_plan()).await).map_err(internal),
             Command::Connections => {
@@ -1002,6 +1011,48 @@ impl Engine {
         }
         self.update_available = version;
         self.emit_state();
+    }
+
+    /// «Проверить скорость» — в фоне: замер идёт до полуминуты, а служба должна отвечать.
+    fn speed_test(&mut self, reply: Reply) {
+        if self.speed_running {
+            let _ = reply.send(Err(ErrorInfo::new("speed.busy")));
+            return;
+        }
+        let (Some(port), Some(api), Some(conn)) = (self.vpn_port(), self.api(), self.settings.active_connection.clone()) else {
+            let _ = reply.send(Err(ErrorInfo::new("speed.vpn_off")));
+            return;
+        };
+        if self.vpn != VpnState::Connected {
+            let _ = reply.send(Err(ErrorInfo::new("speed.vpn_off")));
+            return;
+        }
+        self.speed_running = true;
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let server = api.selected(VPN_GROUP).await.ok().flatten();
+            let down = speedtest::download(port).await;
+            let up = if down.is_some() { speedtest::upload(port).await } else { None };
+            let _ = tx.send(Msg::SpeedDone { conn, server, down, up, reply }).await;
+        });
+    }
+
+    /// Итог замера: запомнить у сервера (видно в списке) и ответить окну.
+    fn speed_done(&mut self, conn: String, server: Option<String>, down: Option<f32>, up: Option<f32>, reply: Reply) {
+        self.speed_running = false;
+        if down.is_none() && up.is_none() {
+            tracing::warn!("замер скорости: через сервер ничего не скачалось");
+            let _ = reply.send(Err(ErrorInfo::new("speed.failed")));
+            return;
+        }
+        tracing::info!("замер скорости: ↓ {:.1} ↑ {:.1} Мбит/с", down.unwrap_or(0.0), up.unwrap_or(0.0));
+        if let (Some(name), Some(list)) = (&server, self.servers.get_mut(&conn)) {
+            if let Some(s) = list.iter_mut().find(|s| &s.name == name) {
+                s.speed = down;
+            }
+            self.emit(Event::Servers { connection: conn });
+        }
+        let _ = reply.send(serde_json::to_value(SpeedView { server, down, up }).map_err(internal));
     }
 
     /// Скачать и поставить обновление — в фоне: загрузка идёт минуту, а служба должна отвечать.
@@ -2752,7 +2803,8 @@ impl Engine {
                     Some(probes) => probes.get(&name).cloned(),
                     None => old.iter().find(|s| s.name == name).and_then(|s| s.probe.clone()),
                 };
-                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay, probe }
+                let speed = old.iter().find(|s| s.name == name).and_then(|s| s.speed);
+                ServerView { selected: selected.as_deref() == Some(name.as_str()), name, kind, delay, probe, speed }
             })
             .collect();
         self.servers.insert(conn.id.clone(), views.clone());

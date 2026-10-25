@@ -4,7 +4,7 @@
 
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { groupByCountry, groupTags, parseServer, type ParsedServer } from '../lib/countries';
-import { pingColor, protocolName } from '../lib/format';
+import { fmtMbps, pingColor, protocolName } from '../lib/format';
 import { probeMark } from '../lib/probe';
 import { plural } from '../lib/rules';
 import type { ServerView } from '../lib/types';
@@ -138,6 +138,7 @@ export function ServerCountries(props: { list: ServerView[]; current: ServerView
                       <span className="cs-title">{title}</span>
                       {proto ? <span className="cg-tag">{proto}</span> : null}
                       <ProbeMark probe={s.probe} />
+                      {s.speed != null ? <span className="srv-speed num">{fmtMbps(s.speed)}</span> : null}
                       {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
                       {!pinging && s.delay == null && probeMark(s.probe) ? null : <Ping delay={s.delay} pinging={pinging} tested={tested} />}
                     </button>

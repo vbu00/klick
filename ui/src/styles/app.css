@@ -895,3 +895,12 @@
 .switch-legend span { display: flex; align-items: center; gap: 6px; }
 .switch-legend i.solid { width: 14px; height: 2px; border-radius: 1px; background: var(--accent); }
 .switch-legend i.dashed { width: 14px; height: 0; border-top: 1.5px dashed var(--ring); }
+
+/* «Проверить скорость» под скоростью в реальном времени */
+.speedtest { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 12px 14px; border-radius: 18px; background: var(--card); }
+.speedtest-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: var(--dim); }
+.speedtest-text b { font-size: 14px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.speedtest-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.speedtest .btn-elem { flex-shrink: 0; }
+/* Скорость по последнему замеру в списке серверов */
+.srv-speed { font-size: 11px; color: var(--dim); white-space: nowrap; }

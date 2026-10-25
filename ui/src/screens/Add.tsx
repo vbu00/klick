@@ -27,7 +27,9 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
     setTab('link');
     setLink(incoming.url);
     setName(incoming.name);
-    setFromPage({ host: incoming.host });
+    // Из буфера — обычный экран со вставленной ссылкой; со страницы подписки — с предупреждением.
+    if (incoming.clipboard) setTimeout(() => addRef.current?.focus(), 50);
+    else setFromPage({ host: incoming.host });
     consumeIncoming();
   }, [incoming, consumeIncoming]);
 
@@ -120,7 +122,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
             </div>
           </div>
           {d.kind === 'sub' || d.kind === 'text' ? <input className="name-input" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder={d.kind === 'text' ? `Название (иначе «${d.name}»)` : 'Название (необязательно)'} /> : null}
-          <button className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink}>
+          <button ref={addRef} className="btn-primary" style={{ marginTop: 14 }} disabled={!canAdd} onClick={addLink}>
             {busy ? 'Добавляем…' : 'Добавить'}
           </button>
 
