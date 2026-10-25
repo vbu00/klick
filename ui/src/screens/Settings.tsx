@@ -132,6 +132,21 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
     <>
       <div className="screen-title">Настройки</div>
 
+      {store.state?.update ? (
+        <div className="card-list">
+          <Row
+            wrap
+            title={`Доступна kl!ck ${store.state.update}`}
+            sub={store.updating ? 'Скачиваю и ставлю — окно закроется и откроется снова' : 'Обновление в один клик, настройки и подключения останутся'}
+            right={
+              <button className="btn-elem strong" disabled={store.updating} onClick={() => void store.installUpdate()}>
+                {store.updating ? 'Ставлю…' : 'Обновить'}
+              </button>
+            }
+          />
+        </div>
+      ) : null}
+
       <SectionHead title="Подключение" />
       <div className="card-list">
         <Row title="Kill Switch" sub={ks.enabled ? `Вкл · ${plural(ksOn, ['приложение', 'приложения', 'приложений'])}` : 'Выкл'} onClick={() => onSub('ks')} chevron />
@@ -594,7 +609,7 @@ function LogScreen({ onBack }: { onBack: () => void }) {
 // ── О приложении ────────────────────────────────────────────────────────
 
 function AboutScreen({ onBack }: { onBack: () => void }) {
-  const { transport, toast } = useStore();
+  const { transport, toast, installUpdate } = useStore();
   const [about, setAbout] = useState<AboutView | null>(null);
   const [checking, setChecking] = useState(false);
   const [sheet, setSheet] = useState<'news' | 'licenses' | null>(null);
@@ -610,7 +625,9 @@ function AboutScreen({ onBack }: { onBack: () => void }) {
     setChecking(true);
     try {
       const u = await transport.call<UpdateView>('check_update');
-      if (u.newer && u.url) {
+      if (u.newer && u.installable) {
+        toast(`Есть версия ${u.latest}`, 'Обновление в один клик', 'ok', { label: 'Обновить', run: () => void installUpdate() });
+      } else if (u.newer && u.url) {
         const url = u.url;
         toast(`Есть версия ${u.latest}`, 'Скачать можно на GitHub', 'ok', { label: 'Скачать', run: () => void transport.openUrl(url) });
       } else {

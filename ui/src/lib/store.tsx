@@ -65,6 +65,8 @@ interface S {
   nav: { target: string; seq: number } | null;
   /** Ссылка `klick://add`, которую ещё не показал экран «Добавить». */
   incoming: IncomingLink | null;
+  /** Ставится обновление: окно скоро закроется и откроется уже новой версией. */
+  updating: boolean;
 }
 
 type A =
@@ -88,6 +90,7 @@ type A =
   | { t: 'names'; names: Record<string, string> }
   | { t: 'nav'; target: string | null }
   | { t: 'incoming'; link: IncomingLink | null }
+  | { t: 'updating'; on: boolean }
   | { t: 'list'; position: Routing; list: Rule[] };
 
 const HIST = 60;
@@ -113,6 +116,7 @@ const initial: S = {
   programNames: {},
   nav: null,
   incoming: null,
+  updating: false,
 };
 
 const running = (st: StateView | null) => !!st && (st.vpn === 'connected' || st.vpn === 'reconnecting' || st.vpn === 'server_down');
@@ -155,6 +159,8 @@ function reducer(s: S, a: A): S {
       return { ...s, nav: a.target ? { target: a.target, seq: (s.nav?.seq ?? 0) + 1 } : null };
     case 'incoming':
       return { ...s, incoming: a.link };
+    case 'updating':
+      return { ...s, updating: a.on };
     case 'names':
       return { ...s, programNames: { ...s.programNames, ...a.names } };
     case 'killswitch':
@@ -221,6 +227,8 @@ export interface Store extends S {
   setRuleEnabled(position: Routing, index: number, enabled: boolean): Promise<void>;
   /** Тумблер «через VPN» из «Сейчас в сети», трея и «Не открывается?»: правило в мой список текущего положения. */
   routeTarget(target: Target, vpn: boolean, label: string, quiet?: boolean): Promise<boolean>;
+  /** Обновление в один клик: служба скачивает, проверяет подпись и ставит; окно закроется и откроется снова. */
+  installUpdate(): Promise<void>;
   toast(title: string, text?: string, tone?: Tone, action?: Toast['action']): void;
   dismiss(id: number): void;
   reload(): Promise<void>;
@@ -275,6 +283,23 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     },
     [toast],
   );
+
+  const installUpdate = useCallback(async () => {
+    if (ref.current.updating) return;
+    dispatch({ t: 'updating', on: true });
+    toast('Скачиваю обновление…', 'kl!ck проверит подпись и поставит его сам', 'dim');
+    try {
+      const r = await transport.call<{ version: string }>('install_update');
+      toast(`Ставлю kl!ck ${r.version}`, 'Окно закроется и через минуту откроется снова', 'ok');
+    } catch (e) {
+      dispatch({ t: 'updating', on: false });
+      const err = e as ErrorInfo;
+      // Без подписи (или не на Windows) — как раньше: скачать со страницы выпуска.
+      const manual = err?.code === 'update.unsigned' || err?.code === 'update.manual' || err?.code === 'update.bad_signature';
+      const open = manual ? { label: 'Скачать', run: () => void transport.openUrl('https://github.com/vbu00/klick/releases/latest') } : undefined;
+      toast(errorText(err?.code ?? 'unknown', err?.params), undefined, 'bad', open);
+    }
+  }, [transport, toast]);
 
   // id передаём явно: сразу после dispatch ref ещё хранит старые настройки.
   const loadServers = useCallback(async (connId?: string | null) => {
@@ -379,7 +404,11 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         if (!n) return;
         // Программе из Kill Switch нужен TUN — переключить можно прямо из сообщения.
         const action =
-          e.code === 'killswitch.no_proxy' ? { label: 'VPN (TUN)', run: () => void transport.call('set_mode', { mode: 'tun' }).catch(failed) } : undefined;
+          e.code === 'killswitch.no_proxy'
+            ? { label: 'VPN (TUN)', run: () => void transport.call('set_mode', { mode: 'tun' }).catch(failed) }
+            : e.code === 'update.available'
+              ? { label: 'Обновить', run: () => void installUpdate() }
+              : undefined;
         // Уведомления Windows показывает только главное окно — и только когда его не видно.
         if (transport.window !== 'main') {
           toast(n.title, n.text, n.tone, action);
@@ -699,11 +728,12 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         if (!quiet) toast(`${label} → ${vpn ? 'через VPN' : 'напрямую'}`, `Правило в «${positionVerb(position)} · мой список»`, 'ok');
         return true;
       },
+      installUpdate,
       toast,
       dismiss: (id) => dispatch({ t: 'dismiss', id }),
       reload,
     }),
-    [s, transport, call, power, reload, reloadSettings, toast, failed],
+    [s, transport, call, power, reload, reloadSettings, toast, failed, installUpdate],
   );
 
   return (

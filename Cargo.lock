@@ -2404,6 +2404,7 @@ version = "0.5.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "core-foundation 0.10.1",
@@ -2417,6 +2418,7 @@ dependencies = [
  "notify",
  "plist",
  "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
  "sha2",

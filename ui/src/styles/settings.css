@@ -155,3 +155,8 @@
 .kv-v.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--text2); }
 .sheet-list { margin: 12px 0 0; padding-left: 18px; font-size: 13px; color: var(--text3); line-height: 1.5; }
 .sheet-list li + li { margin-top: 6px; }
+
+/* «Обновить» в строке новой версии — главное действие на экране. */
+.btn-elem.strong { background: var(--text); color: var(--onText); font-weight: 600; flex-shrink: 0; }
+.btn-elem.strong:hover { background: var(--text); opacity: 0.9; }
+.btn-elem.strong:disabled { background: var(--elem); color: var(--dim); opacity: 1; cursor: default; transform: none; }

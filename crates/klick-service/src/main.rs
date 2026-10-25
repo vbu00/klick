@@ -11,6 +11,7 @@ mod pipe;
 mod probe;
 mod storage;
 mod subs;
+mod update;
 
 // Windows: WFP, реестр, службы Windows.
 // Профили браузеров по путям Windows; на macOS расширения пока не проверяются.

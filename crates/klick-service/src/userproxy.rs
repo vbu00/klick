@@ -165,3 +165,43 @@ fn active_user_sid() -> Option<String> {
         out
     }
 }
+
+/// Запустить программу у того, кто сейчас за компьютером, с его правами (служба — от имени системы).
+/// Так служба открывает окно kl!ck после обновления: установщик его закрыл.
+pub fn launch_in_active_session(exe: &std::path::Path) -> Result<(), String> {
+    use windows::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    use windows::Win32::System::Threading::{CreateProcessAsUserW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION, STARTUPINFOW};
+    let session = active_session().ok_or("никто не вошёл в Windows")?;
+    unsafe {
+        let mut token = HANDLE::default();
+        WTSQueryUserToken(session, &mut token).map_err(|e| format!("WTSQueryUserToken: {e}"))?;
+        let mut env: *mut c_void = std::ptr::null_mut();
+        let have_env = CreateEnvironmentBlock(&mut env, token, false).is_ok();
+        let mut desktop = wide(r"winsta0\default");
+        let si = STARTUPINFOW { cb: std::mem::size_of::<STARTUPINFOW>() as u32, lpDesktop: PWSTR(desktop.as_mut_ptr()), ..Default::default() };
+        let mut pi = PROCESS_INFORMATION::default();
+        let mut cmdline = wide(&format!("\"{}\"", exe.display()));
+        let dir = exe.parent().map(|d| wide(&d.to_string_lossy()));
+        let result = CreateProcessAsUserW(
+            token,
+            PCWSTR::null(),
+            PWSTR(cmdline.as_mut_ptr()),
+            None,
+            None,
+            false,
+            CREATE_UNICODE_ENVIRONMENT,
+            have_env.then_some(env as *const c_void),
+            dir.as_ref().map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr())),
+            &si,
+            &mut pi,
+        );
+        if have_env {
+            let _ = DestroyEnvironmentBlock(env);
+        }
+        let _ = CloseHandle(token);
+        result.map_err(|e| format!("CreateProcessAsUserW: {e}"))?;
+        let _ = CloseHandle(pi.hThread);
+        let _ = CloseHandle(pi.hProcess);
+    }
+    Ok(())
+}

@@ -86,6 +86,8 @@ pub enum Command {
     Report,
     /// Есть ли новая версия на GitHub.
     CheckUpdate,
+    /// Скачать новую версию, проверить подпись и поставить без окна; окно закроется и откроется снова.
+    InstallUpdate,
     /// Настройки поведения: меняются только переданные поля.
     SetPreferences { prefs: Preferences },
     /// «Как вас видят сайты»: IP, страна, провайдер через VPN и напрямую, проверка утечек.
@@ -149,6 +151,10 @@ pub struct UpdateView {
     pub latest: Option<String>,
     pub url: Option<String>,
     pub newer: bool,
+    /// Ставится в один клик (`InstallUpdate`): Windows и выпуск подписан владельцем.
+    /// Иначе — скачать по `url` вручную.
+    #[serde(default)]
+    pub installable: bool,
 }
 
 /// Программа из «Запущено сейчас».
@@ -367,6 +373,9 @@ pub struct StateView {
     /// Окно сверяет с ним реестр при каждом состоянии: так пропущенное событие ничего не ломает.
     #[serde(default)]
     pub system_proxy: Option<SystemProxy>,
+    /// Вышла новая версия, и её можно поставить в один клик — номер версии.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<String>,
 }
 
 /// Системный прокси, который ставит kl!ck: на Windows — окно (у каждого пользователя свой),

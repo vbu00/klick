@@ -16,6 +16,7 @@ use crate::netwatch::{self, NetWatch};
 use crate::paths::{Paths, Profile};
 use crate::programs;
 use crate::probe::{self, ProbeOutcome, ShareTarget};
+use crate::update;
 use crate::storage::{self, Secrets};
 use crate::subs;
 use crate::sys;
@@ -30,7 +31,7 @@ use klick_core::{
 };
 use klick_proto::{
     AboutView, Command, ConnectionView, ErrorInfo, Event, FailureView, KsProgramView, Preferences, ProbeLast, ProbeReport, ServerProbe, ServerView,
-    StateView, SystemProxy, UpdateView, VpnState,
+    StateView, SystemProxy, VpnState,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -77,6 +78,10 @@ pub enum Msg {
     #[cfg(unix)]
     KsWatchdog,
     Shutdown(oneshot::Sender<()>),
+    /// Установка обновления кончилась: `ok` — установщик запущен и скоро остановит службу.
+    UpdateFinished { ok: bool },
+    /// Уведомление, отложенное до подключения окна (итог обновления: служба стартует раньше окна).
+    DelayedNotice(&'static str, Value),
     /// Ещё раз попробовать снять прокси, оставшийся с прошлого запуска: служба стартует
     /// раньше входа в Windows, и ветки реестра пользователя тогда ещё нет.
     #[cfg(windows)]
@@ -230,6 +235,13 @@ pub struct Engine {
     warned: HashSet<(String, &'static str)>,
     /// Восстановить VPN после сбоя службы (не после перезагрузки Windows).
     restore_pending: bool,
+    /// Вышла новая версия, которую можно поставить в один клик.
+    update_available: Option<String>,
+    next_update_check: Instant,
+    /// Идёт установка обновления: вторая не запускается.
+    updating: bool,
+    /// Итог прошлого обновления — сказать окну, когда оно подключится.
+    update_notice: Option<(&'static str, Value)>,
     /// VPN был включён, когда Windows выключили: окно вернёт его после входа, если включено «Восстанавливать подключение».
     resume_on_logon: bool,
     /// Какие exe сейчас закрыты Kill Switch: по нему видно, что программа обновилась или пропала.
@@ -337,6 +349,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
     let (events, _) = broadcast::channel(256);
     let (net_change_tx, _) = watch::channel(0_u64);
     let restore_pending = !profile.dev && should_restore(&paths);
+    let update_notice = if profile.dev { None } else { update::take_result(&paths) };
     let resume_on_logon = !profile.dev && was_on_before_reboot(&paths);
 
     // Смена сети: пачку событий за 3 секунды превращаем в одно.
@@ -450,6 +463,10 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         next_maintenance: Instant::now() + Duration::from_secs(60),
         warned: HashSet::new(),
         restore_pending,
+        update_available: None,
+        next_update_check: Instant::now() + Duration::from_secs(90),
+        updating: false,
+        update_notice,
         resume_on_logon,
         ks_applied: Vec::new(),
         #[cfg(windows)]
@@ -486,42 +503,6 @@ fn core_version(exe: &Path) -> Option<String> {
     let out = cmd.output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     text.split_whitespace().find(|w| w.len() > 1 && w.starts_with('v') && w[1..].starts_with(|c: char| c.is_ascii_digit())).map(str::to_string)
-}
-
-/// Репозиторий с выпусками (`владелец/имя`) задаётся при сборке для публикации: `KLICK_RELEASES_REPO=vbu00/klick`.
-/// До публикации проверка обновлений выключена (архитектура, следствия А2.1).
-const RELEASES_REPO: Option<&str> = option_env!("KLICK_RELEASES_REPO");
-
-/// Последний выпуск на GitHub. Выпусков нет — значит, обновляться не на что.
-async fn check_update() -> Result<UpdateView, ErrorInfo> {
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    let Some(repo) = RELEASES_REPO.filter(|r| !r.is_empty()) else {
-        return Err(ErrorInfo::new("update.disabled"));
-    };
-    let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .user_agent(concat!("klick/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(internal)?;
-    let resp = client.get(&url).header("Accept", "application/vnd.github+json").send().await.map_err(|_| ErrorInfo::new("update.unreachable"))?;
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(UpdateView { current, latest: None, url: None, newer: false });
-    }
-    if !resp.status().is_success() {
-        return Err(ErrorInfo::with("update.http_status", json!({ "status": resp.status().as_u16() })));
-    }
-    let v: Value = resp.json().await.map_err(|_| ErrorInfo::new("update.bad_answer"))?;
-    let tag = v["tag_name"].as_str().unwrap_or_default().trim_start_matches('v').to_string();
-    let url = v["html_url"].as_str().map(str::to_string);
-    let newer = version_newer(&tag, &current);
-    Ok(UpdateView { current, latest: (!tag.is_empty()).then_some(tag), url, newer })
-}
-
-/// `0.4.10` новее `0.4.9`: сравниваем числа, а не строки.
-fn version_newer(latest: &str, current: &str) -> bool {
-    let parse = |v: &str| v.split(['.', '-', '+']).take(3).map(|x| x.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
-    parse(latest) > parse(current)
 }
 
 /// Проверочное ядро: только серверы подключения, без портов и перехвата. Список серверов и, если
@@ -629,6 +610,14 @@ impl Engine {
                 self.clear_leftover_proxy();
             }
         }
+        // Установщик обновления закрыл окно — открыть снова, когда канал управления уже слушает.
+        #[cfg(windows)]
+        if self.update_notice.is_some() {
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let _ = tokio::task::spawn_blocking(update::reopen_window).await;
+            });
+        }
         if self.restore_pending {
             tracing::info!("служба перезапустилась после сбоя, а VPN был включён: подключаюсь снова");
             if let Err(e) = self.connect().await {
@@ -648,6 +637,9 @@ impl Engine {
                     match msg {
                         Msg::Cmd(Command::TestLatency, reply) => self.test_latency(reply).await,
                         Msg::Cmd(Command::Probe, reply) => self.probe(reply),
+                        Msg::Cmd(Command::InstallUpdate, reply) => self.install_update(reply),
+                        Msg::UpdateFinished { ok } => self.updating = ok,
+                        Msg::DelayedNotice(code, params) => self.notice(code, params),
                         // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
                         // ядро на том же входе управления не запустится).
                         Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
@@ -713,7 +705,18 @@ impl Engine {
 
     async fn handle(&mut self, cmd: Command) -> Result<Value, ErrorInfo> {
         match cmd {
-            Command::Status | Command::Subscribe => Ok(self.view_json()),
+            Command::Subscribe => {
+                // Окно подключилось: итог прошлого обновления — чуть позже, когда оно уже слушает события.
+                if let Some((code, params)) = self.update_notice.take() {
+                    let tx = self.tx.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let _ = tx.send(Msg::DelayedNotice(code, params)).await;
+                    });
+                }
+                Ok(self.view_json())
+            }
+            Command::Status => Ok(self.view_json()),
             Command::Connect => {
                 self.connect().await?;
                 Ok(self.view_json())
@@ -846,7 +849,17 @@ impl Engine {
                 Ok(json!([]))
             }
             Command::Report => Ok(Value::String(self.report().await)),
-            Command::CheckUpdate => serde_json::to_value(check_update().await?).map_err(internal),
+            Command::CheckUpdate => {
+                let u = update::check().await?;
+                // Проверили по кнопке — окно само скажет о версии, уведомление не нужно.
+                let available = u.installable.then(|| u.latest.clone()).flatten();
+                if self.update_available != available {
+                    self.update_available = available;
+                    self.emit_state();
+                }
+                serde_json::to_value(u).map_err(internal)
+            }
+            Command::InstallUpdate => Err(ErrorInfo::new("update.unexpected")),
             Command::SetPreferences { prefs } => self.set_preferences(prefs).await,
             Command::IpCheck => serde_json::to_value(ipcheck::run(self.ip_plan()).await).map_err(internal),
             Command::Connections => {
@@ -883,6 +896,13 @@ impl Engine {
     async fn maintenance(&mut self) {
         self.next_maintenance = Instant::now() + Duration::from_secs(600);
         self.check_killswitch_programs().await;
+        if !self.profile.dev && Instant::now() >= self.next_update_check {
+            self.next_update_check = Instant::now() + Duration::from_secs(12 * 3600);
+            match update::check().await {
+                Ok(u) => self.set_update_available(u.installable.then(|| u.latest.clone()).flatten()),
+                Err(e) => tracing::debug!("проверка обновлений: {}", e.code),
+            }
+        }
         let now = unix_now();
         let due: Vec<String> = self
             .settings
@@ -969,6 +989,38 @@ impl Engine {
         }
         tracing::info!("сеть изменилась, проверяю связь");
         self.spawn_probe(false);
+    }
+
+    /// Новая версия, которую можно поставить в один клик; о новой — одно уведомление.
+    fn set_update_available(&mut self, version: Option<String>) {
+        if self.update_available == version {
+            return;
+        }
+        if let Some(v) = &version {
+            self.notice("update.available", json!({ "version": v }));
+        }
+        self.update_available = version;
+        self.emit_state();
+    }
+
+    /// Скачать и поставить обновление — в фоне: загрузка идёт минуту, а служба должна отвечать.
+    fn install_update(&mut self, reply: Reply) {
+        if self.profile.dev {
+            let _ = reply.send(Err(ErrorInfo::new("update.dev")));
+            return;
+        }
+        if self.updating {
+            let _ = reply.send(Err(ErrorInfo::new("update.busy")));
+            return;
+        }
+        self.updating = true;
+        let (paths, tx) = (self.paths.clone(), self.tx.clone());
+        tokio::spawn(async move {
+            let result = update::install(&paths).await;
+            let ok = result.is_ok();
+            let _ = reply.send(result.map(|v| json!({ "version": v })));
+            let _ = tx.send(Msg::UpdateFinished { ok }).await;
+        });
     }
 
     fn save_runtime(&self, connected: bool) {
@@ -1138,6 +1190,7 @@ impl Engine {
             attempt: None,
             error: self.error.clone(),
             system_proxy: self.proxy_applied.then(|| self.proxy_spec()),
+            update: self.update_available.clone(),
         }
     }
 
@@ -2746,7 +2799,7 @@ fn added_by_source<'a>(connections: &'a [Connection], secrets: &HashMap<String, 
 
 #[cfg(test)]
 mod tests {
-    use super::{added_by_source, version_newer};
+    use super::added_by_source;
     use klick_core::{Connection, ConnectionKind};
     use std::collections::HashMap;
 
@@ -2778,12 +2831,4 @@ mod tests {
         assert_eq!(found("https://sub.example.com/s/on"), None);
     }
 
-    #[test]
-    fn versions_compare_as_numbers() {
-        assert!(version_newer("0.4.10", "0.4.9"));
-        assert!(version_newer("1.0.0", "0.4.0"));
-        assert!(!version_newer("0.3.0", "0.4.0"));
-        assert!(!version_newer("0.4.0", "0.4.0"));
-        assert!(version_newer("0.4.1-beta", "0.4.0"));
-    }
 }

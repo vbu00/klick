@@ -77,6 +77,8 @@ enum Cmd {
     Report,
     /// Есть ли новая версия.
     Update,
+    /// Поставить новую версию в один клик: скачать, проверить подпись, установить без окна.
+    UpdateInstall,
     /// Режим: tun или proxy.
     Mode { mode: ModeArg },
     /// Тумблер: all (всё через VPN) или selected (только выбранное).
@@ -225,6 +227,7 @@ fn command(cmd: Cmd) -> Result<Command> {
         Cmd::LogClear => Command::LogClear,
         Cmd::Report => Command::Report,
         Cmd::Update => Command::CheckUpdate,
+        Cmd::UpdateInstall => Command::InstallUpdate,
         Cmd::Mode { mode } => Command::SetMode { mode: match mode { ModeArg::Tun => Mode::Tun, ModeArg::Proxy => Mode::SysProxy } },
         Cmd::Routing { routing } => Command::SetRouting { routing: routing.into() },
         Cmd::List { op } => match op {
@@ -280,6 +283,7 @@ async fn main() -> Result<()> {
     let pipe = if cli.prod { klick_proto::CONTROL } else { klick_proto::CONTROL_DEV };
     let watch = matches!(&cli.cmd, Cmd::Watch);
     let probe = matches!(&cli.cmd, Cmd::Probe);
+    let install = matches!(&cli.cmd, Cmd::UpdateInstall);
     let cmd = if watch { Command::Subscribe } else { command(cli.cmd)? };
 
     let client = connect(pipe).await.with_context(|| format!("служба не отвечает на {pipe}"))?;
@@ -292,6 +296,8 @@ async fn main() -> Result<()> {
         Duration::from_secs(u64::MAX / 4)
     } else if probe {
         Duration::from_secs(180)
+    } else if install {
+        Duration::from_secs(660)
     } else {
         Duration::from_secs(120)
     };

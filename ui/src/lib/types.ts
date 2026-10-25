@@ -82,6 +82,8 @@ export interface StateView {
   error: string | null;
   /** Каким должен быть системный прокси; null — снят. */
   system_proxy?: { host: string; port: number; bypass: string[] } | null;
+  /** Вышла новая версия, которую можно поставить в один клик. */
+  update?: string | null;
 }
 
 export interface Connection {
@@ -196,6 +198,8 @@ export interface UpdateView {
   latest: string | null;
   url: string | null;
   newer: boolean;
+  /** Ставится в один клик (install_update); иначе — скачать по url. */
+  installable?: boolean;
 }
 
 export interface ServerView {

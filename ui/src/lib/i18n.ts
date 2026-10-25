@@ -70,7 +70,8 @@ export function noticeTarget(code: string): string | undefined {
   if (code === 'neighbors.conflict') return 'neighbors';
   if (code === 'neighbors.browser_proxy') return 'browser_proxy';
   if (code.startsWith('killswitch.')) return 'killswitch';
-  if (code === 'vpn.core_crashed') return 'log';
+  if (code === 'vpn.core_crashed' || code === 'update.failed') return 'log';
+  if (code === 'update.available') return 'settings';
   return undefined;
 }
 
@@ -145,6 +146,22 @@ export function errorText(code: string, params?: Params): string {
     case 'update.http_status':
     case 'update.bad_answer':
       return 'Не удалось узнать о новой версии';
+    case 'update.none':
+      return 'Обновлений нет';
+    case 'update.unsigned':
+      return 'Эта версия не подписана для обновления в один клик — скачайте её со страницы выпуска';
+    case 'update.bad_signature':
+      return 'Подпись обновления не прошла проверку — установка отменена';
+    case 'update.download':
+      return 'Не удалось скачать обновление. Проверьте интернет';
+    case 'update.start_failed':
+      return 'Установщик обновления не запустился';
+    case 'update.busy':
+      return 'Обновление уже ставится';
+    case 'update.manual':
+      return 'Здесь новая версия ставится вручную';
+    case 'update.dev':
+      return 'Служба для разработки не обновляется';
     case 'server.not_found':
       return 'Такого сервера больше нет в подписке';
     case 'list.duplicate':
@@ -197,6 +214,12 @@ export function noticeText(code: string, params?: Params): NoticeText | null {
       return { title: 'Сервер не отвечает', text: 'Проверяю снова раз в минуту', tone: 'warn' };
     case 'vpn.restored':
       return { title: 'Связь восстановлена', text: str(params?.server) || undefined, tone: 'ok' };
+    case 'update.available':
+      return { title: `Вышла kl!ck ${str(params?.version)}`, text: 'Обновить можно в один клик — в настройках', tone: 'ok' };
+    case 'update.done':
+      return { title: `kl!ck обновлён до ${str(params?.version)}`, text: 'Что нового — в «О kl!ck»', tone: 'ok' };
+    case 'update.failed':
+      return { title: 'Обновление не установилось', text: 'Работает прежняя версия. Подробности — в журнале', tone: 'bad' };
     case 'server.switched':
       return { title: 'Сервер сменён', text: str(params?.server), tone: 'ok' };
     case 'core.restarted':

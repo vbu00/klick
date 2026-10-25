@@ -321,6 +321,8 @@ class MockService {
       since: running ? nowS() - 2537 : null,
       attempt: vpn === 'reconnecting' ? [2, 3] : null,
       error: vpn === 'error' ? 'core.start_failed' : null,
+      // ?update=1 — вышла новая версия (строка «Обновить» в настройках).
+      update: PARAMS.get('update') ? '0.5.3' : null,
     };
     if (running) this.startTraffic();
     if (sc === 'neighbors') setTimeout(() => this.emit({ ev: 'notice', code: 'neighbors.conflict', params: { names: ['zapret'] } }), 700);
@@ -658,9 +660,12 @@ class MockService {
         return `kl!ck 0.4.0 · ядро v1.19.31 · Windows 11 · 25H2 · x64\nСостояние: ${this.st.vpn} · режим ${this.st.mode} · положение ${this.st.routing}\n(превью: тестовая служба)`;
       case 'check_update': {
         await wait(1100);
-        const u: UpdateView = { current: '0.4.0', latest: '0.3.0', url: 'https://github.com/vbu00/klick/releases/tag/v0.3.0', newer: false };
+        const u: UpdateView = { current: '0.4.0', latest: '0.3.0', url: 'https://github.com/vbu00/klick/releases/tag/v0.3.0', newer: false, installable: false };
         return u;
       }
+      case 'install_update':
+        await wait(1500);
+        return { version: '0.5.3' };
       case 'catalog':
         return { services: CATALOG };
       case 'programs':
