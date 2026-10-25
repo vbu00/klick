@@ -5,11 +5,11 @@
   <img src="docs/logo/wordmark-light.svg" width="360" alt="kl!ck" />
 </picture>
 
-**VPN-клиент для Windows и macOS на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
+**VPN-клиент для Windows, macOS, iPhone и iPad на ядре [mihomo](https://github.com/MetaCubeX/mihomo)**
 
 Подписки Remnawave · Marzban · 3x-ui · VLESS/Reality · Hysteria2 · TUIC · Trojan · Shadowsocks · WireGuard
 
-[Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
+[Скачать](https://github.com/vbu00/klick/releases/latest) · [Что умеет](#что-умеет) · [Установка](#установка) · [macOS](#macos) · [iPhone и iPad](#iphone-и-ipad) · [Сборка](#сборка) · [Авторы](#авторы) · [Лицензия](#лицензия)
 
 </div>
 
@@ -169,6 +169,31 @@ sudo '/Applications/kl!ck.app/Contents/Resources/uninstall.sh' --wipe # удал
 ```
 
 Как устроен порт и чем macOS отличается от Windows — в [docs/macos-port.md](docs/macos-port.md).
+
+## iPhone и iPad
+
+kl!ck для iPhone и iPad (iOS 15+): то же окно, подписки, серверы по странам, правила, проверка серверов
+и замер скорости. VPN держит системное расширение, поэтому он работает и с закрытым kl!ck и включается
+в Настройках → VPN; подписку можно добавить и по QR-коду. Порт на iOS сделал
+[limeflash](https://github.com/limeflash).
+
+В App Store kl!ck нет: файл [`klick-ios.ipa`](https://github.com/vbu00/klick/releases/latest/download/klick-ios.ipa)
+подписывает тот, кто ставит, и для VPN в подписи нужны права Network Extension и App Groups — их даёт
+только **платный** аккаунт разработчика Apple или сертификат с этими правами. Проверено с
+[FlareStore](https://flarestore.app/guide/ios/); подойдут и свой сертификат через ESign/Feather, SideStore
+или Sideloadly. С бесплатным Apple ID приложение встанет, но VPN не включится.
+
+Источник для FlareStore, AltStore, SideStore, Feather и ESign — с ним новые версии приходят сами:
+
+```
+https://github.com/vbu00/klick/releases/latest/download/klick-altstore.json
+```
+
+На iOS 16 и новее перед установкой включите **режим разработчика**: Настройки → Конфиденциальность и
+безопасность → Режим разработчика → перезагрузить → «Включить».
+
+Как поставить — [docs/ios-install.md](docs/ios-install.md); как устроен порт и чего на iOS нет (Kill Switch
+по программам, системный прокси) — [docs/ios-port.md](docs/ios-port.md).
 
 ## Сборка
 

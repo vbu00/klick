@@ -70,7 +70,9 @@ GitHub: macOS 14–27, Apple Silicon и Intel, с установкой служ�
 1. Версия в `Cargo.toml`, `Cargo.lock` (пакеты `klick-*`), `crates/klick-*/tauri.conf.json`, `ui/package.json`,
    `ui/package-lock.json`; что нового — `docs/release-notes.md`. Пуш в `main`.
 2. Windows: дождаться зелёного запуска Windows и выпустить его установщик — Actions → Windows → Run workflow,
-   `release_run` = номер запуска. macOS: Actions → macOS → Run workflow с флажком «Выпустить».
+   `release_run` = номер запуска. macOS: Actions → macOS → Run workflow с флажком «Выпустить». iOS: Actions → iOS →
+   Run workflow с флажком «Выпустить» — `klick-ios.ipa` и источник `klick-altstore.json` (не подписываются: iOS
+   обновляет FlareStore/AltStore по источнику).
 3. **Подписать** — когда в выпуске уже и установщик Windows, и пакет Mac: `python -I tools/sign-release.py sign v<версия>`
    на компьютере владельца. Скрипт сверяет sha256 с тем, что записал GitHub, и выкладывает `.sig` к
    `klick-<версия>-x64-setup.exe` и `klick-<версия>.pkg`.
@@ -229,8 +231,8 @@ powershell -File sandbox\start.ps1 -Release -Script ks-browser
 
 - `limeflash/main` — его основная ветка: 0.5.2 (стабильность VPN, проверка серверов, серверы по странам, CI).
 - `limeflash/pr/0.5.0` — то, что пришло пулл-реквестом #12 (0.5.1).
-- `limeflash/ios` — порт на iOS и iPadOS: приложение Tauri, Network Extension, mihomo библиотекой
-  (`docs/ios-port.md`, `docs/ios-install.md` в ветке). Порт на iOS — limeflash, соразработчик kl!ck.
+- `limeflash/ios` — порт на iOS и iPadOS: приложение Tauri, Network Extension, mihomo библиотекой. С 0.5.3
+  он в `main` (`crates/klick-ios`, `docs/ios-port.md`, `docs/ios-install.md`). Порт на iOS — limeflash, соразработчик kl!ck.
 - `limeflash/probe`, `limeflash/wip/ui-perf` — промежуточные ветки проверки серверов и ускорения окна (вошли в 0.5).
 
 Порт на macOS (ветка `macos` форка) уже целиком в `main`, отдельной ветки для него нет.
