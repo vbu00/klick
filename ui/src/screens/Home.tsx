@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ProbeMark } from '../components/Controls';
-import { Flag } from '../components/Flag';
+import { Flag, FlagName } from '../components/Flag';
 import { Icon } from '../components/Icon';
 import { ServerCountries } from '../components/ServerCountries';
 import { Sheet, type Tab } from '../components/Chrome';
@@ -205,7 +205,9 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
           {conns.map((c) => (
             <button key={c.id} className={c.id === view.id ? 'pchip on' : 'pchip'} onClick={() => void pickConnection(c)}>
               {isRunning && c.id === liveId ? <span className="live" /> : null}
-              <span>{c.name}</span>
+              <span>
+                <FlagName name={c.name} />
+              </span>
             </button>
           ))}
         </div>
@@ -367,7 +369,9 @@ function ProfileCard(props: {
           </div>
           <div className="pcard-body">
             <div className="pcard-title-row">
-              <div className="pcard-title">{conn.name}</div>
+              <div className="pcard-title">
+                <FlagName name={conn.name} />
+              </div>
               {props.viewingLive && props.live ? <span className="badge-live">Работает</span> : null}
             </div>
             <div className="pcard-sub">

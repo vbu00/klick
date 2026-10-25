@@ -182,6 +182,14 @@ const SEP = /^[\s·•|\-–—_:,/\\]+|[\s·•|\-–—_:,/\\]+$/g;
 /** Код в начале имени: «BY · …», «DE-2», «[NL] …», «(US) …». */
 const LEAD = /^[[(]?([A-Z]{2})[\])]?(?=$|[\s·•|\-–—_:,./\\\d])/;
 
+/** Флаг-эмодзи в начале названия («🇩🇪 Германия» от панели) — код страны и остаток: Windows рисует такой флаг буквами «DE». */
+export function splitFlag(name: string): { code: string | null; rest: string } {
+  const m = /^\s*([\u{1F1E6}-\u{1F1FF}])([\u{1F1E6}-\u{1F1FF}])\s*/u.exec(name);
+  if (!m) return { code: null, rest: name };
+  const letter = (ch: string) => String.fromCharCode((ch.codePointAt(0) ?? 0) - 0x1f1e6 + 65);
+  return { code: letter(m[1]) + letter(m[2]), rest: name.slice(m[0].length) };
+}
+
 /** Окно перерисовывается каждую секунду (таймер, скорость) — разбор одного имени делаем один раз. */
 const parsed = new Map<string, ParsedServer>();
 
