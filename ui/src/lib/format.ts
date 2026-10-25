@@ -13,6 +13,11 @@ export function fmtBytes(bytes: number): string {
   return bytes >= GB ? (bytes / GB).toFixed(2) + ' ГБ' : (bytes / MB).toFixed(1) + ' МБ';
 }
 
+/** Потрачено без лимита: «393.7 ГБ», «512.4 МБ». */
+export function fmtUsed(used: number): string {
+  return used >= GB ? (used / GB).toFixed(1) + ' ГБ' : (used / MB).toFixed(1) + ' МБ';
+}
+
 /** «42.6 из 200 ГБ». */
 export function fmtTraffic(used: number, total: number): string {
   const u = used / GB;

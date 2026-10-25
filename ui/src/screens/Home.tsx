@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon';
 import { ServerCountries } from '../components/ServerCountries';
 import { Sheet, type Tab } from '../components/Chrome';
 import { SwitchDiagram } from '../components/SwitchDiagram';
-import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, pingColor, pingText, protocolName } from '../lib/format';
+import { buildPath, daysLeft, fmtBytes, fmtDate, fmtRate, fmtTimer, fmtTraffic, fmtUsed, pingColor, pingText, protocolName } from '../lib/format';
 import { errorText, modeName, routingName } from '../lib/i18n';
 import { countryName, parseServer } from '../lib/countries';
 import { isMac } from '../lib/platform';
@@ -324,6 +324,8 @@ function ProfileCard(props: {
   const info = conn.info;
   const used = info ? info.upload + info.download : 0;
   const pct = info && info.total > 0 ? Math.min(100, (used / info.total) * 100) : 0;
+  // Без лимита панель всё равно сообщает, сколько потрачено (total = 0) — показываем без полосы.
+  const unlimited = !!info && info.total === 0 && used > 0;
   // Объявление и ссылки панели; ссылки служба уже проверила (только https).
   const announce = info?.announce;
   const links = [
@@ -411,13 +413,20 @@ function ProfileCard(props: {
                   <i style={{ width: `${pct}%`, background: pct > 90 ? 'var(--orange)' : 'var(--text)' }} />
                 </div>
               </>
+            ) : unlimited ? (
+              <div className="traffic-row">
+                <span>Трафик</span>
+                <b>{fmtUsed(used)} · без лимита</b>
+              </div>
             ) : null}
-            <div className="expiry" style={info && info.total > 0 ? undefined : { marginTop: 0 }}>
+            <div className="expiry" style={info && (info.total > 0 || unlimited) ? undefined : { marginTop: 0 }}>
               <span>
                 {info?.expire ? (
                   <>
                     Действует до <b>{fmtDate(info.expire)}</b> · {daysLeft(info.expire) === 0 ? 'истекает' : `${daysLeft(info.expire)} дн.`}
                   </>
+                ) : info && (info.total > 0 || unlimited) ? (
+                  'Без срока'
                 ) : (
                   'Срок и трафик панель не сообщает'
                 )}

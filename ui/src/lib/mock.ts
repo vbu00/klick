@@ -85,7 +85,7 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
     id: 'alex',
     name: 'Mistgate · Alex',
     kind: 'subscription',
-    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex', probe_report: 1 },
+    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex', probe_report: 1, ...(PARAMS.get('unlimited') ? { total: 0, expire: null } : {}) },
     updated_at: nowS() - 3600,
     update_interval_hours: 12,
     selected_server: 'Нидерланды · Amsterdam',
