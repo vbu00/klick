@@ -60,7 +60,7 @@ def keygen():
 
 
 def gh(*args):
-    return subprocess.run(['gh', *args], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(['gh', *args], check=True, capture_output=True, encoding='utf-8').stdout
 
 
 def sign(tag):
