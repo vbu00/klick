@@ -19,12 +19,14 @@ launch() { # launch <вкладка>
     xcrun simctl terminate "$device" "$bundle_id" 2>/dev/null || true
     SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$1" xcrun simctl launch "$device" "$bundle_id" >/dev/null
 }
-alive() { xcrun simctl spawn "$device" launchctl list | grep -q "$bundle_id"; }
+# Список целиком, а не `| grep -q`: grep выходит на первом совпадении, launchctl получает SIGPIPE, и с
+# pipefail живое приложение выглядело закрывшимся.
+alive() { local list; list="$(xcrun simctl spawn "$device" launchctl list)" && [[ "$list" == *"$bundle_id"* ]]; }
 # Отчёт о падении (симулятор пишет их в ~/Library/Logs/DiagnosticReports хоста): причина и верх
 # упавшего потока — в журнал CI, сам отчёт — в dist.
 crash() { # crash <метка>
     local ips
-    ips="$(ls -t "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips 2>/dev/null | head -1)"
+    ips="$(ls -t "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips 2>/dev/null | head -1 || true)"
     [[ -n "$ips" ]] || { echo "     отчёта о падении нет"; return 0; }
     cp "$ips" "$root/dist/ios-beta-crash-$1.ips"
     tail -n +2 "$ips" | jq -r '
