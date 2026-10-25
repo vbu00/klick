@@ -55,7 +55,7 @@ echo '{"info":{"author":"xcode","version":1}}' >"$icons/Contents.json"
 add_icon() { # add_icon <svg> <имя> <template|original>
     local set="$icons/$2.imageset"
     mkdir -p "$set"
-    perl -pe 's/<svg (?![^>]*width=)/<svg width="64" height="64" /' "$1" >"$set/$2.svg"
+    perl -pe 's/<svg (?![^>]*width=)/<svg width="64" height="64" /' "$1" >"$set/$2.svg"
     cat >"$set/Contents.json" <<JSON
 {"images":[{"filename":"$2.svg","idiom":"universal"}],"info":{"author":"xcode","version":1},
  "properties":{"preserves-vector-representation":true,"template-rendering-intent":"$3"}}
