@@ -188,7 +188,8 @@ struct SubscriptionCard: View {
     let servers: [Server]
 
     private var working: Bool { active && engine.state?.vpn == "connected" }
-    private var server: Server? { servers.first(where: \.selected) ?? servers.first { $0.name == conn.selectedServer } }
+    /// Тот же сервер, что отмечен в списке: выбранный, сохранённый в подключении или первый.
+    private var server: Server? { servers.first(where: \.selected) ?? servers.first { $0.name == conn.selectedServer } ?? servers.first }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

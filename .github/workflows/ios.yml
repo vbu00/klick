@@ -75,7 +75,6 @@ jobs:
           workspaces: |
             . -> target
             crates/klick-ios -> target
-            crates/klick-native -> target
 
       - name: Ядро mihomo для iOS (Go)
         working-directory: crates/klick-ios/core
@@ -114,34 +113,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/ios/altstore-source.sh dist/klick-ios.ipa
 
-      # kl!ck β — родной интерфейс (SwiftUI). Пока бета: её сбой не мешает собрать и выпустить klick-ios.ipa.
-      # Liquid Glass есть только в SDK iOS 26: бету собирает самый новый Xcode 26 на машине (не бета-версия),
-      # если он есть; klick-ios.ipa выше уже собран прежним.
-      - name: Xcode 26 для kl!ck β
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: |
-          x="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
-          [ -n "$x" ] && sudo xcode-select -s "$x"
-          xcodebuild -version
-          xcrun simctl list runtimes | grep -i ios || true
-      - name: Сборка kl!ck β (родной интерфейс)
-        id: native
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        env:
-          KLICK_BUILD: ${{ github.run_number }}
-        run: scripts/ios/build-native.sh --sim
-
-      - name: kl!ck β в симуляторе
-        if: ${{ !cancelled() && steps.native.outcome == 'success' }}
-        continue-on-error: true
-        timeout-minutes: 10
-        run: |
-          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
-          [ -n "$sub" ] || sub="$(cat "$RUNNER_TEMP/sub.txt" 2>/dev/null || true)"
-          KLICK_TEST_SUB="$sub" scripts/ios/native-sim-test.sh dist/klick-ios-beta-sim.app
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -154,6 +125,57 @@ jobs:
             dist/ios-sim-system.log
             dist/klick*.ips
           if-no-files-found: ignore
+
+  # kl!ck β — родной интерфейс (SwiftUI) — отдельно и параллельно с klick-ios.ipa: её сбой не мешает собрать
+  # и выпустить .ipa, а снимки беты не ждут проверок веб-версии. Liquid Glass есть только в SDK iOS 26 —
+  # бету собирает самый новый Xcode 26 на машине (не бета-версия), проверка — на самой новой iOS.
+  native:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Скрыть ссылку подписки в журнале
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$sub" ]; then echo "::add-mask::$sub"; fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crates/klick-ios/core/go.mod
+          cache-dependency-path: crates/klick-ios/core/go.sum
+
+      - name: Xcode 26, Rust и инструменты
+        run: |
+          x="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          [ -n "$x" ] && sudo xcode-select -s "$x"
+          rustup update stable
+          rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          brew install xcodegen
+          xcodebuild -version
+          rustc -V && go version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/klick-native -> target
+
+      - name: Сборка kl!ck β
+        env:
+          KLICK_BUILD: ${{ github.run_number }}
+        run: scripts/ios/build-native.sh --sim
+
+      # Те же свои серверы Hysteria2 и VLESS Reality, что у проверки klick-ios.ipa, — или подписка из запуска.
+      - name: kl!ck β в симуляторе
+        timeout-minutes: 15
+        run: |
+          sub="$(jq -r '.inputs.sub // empty' "$GITHUB_EVENT_PATH")"
+          if [ -z "$sub" ]; then
+            scripts/ios/test-servers.sh >"$RUNNER_TEMP/sub.txt"
+            sub="$(cat "$RUNNER_TEMP/sub.txt")"
+          fi
+          KLICK_TEST_SUB="$sub" scripts/ios/native-sim-test.sh dist/klick-ios-beta-sim.app
 
       - uses: actions/upload-artifact@v4
         if: always()

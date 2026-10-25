@@ -17,7 +17,7 @@ struct AddView: View {
     var body: some View {
         KScreen(title: "Добавить") {
             VStack(alignment: .leading, spacing: 12) {
-                TextField("https://panel.example/sub/… или vless://…", text: $link)
+                TextField("", text: $link, prompt: Text("Ссылка на подписку или vless://…").foregroundColor(K.dim2))
                     .font(.system(size: 15, design: .monospaced))
                     .foregroundColor(K.text)
                     .textInputAutocapitalization(.never)
