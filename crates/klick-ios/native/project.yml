@@ -29,6 +29,8 @@ targets:
       - path: ../gen/apple/Sources/klick-ios/QRScanner.swift
       - path: ../gen/apple/Shared
       - path: ../gen/apple/Assets.xcassets
+      # Значки веб-версии (кладёт scripts/ios/build-native.sh из ui/src/assets).
+      - path: Icons.xcassets
       # Наборы правил, каталог сервисов и база стран (кладёт scripts/ios/build-native.sh).
       - path: klick-resources
         type: folder

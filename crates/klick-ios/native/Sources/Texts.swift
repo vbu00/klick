@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Тексты и форматирование — как в веб-версии kl!ck (ui/src/lib/i18n.ts, format.ts), только нужное здесь.
 enum Texts {
@@ -63,19 +64,46 @@ enum Texts {
         }
     }
 
-    static func gb(_ bytes: Double) -> String {
-        bytes >= 1_073_741_824 ? String(format: "%.1f ГБ", bytes / 1_073_741_824) : String(format: "%.0f МБ", bytes / 1_048_576)
-    }
+    // Форматы — как ui/src/lib/format.ts.
+    private static let GB = 1_073_741_824.0, MB = 1_048_576.0
 
+    /// «5.08 Mb/s».
     static func rate(_ bytesPerSecond: Double) -> String {
-        let mbit = bytesPerSecond * 8 / 1_000_000
-        return mbit >= 1 ? String(format: "%.1f Мбит/с", mbit) : String(format: "%.0f Кбит/с", mbit * 1000)
+        let mbit = bytesPerSecond * 8 / 1e6
+        return mbit >= 1000 ? String(format: "%.2f Gb/s", mbit / 1000) : String(format: "%.2f Mb/s", mbit)
     }
 
+    /// «0.6 МБ», «1.25 ГБ».
+    static func bytes(_ b: Double) -> String {
+        b >= GB ? String(format: "%.2f ГБ", b / GB) : String(format: "%.1f МБ", b / MB)
+    }
+
+    /// Потрачено без лимита: «393.7 ГБ», «512.4 МБ».
+    static func used(_ b: Double) -> String {
+        b >= GB ? String(format: "%.1f ГБ", b / GB) : String(format: "%.1f МБ", b / MB)
+    }
+
+    /// «42.6 из 200 ГБ».
+    static func traffic(_ used: Double, _ total: Double) -> String {
+        let t = total / GB
+        let r = (t * 10).rounded() / 10
+        let tt = r == r.rounded() ? String(Int(t.rounded())) : String(format: "%.1f", t)
+        return String(format: "%.1f из ", used / GB) + tt + " ГБ"
+    }
+
+    /// «52.3 Мбит/с», «187 Мбит/с».
     static func mbps(_ value: Double) -> String {
         value >= 100 ? String(format: "%.0f Мбит/с", value) : String(format: "%.1f Мбит/с", value)
     }
 
+    /// «0:42:05».
+    static func timer(since: Double?, now: Date) -> String {
+        guard let since, since > 0 else { return "0:00:00" }
+        let s = max(0, Int(now.timeIntervalSince1970 - since))
+        return String(format: "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60)
+    }
+
+    /// «14 декабря».
     static func date(_ unix: Double) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ru_RU")
@@ -84,7 +112,18 @@ enum Texts {
     }
 
     static func daysLeft(_ unix: Double) -> Int {
-        max(0, Int(ceil((unix - Date().timeIntervalSince1970) / 86_400)))
+        max(0, Int(((unix - Date().timeIntervalSince1970) / 86_400).rounded()))
+    }
+
+    static func ping(_ delay: Int?) -> String {
+        delay.map { "\($0) мс" } ?? "нет ответа"
+    }
+
+    /// «3 сервиса», «1 сайт».
+    static func plural(_ n: Int, _ forms: (String, String, String)) -> String {
+        let a = n % 10, b = n % 100
+        let w = a == 1 && b != 11 ? forms.0 : (2...4).contains(a) && !(12...14).contains(b) ? forms.1 : forms.2
+        return "\(n) \(w)"
     }
 
     /// Ссылка klick://add?url=… из QR со страницы подписки — сама подписка.
@@ -94,14 +133,51 @@ enum Texts {
         return inner
     }
 
-    /// Что вставили: подписка (`sub`), одиночная ссылка (`link`), пусто или не то.
-    static func kind(_ input: String) -> String {
+    /// Что вставили в поле «Добавить» (ui/src/lib/source.ts): подписка, одиночная ссылка, список ссылок или
+    /// конфигурация текстом (`text` — добавляется как файл), пусто или не то.
+    struct Detect {
+        var kind: String
+        var title: String
+        var text: String
+        var color: Color
+        var name: String?
+    }
+
+    private static let linkSchemes = ["vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "hy2", "hysteria2+realm", "hy2+realm", "tuic", "wireguard", "wg", "anytls"]
+
+    private static func scheme(_ s: String) -> String {
+        guard let r = s.range(of: "://") else { return "" }
+        return s[..<r.lowerBound].lowercased()
+    }
+
+    private static func isLink(_ s: String) -> Bool {
+        linkSchemes.contains(scheme(s)) && !s.contains(where: \.isNewline)
+            && !(s.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? "").contains(where: \.isWhitespace)
+    }
+
+    static func detect(_ input: String) -> Detect {
         let s = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return "empty" }
-        let scheme = s.split(separator: ":").first.map { $0.lowercased() } ?? ""
-        if (scheme == "https" || scheme == "ssconf"), !s.contains(" ") { return "sub" }
-        let links = ["vless", "vmess", "trojan", "ss", "ssr", "socks", "socks5", "hysteria", "hysteria2", "hy2", "tuic", "wireguard", "wg", "anytls"]
-        if links.contains(scheme), s.contains("://") { return "link" }
-        return "bad"
+        if s.isEmpty { return Detect(kind: "empty", title: "Ожидаем ссылку", text: "Скопируйте её у провайдера VPN и вставьте выше — тип определится сам.", color: K.dim) }
+        let sch = scheme(s)
+        let spaced = s.contains(where: \.isWhitespace)
+        if (sch == "https" || sch == "http") && !spaced {
+            return Detect(kind: "sub", title: "Ссылка на подписку", text: "Загрузим список серверов, лимит трафика и срок действия. Будет обновляться автоматически.", color: K.accent)
+        }
+        if sch == "ssconf" && !spaced {
+            return Detect(kind: "sub", title: "Ключ доступа Outline", text: "Загрузим сервер Shadowsocks по ключу и будем обновлять его автоматически.", color: K.accent)
+        }
+        if isLink(s) {
+            return Detect(kind: "link", title: "Одиночная конфигурация · \(protocolName(sch))", text: "Прямое соединение с одним сервером. Без лимитов и срока — только адрес и ключ.", color: K.accent)
+        }
+        let byLine = s.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let lines = byLine.count > 1 && byLine.allSatisfy(isLink) ? byLine : s.split(whereSeparator: \.isWhitespace).map(String.init)
+        if lines.count > 1 && lines.allSatisfy({ linkSchemes.contains(scheme($0)) }) {
+            return Detect(kind: "text", title: "Список серверов · \(lines.count)", text: "Добавим одно подключение со всеми этими серверами.", color: K.accent, name: "Мои серверы")
+        }
+        if s.hasPrefix("{") || s.hasPrefix("[")
+            || s.components(separatedBy: .newlines).contains(where: { $0.hasPrefix("[Interface]") || $0.hasPrefix("proxies:") }) {
+            return Detect(kind: "text", title: "Конфигурация текстом", text: "Clash / mihomo, sing-box, Xray или WireGuard — возьмём из неё серверы.", color: K.accent, name: "Конфигурация")
+        }
+        return Detect(kind: "bad", title: "Формат не распознан", text: "Ожидается https://… или vless://, vmess://, trojan://, ss://, hysteria2:// — или конфигурация целиком", color: K.red)
     }
 }

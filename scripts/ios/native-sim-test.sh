@@ -18,9 +18,9 @@ xcrun simctl boot "$device" 2>/dev/null || true
 xcrun simctl bootstatus "$device" -b >/dev/null
 xcrun simctl install "$device" "$app"
 
-launch() { # launch <вкладка>
+launch() { # launch <вкладка> [light|dark]: 0 главная, 1 соединение, 2 добавить, 3 настройки
     xcrun simctl terminate "$device" "$bundle_id" 2>/dev/null || true
-    SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$1" xcrun simctl launch "$device" "$bundle_id" >/dev/null
+    SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$1" SIMCTL_CHILD_KLICK_THEME="${2:-}"         xcrun simctl launch "$device" "$bundle_id" >/dev/null
 }
 # Список целиком, а не `| grep -q`: grep выходит на первом совпадении, launchctl получает SIGPIPE, и с
 # pipefail живое приложение выглядело закрывшимся.
@@ -46,7 +46,7 @@ mkdir -p "$root/dist"
 rm -f "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips
 bad=0
 xcrun simctl ui "$device" appearance light
-launch 0
+launch 0 light
 data="$(xcrun simctl get_app_container "$device" "$bundle_id" data)"
 log="$data/Library/Application Support/klick/logs/service.log"
 for ((i = 0; i < 60; i++)); do grep -q "данные:" "$log" 2>/dev/null && break; sleep 1; done
@@ -55,15 +55,15 @@ if grep -q "данные:" "$log" 2>/dev/null; then echo "ok   движок за
 if [[ -n "${KLICK_TEST_SUB:-}" ]]; then sleep 30; else sleep 6; fi
 shot home-light
 if alive; then echo "ok   приложение работает"; else echo "FAIL приложение закрылось"; crash home; bad=1; fi
-for tab in 1 2; do
-    launch "$tab"
+for tab in 1 2 3; do
+    launch "$tab" light
     sleep 6
     shot "tab$tab-light"
     alive || { echo "FAIL вкладка $tab: приложение закрылось"; crash "tab$tab-light"; bad=1; }
 done
 xcrun simctl ui "$device" appearance dark
-for tab in 0 2; do
-    launch "$tab"
+for tab in 0 3; do
+    launch "$tab" dark
     sleep 6
     shot "tab$tab-dark"
     alive || { echo "FAIL тёмная тема, вкладка $tab: приложение закрылось"; crash "tab$tab-dark"; bad=1; }

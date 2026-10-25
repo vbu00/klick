@@ -45,6 +45,26 @@ cp -R "$root/resources/sets" "$res/"
 cp "$root/resources/catalog.json" "$res/"
 cp "$root/resources/core/Country.mmdb" "$res/core/"
 
+step "значки веб-версии"
+# Те же SVG, что у веб-версии (ui/src/assets): значки — шаблоном (цвет — цвет текста), значки
+# состояния — как есть. SVG без размеров Xcode не рисует — размер подставляется.
+icons="$native/Icons.xcassets"
+rm -rf "$icons"
+mkdir -p "$icons"
+echo '{"info":{"author":"xcode","version":1}}' >"$icons/Contents.json"
+add_icon() { # add_icon <svg> <имя> <template|original>
+    local set="$icons/$2.imageset"
+    mkdir -p "$set"
+    perl -pe 's/<svg (?![^>]*width=)/<svg width="64" height="64" /' "$1" >"$set/$2.svg"
+    cat >"$set/Contents.json" <<JSON
+{"images":[{"filename":"$2.svg","idiom":"universal"}],"info":{"author":"xcode","version":1},
+ "properties":{"preserves-vector-representation":true,"template-rendering-intent":"$3"}}
+JSON
+}
+for f in "$root"/ui/src/assets/icons/*.svg; do add_icon "$f" "$(basename "$f" .svg)" template; done
+for f in "$root"/ui/src/assets/status/*.svg; do add_icon "$f" "status-$(basename "$f" .svg)" original; done
+echo "$(ls "$icons" | grep -c imageset) шт."
+
 step "ядро mihomo для iOS (Go)"
 if [[ -f "$ios/core/build/iphoneos/libklickcore.a" && -f "$ios/core/build/iphonesimulator/libklickcore.a" ]]; then
     echo "уже собрано (scripts/ios/build.sh)"

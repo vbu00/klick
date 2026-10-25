@@ -41,8 +41,11 @@ final class Engine: ObservableObject {
     @Published private(set) var pinging = false
     @Published private(set) var speed: SpeedView?
     @Published private(set) var speedTesting = false
-    @Published private(set) var powerPending = false
+    /// Нажали кнопку питания, движок ещё не ответил: `on` — включаю, `off` — выключаю.
+    @Published private(set) var pending: String?
     @Published var toast: Toast?
+    /// Показать на главной это подключение («Уже добавлено»).
+    @Published var focusConnection: String?
 
     private var started = false
     private let decoder: JSONDecoder = {
@@ -135,9 +138,11 @@ final class Engine: ObservableObject {
             guard let raw = obj["state"], let d = try? JSONSerialization.data(withJSONObject: raw), let st = try? decoder.decode(StateView.self, from: d) else { return }
             let switched = st.connection?.id != state?.connection?.id
             state = st
+            // VPN выключен — скорость, график и счётчики с нуля, как в веб-версии.
+            if st.vpn != "connected" && traffic != Traffic() { traffic = Traffic() }
             if switched { Task { await reload() } }
         case "traffic":
-            traffic = Traffic(up: (obj["up"] as? NSNumber)?.doubleValue ?? 0, down: (obj["down"] as? NSNumber)?.doubleValue ?? 0)
+            traffic.push(up: (obj["up"] as? NSNumber)?.doubleValue ?? 0, down: (obj["down"] as? NSNumber)?.doubleValue ?? 0)
         case "settings":
             Task { if let s = try? await get(Settings.self, "settings") { settings = s } }
         case "servers":
@@ -155,9 +160,9 @@ final class Engine: ObservableObject {
 
     /// Кнопка питания. `viewing` — подписка на экране: без VPN она становится активной и подключается.
     func power(viewing: String?) async {
-        guard !powerPending else { return }
-        powerPending = true
-        defer { powerPending = false }
+        guard pending == nil else { return }
+        pending = isRunning ? "off" : "on"
+        defer { pending = nil }
         do {
             if isRunning {
                 try await call("disconnect")
@@ -214,7 +219,30 @@ final class Engine: ObservableObject {
     func add(source: String, name: String) async -> Bool {
         do {
             try await call("add_connection", ["source": source, "name": name.isEmpty ? NSNull() : name])
-            toast = Toast(text: "Подключение добавлено")
+            toast = Toast("Подключение добавлено", "Проверьте задержку серверов")
+            await reload()
+            return true
+        } catch let error as EngineError where error.code == "conn.exists" {
+            // Эта ссылка уже добавлена: показать то подключение вместо второго такого же.
+            toast = Toast("Уже добавлено", error.params["name"] as? String, tone: "dim")
+            focusConnection = error.params["id"] as? String
+            return true
+        } catch {
+            show(error)
+            return false
+        }
+    }
+
+    /// Список ссылок или конфигурация текстом — как файл (`import_file`); расширение — чтобы точка в
+    /// названии не съела его хвост.
+    func importText(name: String, content: String) async -> Bool {
+        await importFile(fileName: "\(name).txt", content: content, toastTitle: "Подключение добавлено", sub: name)
+    }
+
+    func importFile(fileName: String, content: String, toastTitle: String = "Файл импортирован", sub: String? = nil) async -> Bool {
+        do {
+            try await call("import_file", ["file_name": fileName, "content": content])
+            toast = Toast(toastTitle, sub ?? fileName)
             await reload()
             return true
         } catch {
@@ -223,10 +251,24 @@ final class Engine: ObservableObject {
         }
     }
 
+    func log() async -> [LogLine] {
+        (try? await get([LogLine].self, "log")) ?? []
+    }
+
+    /// Текст для поддержки: версии, режим и журнал — без ссылок и адресов сайтов.
+    func report() async -> String? {
+        guard let data = try? await call("report") else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) as? String
+    }
+
+    func setPrefs(_ prefs: [String: Any]) async {
+        do { settings = try await get(Settings.self, "set_preferences", ["prefs": prefs]) } catch { show(error) }
+    }
+
     func refresh(_ id: String) async {
         do {
             try await call("refresh_connection", ["id": id])
-            toast = Toast(text: "Подписка обновлена")
+            toast = Toast("Подписка обновлена")
         } catch {
             show(error)
         }

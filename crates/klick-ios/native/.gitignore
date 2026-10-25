@@ -8,3 +8,4 @@ Tunnel-Info.plist
 # Ресурсы kl!ck и библиотека движка (Rust) кладёт scripts/ios/build-native.sh.
 klick-resources/
 lib/
+Icons.xcassets/
