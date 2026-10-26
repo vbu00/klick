@@ -35,7 +35,7 @@ final class Engine: ObservableObject {
     @Published private(set) var up = false
     @Published private(set) var startError: String?
     @Published private(set) var state: StateView?
-    @Published private(set) var settings: Settings?
+    @Published var settings: Settings?
     @Published private(set) var servers: [String: [Server]] = [:]
     @Published private(set) var traffic = Traffic()
     @Published private(set) var pinging = false
@@ -270,6 +270,91 @@ final class Engine: ObservableObject {
     func report() async -> String? {
         guard let data = try? await call("report") else { return nil }
         return (try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)) as? String
+    }
+
+    // MARK: Мой список
+
+    /// Каталог сервисов: грузится один раз.
+    @Published private(set) var catalog: [Service] = []
+
+    func loadCatalog() async {
+        if catalog.isEmpty, let c = try? await get([Service].self, "catalog") { catalog = c }
+    }
+
+    private func reloadSettings() async {
+        if let s = try? await get(Settings.self, "settings") { settings = s }
+    }
+
+    /// Добавить правила в список положения; сколько добавилось.
+    func addRules(_ position: String, _ rules: [[String: Any]]) async -> Int {
+        var added = 0
+        var firstError: Error?
+        for rule in rules {
+            do {
+                try await call("list_add", ["position": position, "rule": rule])
+                added += 1
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        if let firstError { show(firstError) }
+        await reloadSettings()
+        return added
+    }
+
+    func removeRule(_ position: String, _ index: Int) async {
+        do {
+            try await call("list_remove", ["position": position, "index": index])
+            toast = Toast("Правило удалено", tone: "dim")
+        } catch {
+            show(error)
+        }
+        await reloadSettings()
+    }
+
+    func setRuleEnabled(_ position: String, _ index: Int, _ enabled: Bool) async {
+        do { try await call("list_set_enabled", ["position": position, "index": index, "enabled": enabled]) } catch { show(error) }
+        await reloadSettings()
+    }
+
+    /// Один тумблер «через VPN»: правило для цели в мой список текущего положения (live.ts: planToggle).
+    func routeTarget(_ target: Rule.Target, vpn: Bool, label: String) async {
+        guard let s = settings else { return }
+        let position = s.routing
+        let list = position == "all_vpn" ? s.lists?.allVpn ?? [] : s.lists?.selected ?? []
+        let route = vpn ? "vpn" : "direct"
+        do {
+            if let index = list.firstIndex(where: { $0.target.kind == target.kind && $0.target.value.lowercased() == target.value.lowercased() }) {
+                let r = list[index]
+                if r.route == route && r.enabled != false { return }
+                if r.route != route { try await call("list_set_route", ["position": position, "index": index, "route": route]) }
+                if r.enabled == false { try await call("list_set_enabled", ["position": position, "index": index, "enabled": true]) }
+            } else {
+                try await call("list_add", ["position": position, "rule": Rule.json(target, route: route)])
+            }
+            toast = Toast("\(label) → \(vpn ? "через VPN" : "напрямую")", "Правило в «\(position == "selected" ? "Через VPN" : "Напрямую") · мой список»")
+        } catch {
+            show(error)
+        }
+        await reloadSettings()
+    }
+
+    // MARK: Сейчас в сети
+
+    func connections() async -> [LiveConn]? { try? await get([LiveConn].self, "connections") }
+    func failures() async -> [Failure]? { try? await get([Failure].self, "failures") }
+
+    func ipCheck() async -> IpReport? {
+        do { return try await get(IpReport.self, "ip_check") } catch {
+            show(error)
+            return nil
+        }
+    }
+
+    /// Тема — в движке, как у веб-версии; применяется сразу, не дожидаясь ответа.
+    func setAppearance(_ a: Appearance) {
+        settings?.appearance = a
+        Task { await setPrefs(["appearance": a.json]) }
     }
 
     func setPrefs(_ prefs: [String: Any]) async {

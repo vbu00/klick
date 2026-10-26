@@ -3,29 +3,45 @@ import SwiftUI
 @main
 struct KlickApp: App {
     @StateObject private var engine = Engine.shared
-    /// Как у веб-версии: по умолчанию тёмная («Графит»).
-    @AppStorage("theme") private var theme = "dark"
-    @AppStorage("glass") private var glass = true
+    @StateObject private var ui = UIState()
+    /// Копия темы из движка: при запуске приложение сразу в своих цветах, пока движок не ответил.
+    @AppStorage("appearance") private var cached = ""
 
-    /// Тема; `KLICK_THEME` — для снимков в симуляторе (scripts/ios/native-sim-test.sh).
-    private var scheme: ColorScheme? {
-        switch ProcessInfo.processInfo.environment["KLICK_THEME"].flatMap({ $0.isEmpty ? nil : $0 }) ?? theme {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil
-        }
+    private var appearance: Appearance {
+        var a = engine.settings?.appearance ?? (try? JSONDecoder().decode(Appearance.self, from: Data(cached.utf8))) ?? .standard
+        // KLICK_THEME и KLICK_GLASS — для снимков в симуляторе (scripts/ios/native-sim-test.sh).
+        let env = ProcessInfo.processInfo.environment
+        if let t = env["KLICK_THEME"], !t.isEmpty { a.theme = t }
+        if let g = env["KLICK_GLASS"], !g.isEmpty { a.glass = g == "1" }
+        return a
     }
 
     var body: some Scene {
         WindowGroup {
+            let a = appearance
+            let _ = Palette.apply(theme: a.theme, base: a.base, accent: a.accent, glass: a.glass)
+            // Цвета темы — динамические UIColor: сменилась тема — экраны собираются заново (вкладка и
+            // подэкран живут в UIState и не сбрасываются).
             RootView()
+                .id(Palette.key)
                 .environmentObject(engine)
-                .environment(\.klickGlass, glass)
+                .environmentObject(ui)
+                .environment(\.klickGlass, a.glass)
                 .tint(K.accent)
-                .preferredColorScheme(scheme)
+                .preferredColorScheme(Palette.scheme)
                 .onAppear { engine.start() }
+                .onChange(of: engine.settings?.appearance) { a in
+                    if let a, let d = try? JSONEncoder().encode(a) { cached = String(decoding: d, as: UTF8.self) }
+                }
         }
     }
+}
+
+/// Что открыто: вкладка и подэкран настроек — переживают пересборку экранов при смене темы.
+final class UIState: ObservableObject {
+    /// Вкладка при запуске: `KLICK_TAB` — для снимков экрана в симуляторе.
+    @Published var tab = Int(ProcessInfo.processInfo.environment["KLICK_TAB"] ?? "") ?? 0
+    @Published var settingsSub: String?
 }
 
 /// Вкладки веб-версии (Chrome.tsx: TABS).
@@ -35,9 +51,9 @@ enum Tab: Int {
 
 struct RootView: View {
     @EnvironmentObject var engine: Engine
+    @EnvironmentObject var ui: UIState
     @Environment(\.klickGlass) private var glass
-    /// Вкладка при запуске: `KLICK_TAB` — для снимков экрана в симуляторе (scripts/ios/native-sim-test.sh).
-    @State private var tab = Int(ProcessInfo.processInfo.environment["KLICK_TAB"] ?? "") ?? 0
+    private var tab: Binding<Int> { $ui.tab }
 
     var body: some View {
         ZStack {
@@ -55,10 +71,10 @@ struct RootView: View {
                     ProgressView().tint(K.dim).frame(maxHeight: .infinity)
                 } else {
                     Group {
-                        switch Tab(rawValue: tab) ?? .home {
-                        case .home: HomeView(tab: $tab)
+                        switch Tab(rawValue: ui.tab) ?? .home {
+                        case .home: HomeView(tab: tab)
                         case .connection: ConnectionScreen()
-                        case .add: AddView(tab: $tab)
+                        case .add: AddView(tab: tab)
                         case .settings: SettingsView()
                         }
                     }
@@ -74,7 +90,7 @@ struct RootView: View {
     private var bottomBar: some View {
         VStack(spacing: 8) {
             ToastView()
-            KTabBar(tab: $tab, items: [("home", "Главная"), ("rules", "Соединение"), ("plus", "Добавить"), ("settings", "Настройки")])
+            KTabBar(tab: tab, items: [("home", "Главная"), ("rules", "Соединение"), ("plus", "Добавить"), ("settings", "Настройки")])
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)

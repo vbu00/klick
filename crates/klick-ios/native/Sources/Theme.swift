@@ -1,35 +1,98 @@
 import SwiftUI
 import UIKit
 
-/// Цвета веб-версии kl!ck (ui/src/lib/theme.ts): «Графит» в тёмной теме, «Светлая» в светлой. Размеры и
-/// отступы ниже — из её стилей (ui/src/styles), чтобы бета выглядела так же. Переходный вид — до макета
-/// родного интерфейса.
+/// Тема — как ui/src/lib/theme.ts (resolveTheme): основа (палитра) и акцент. Хранит её движок
+/// (`settings.appearance`), как у веб-версии; меняется — RootView пересобирается (`Palette.key`).
+enum Palette {
+    static var mode = "system"
+    static var base = "graphite"
+    static var customAccent: UInt32 = 0x30d158
+    static var glass = false
+
+    static let palettes: [String: [String: UInt32]] = [
+        "graphite": ["win": 0x1a1a1d, "card": 0x222226, "cardHover": 0x26262b, "hover": 0x2a2a2f, "elem": 0x2e2e33, "raised": 0x3a3a40, "ring": 0x4a4a50, "line": 0x2c2c31,
+                     "text": 0xf2f2f4, "text2": 0xc7c7cc, "text3": 0xa1a1a8, "dim": 0x8e8e93, "dim2": 0x6e6e73, "dots": 0x3c3c42],
+        "midnight": ["win": 0x121521, "card": 0x1a1e2d, "cardHover": 0x1e2334, "hover": 0x222739, "elem": 0x262c40, "raised": 0x333a52, "ring": 0x454d68, "line": 0x242a3c,
+                     "text": 0xeef0f7, "text2": 0xc3c8d8, "text3": 0x9aa1b7, "dim": 0x8990a8, "dim2": 0x676e86, "dots": 0x30364a],
+        "oled": ["win": 0x000000, "card": 0x111113, "cardHover": 0x161618, "hover": 0x1a1a1d, "elem": 0x1e1e21, "raised": 0x2c2c30, "ring": 0x3e3e44, "line": 0x1c1c1f,
+                 "text": 0xf5f5f7, "text2": 0xc7c7cc, "text3": 0xa1a1a8, "dim": 0x8e8e93, "dim2": 0x6e6e73, "dots": 0x2a2a2e],
+        "light": ["win": 0xf5f5f7, "card": 0xffffff, "cardHover": 0xf7f7f9, "hover": 0xefeff2, "elem": 0xededf1, "raised": 0xe3e3e8, "ring": 0xc7c7cc, "line": 0xe4e4e9,
+                  "text": 0x1c1c1e, "text2": 0x3a3a3c, "text3": 0x5f5f66, "dim": 0x7c7c83, "dim2": 0xa0a0a7, "dots": 0xd2d2d8],
+    ]
+
+    static let accents: [UInt32] = [0x30d158, 0x0a84ff, 0xbf5af2, 0xff9f0a, 0x64d2ff, 0xff375f]
+    static let bases = [("graphite", "Графит"), ("midnight", "Полночь"), ("oled", "OLED"), ("light", "Светлая")]
+
+    /// Основа: своя тема — выбранная, иначе графит или светлая (системная — по теме iOS).
+    static func base(_ t: UITraitCollection) -> String {
+        switch mode {
+        case "custom": return base
+        case "light": return "light"
+        case "dark": return "graphite"
+        default: return t.userInterfaceStyle == .light ? "light" : "graphite"
+        }
+    }
+
+    /// Светлая основа — тёмно-зелёный акцент, иначе — яркий; своя тема — выбранный.
+    static func accent(_ t: UITraitCollection) -> UInt32 {
+        mode == "custom" ? customAccent : base(t) == "light" ? 0x1fa34a : 0x30d158
+    }
+
+    static func lum(_ c: UInt32) -> Double {
+        0.2126 * Double(c >> 16 & 255) / 255 + 0.7152 * Double(c >> 8 & 255) / 255 + 0.0722 * Double(c & 255) / 255
+    }
+
+    /// Схема iOS для темы: системная — как у iOS, иначе по основе.
+    static var scheme: ColorScheme? {
+        switch mode {
+        case "system": return nil
+        case "light": return .light
+        case "custom": return base == "light" ? .light : .dark
+        default: return .dark
+        }
+    }
+
+    static var key: String { "\(mode)-\(base)-\(customAccent)-\(glass)" }
+
+    static func apply(theme: String, base: String, accent: String, glass: Bool) {
+        mode = theme
+        self.base = palettes[base] == nil ? "graphite" : base
+        customAccent = UInt32(accent.dropFirst(), radix: 16) ?? 0x30d158
+        self.glass = glass
+    }
+
+    static func hex(_ c: UInt32) -> String { String(format: "#%06x", c) }
+}
+
+/// Цвета темы для интерфейса: те же имена, что CSS-переменные веб-версии.
 enum K {
-    static let win = dyn(0x1a1a1d, 0xf5f5f7)
-    static let card = dyn(0x222226, 0xffffff)
-    static let cardHover = dyn(0x26262b, 0xf7f7f9)
-    static let hover = dyn(0x2a2a2f, 0xefeff2)
-    static let elem = dyn(0x2e2e33, 0xededf1)
-    static let raised = dyn(0x3a3a40, 0xe3e3e8)
-    static let ring = dyn(0x4a4a50, 0xc7c7cc)
-    static let line = dyn(0x2c2c31, 0xe4e4e9)
-    static let text = dyn(0xf2f2f4, 0x1c1c1e)
-    static let text2 = dyn(0xc7c7cc, 0x3a3a3c)
-    static let text3 = dyn(0xa1a1a8, 0x5f5f66)
-    static let dim = dyn(0x8e8e93, 0x7c7c83)
-    static let dim2 = dyn(0x6e6e73, 0xa0a0a7)
-    static let dots = dyn(0x3c3c42, 0xd2d2d8)
-    static let accent = Color(hex: 0x30d158)
-    /// Текст на акценте: тёмный на ярком зелёном, белый в светлой теме (theme.ts: lum(accent)).
-    static let onAccent = dyn(0x0b0b0c, 0xffffff)
+    static let win = tok("win")
+    static let card = tok("card")
+    static let cardHover = tok("cardHover")
+    static let hover = tok("hover")
+    static let elem = tok("elem")
+    static let raised = tok("raised")
+    static let ring = tok("ring")
+    static let line = tok("line")
+    static let text = tok("text")
+    static let text2 = tok("text2")
+    static let text3 = tok("text3")
+    static let dim = tok("dim")
+    static let dim2 = tok("dim2")
+    static let dots = tok("dots")
+    static let accent = Color(UIColor { UIColor(hex: Palette.accent($0)) })
+    /// Текст на акценте: белый на светлой основе и на тёмном акценте, иначе почти чёрный.
+    static let onAccent = Color(UIColor { t in
+        Palette.base(t) == "light" || Palette.lum(Palette.accent(t)) < 0.45 ? .white : UIColor(hex: 0x0b0b0c)
+    })
     static let red = Color(hex: 0xff6961)
     static let orange = Color(hex: 0xffb340)
 
-    private static func dyn(_ dark: UInt32, _ light: UInt32) -> Color {
-        Color(UIColor { $0.userInterfaceStyle == .light ? UIColor(hex: light) : UIColor(hex: dark) })
+    private static func tok(_ name: String) -> Color {
+        Color(UIColor { t in UIColor(hex: Palette.palettes[Palette.base(t)]?[name] ?? 0xff00ff) })
     }
 
-    /// Задержка: до 80 мс — зелёная, до 160 — обычная, дальше — оранжевая, нет ответа — красная (format.ts).
+    /// Задержка: до 80 мс — акцент, до 160 — обычная, дальше — оранжевая, нет ответа — красная (format.ts).
     static func ping(_ delay: Int?) -> Color {
         guard let d = delay else { return red }
         return d < 80 ? accent : d < 160 ? text : orange
@@ -123,18 +186,18 @@ extension View {
     }
 }
 
-/// Фон окна. Со стеклом — спокойный перелив сверху вниз в цвете темы, без цветных пятен (glass.css): стеклу
-/// есть что преломлять.
+/// Фон окна. Со стеклом — перелив в цвете темы с отсветом акцента сверху: стеклу iPhone нужно, что
+/// преломлять, на ровном фоне оно не видно.
 struct KBackground: View {
     @Environment(\.klickGlass) private var glass
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Group {
+        ZStack {
+            K.win
             if glass {
-                LinearGradient(colors: [Color(hex: scheme == .dark ? 0x313136 : 0xe6e9f0), K.win], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.6))
-            } else {
-                K.win
+                LinearGradient(colors: [K.accent.opacity(scheme == .dark ? 0.28 : 0.22), K.accent.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
+                RadialGradient(colors: [K.accent.opacity(scheme == .dark ? 0.22 : 0.16), .clear], center: UnitPoint(x: 0.85, y: 0.95), startRadius: 0, endRadius: 420)
             }
         }
         .ignoresSafeArea()

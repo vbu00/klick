@@ -49,14 +49,77 @@ struct RussiaDirect: Decodable, Equatable {
     var ips: Bool
 }
 
-/// Правило списка: сервис, сайт или IP.
+/// Правило списка: сервис, сайт или IP; `route` — `vpn`, `direct` или `block`.
 struct Rule: Decodable, Equatable {
-    struct Target: Decodable, Equatable {
+    struct Target: Decodable, Equatable, Hashable {
         var kind: String
         var value: String
     }
     var target: Target
+    var route: String?
     var enabled: Bool?
+
+    /// JSON для `list_add`.
+    static func json(_ target: Target, route: String) -> [String: Any] {
+        ["target": ["kind": target.kind, "value": target.value], "route": route, "enabled": true]
+    }
+}
+
+/// Сервис каталога (`catalog`): название, домены и сети — для «Добавить» и «Сейчас в сети».
+struct Service: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var domains: [String]
+    var cidrs: [String]
+
+    enum CodingKeys: String, CodingKey { case id, name, domains, cidrs }
+
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        domains = (try? c.decode([String].self, forKey: .domains)) ?? []
+        cidrs = (try? c.decode([String].self, forKey: .cidrs)) ?? []
+    }
+}
+
+/// Соединение ядра сейчас (`connections`).
+struct LiveConn: Decodable, Equatable {
+    var host: String
+    var process: String?
+    var route: String
+    var upload: Double
+    var download: Double
+}
+
+/// Неудачное соединение (`failures`) — «Не открывается?».
+struct Failure: Decodable, Equatable {
+    var host: String
+    var route: String
+    var error: String
+    var at: Double
+}
+
+/// Колонка «Как вас видят сайты».
+struct IpColumn: Decodable, Equatable {
+    var ipv4: String?
+    var ipv6: String?
+    var country: String?
+    var countryCode: String?
+    var city: String?
+    var provider: String?
+    var asn: Int?
+    var reverseDns: String?
+    var vpnDetected: Bool?
+    var error: String?
+}
+
+struct IpReport: Decodable, Equatable {
+    var viaVpn: IpColumn?
+    var direct: IpColumn
+    var ipv6Leak: Bool?
+    var dnsProtected: Bool?
+    var checkedAt: Double
 }
 
 struct Lists: Decodable, Equatable {
@@ -75,6 +138,19 @@ struct Settings: Decodable, Equatable {
     var onServerDown: String?
     var autoUpdate: Bool?
     var serversByCountry: Bool?
+    var appearance: Appearance?
+}
+
+/// Оформление: тема (`system`, `light`, `dark`, `custom`), основа и акцент своей темы, стекло.
+struct Appearance: Codable, Equatable {
+    var theme: String
+    var base: String
+    var accent: String
+    var glass: Bool
+
+    static let standard = Appearance(theme: "system", base: "graphite", accent: "#30d158", glass: false)
+
+    var json: [String: Any] { ["theme": theme, "base": base, "accent": accent, "glass": glass] }
 }
 
 /// Запись журнала службы.

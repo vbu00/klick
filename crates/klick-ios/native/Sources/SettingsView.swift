@@ -5,16 +5,16 @@ import UIKit
 /// недоступен», «Тема», «Журнал», «О приложении».
 struct SettingsView: View {
     @EnvironmentObject var engine: Engine
-    @State private var sub: String?
+    @EnvironmentObject var ui: UIState
 
     var body: some View {
         Group {
-            switch sub {
-            case "down": ServerDownScreen { sub = nil }
-            case "theme": ThemeScreen { sub = nil }
-            case "log": LogScreen { sub = nil }
-            case "about": AboutScreen { sub = nil }
-            default: SettingsMain { sub = $0 }
+            switch ui.settingsSub {
+            case "down": ServerDownScreen { ui.settingsSub = nil }
+            case "theme": ThemeScreen { ui.settingsSub = nil }
+            case "log": LogScreen { ui.settingsSub = nil }
+            case "about": AboutScreen { ui.settingsSub = nil }
+            default: SettingsMain { ui.settingsSub = $0 }
             }
         }
     }
@@ -27,12 +27,11 @@ let serverDownTexts: [(String, String, String, String?)] = [
     ("fastest", "Всегда самый быстрый", "kl!ck держится сервера с наименьшей задержкой и переходит на другой, когда тот становится быстрее.", nil),
 ]
 
-private let themeNames = [("system", "Системная"), ("light", "Светлая"), ("dark", "Тёмная")]
+private let themeNames = [("system", "Системная"), ("light", "Светлая"), ("dark", "Тёмная"), ("custom", "Своя")]
 
 private struct SettingsMain: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.colorScheme) private var scheme
-    @AppStorage("theme") private var theme = "dark"
     @State private var about: About?
     @State private var logCount: Int?
     @State private var lang = false
@@ -100,8 +99,13 @@ private struct SettingsMain: View {
     }
 
     private var themeSummary: String {
-        let name = themeNames.first { $0.0 == theme }?.1 ?? "Тёмная"
-        return theme == "system" ? "\(name) · сейчас \(scheme == .dark ? "тёмная" : "светлая")" : name
+        let a = engine.settings?.appearance ?? .standard
+        let name = themeNames.first { $0.0 == a.theme }?.1 ?? "Системная"
+        switch a.theme {
+        case "custom": return "\(name) · \(Palette.bases.first { $0.0 == a.base }?.1 ?? "")"
+        case "system": return "\(name) · сейчас \(scheme == .dark ? "тёмная" : "светлая")"
+        default: return name
+        }
     }
 
     private func report() async {
@@ -165,32 +169,130 @@ private struct ServerDownScreen: View {
     }
 }
 
+/// «Оформление» — как ThemeScreen в Settings.tsx: тема карточками с превью, стекло, для своей темы — основа
+/// и акцент.
 private struct ThemeScreen: View {
-    @AppStorage("theme") private var theme = "dark"
-    @AppStorage("glass") private var glass = true
+    @EnvironmentObject var engine: Engine
     let onBack: () -> Void
 
     private let desc = [
         "system": "Повторяет тему iOS и переключается вместе с ней.",
         "light": "Светлый фон и тёмный текст — удобно при ярком освещении.",
-        "dark": "Графитовый фон — спокойно для глаз вечером и ночью.",
+        "dark": "Тёмный фон — меньше нагрузки на глаза вечером.",
+        "custom": "Выберите основу и цвет акцента ниже.",
     ]
 
     var body: some View {
+        let a = engine.settings?.appearance ?? .standard
         KScreen {
             BackButton(label: "Настройки", action: onBack)
-            KTitle("Тема")
-            VStack(spacing: 8) {
-                ForEach(themeNames, id: \.0) { k, name in
-                    ChoiceCard(title: name, desc: desc[k], on: theme == k) { withAnimation { theme = k } }
+            Text("Оформление").font(.system(size: 24, weight: .semibold)).foregroundColor(K.text).padding(.top, 12)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(themeNames, id: \.0) { k, label in
+                    ThemeCard(kind: k, label: label, a: a) { set(a, theme: k) }
                 }
             }
             .padding(.top, 16)
-            KCardList(top: 12) {
+            Text(desc[a.theme] ?? "").font(.system(size: 12)).foregroundColor(K.dim).padding(.horizontal, 4).padding(.top, 10)
+
+            KSectionHead("Материал")
+            KCardList {
                 KRow(title: "Стекло", sub: "Системное стекло iPhone: Liquid Glass на iOS 26, раньше — матовые поверхности", wrap: true) {
-                    KToggle(isOn: $glass.animation(.easeInOut(duration: 0.25)))
+                    KToggle(isOn: Binding(get: { a.glass }, set: { v in set(a, glass: v) }))
                 }
             }
+
+            if a.theme == "custom" {
+                KSectionHead("Основа")
+                KSeg(value: Binding(get: { a.base }, set: { v in set(a, base: v) }), options: Palette.bases).padding(.top, 10)
+                KSectionHead("Акцент")
+                HStack(spacing: 0) {
+                    ForEach(Palette.accents, id: \.self) { c in
+                        swatch(c, on: a.accent.lowercased() == Palette.hex(c)) { set(a, accent: Palette.hex(c)) }
+                        if c != Palette.accents.last { Spacer(minLength: 0) }
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .kCard()
+                .padding(.top, 12)
+                Text("Акцентом подсвечиваются кнопка подключения, переключатели и статус «подключено».")
+                    .font(.system(size: 12)).foregroundColor(K.dim2).padding(.top, 12)
+            }
+        }
+    }
+
+    /// `.swatch`: кружок 32, выбранный — в кольце своего цвета.
+    private func swatch(_ c: UInt32, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Circle().fill(Color(hex: c)).frame(width: 32, height: 32)
+                .padding(2).background(Circle().fill(K.card))
+                .padding(2).background(Circle().fill(on ? Color(hex: c) : Color.clear))
+        }
+        .buttonStyle(Press())
+        .accessibilityLabel("Акцент \(Palette.hex(c))")
+    }
+
+    private func set(_ a: Appearance, theme: String? = nil, base: String? = nil, accent: String? = nil, glass: Bool? = nil) {
+        var n = a
+        if let theme { n.theme = theme }
+        if let base { n.base = base }
+        if let accent { n.accent = accent }
+        if let glass { n.glass = glass }
+        engine.setAppearance(n)
+    }
+}
+
+/// `.theme-card`: превью темы (полоса с точкой акцента и карточка) и название с кружком выбора.
+private struct ThemeCard: View {
+    let kind: String
+    let label: String
+    let a: Appearance
+    let action: () -> Void
+
+    private var palette: [String: UInt32] { Palette.palettes[kind == "light" ? "light" : kind == "custom" ? a.base : "graphite"] ?? [:] }
+    private var accent: Color {
+        kind == "custom" ? Color(hex: UInt32(a.accent.dropFirst(), radix: 16) ?? 0x30d158) : kind == "light" ? Color(hex: 0x1fa34a) : Color(hex: 0x30d158)
+    }
+
+    var body: some View {
+        let on = a.theme == kind
+        let sys = kind == "system"
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Circle().fill(accent).frame(width: 16, height: 16)
+                        RoundedRectangle(cornerRadius: 2).fill(sys ? Color.gray.opacity(0.6) : Color(hex: palette["dim"] ?? 0)).frame(width: 40, height: 4)
+                    }
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(sys ? Color.gray.opacity(0.28) : Color(hex: palette["card"] ?? 0))
+                }
+                .padding(8)
+                .frame(height: 72)
+                .background(preview(sys))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(sys ? Color.gray.opacity(0.3) : Color(hex: palette["line"] ?? 0), lineWidth: 1))
+                HStack(spacing: 8) {
+                    KRadio(on: on)
+                    Text(label).font(.system(size: 14, weight: .medium)).foregroundColor(K.text)
+                }
+                .padding(.horizontal, 4).padding(.top, 12).padding(.bottom, 4)
+            }
+            .padding(8)
+            .kCard()
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(on ? K.ring : Color.clear, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func preview(_ sys: Bool) -> some View {
+        if sys {
+            LinearGradient(stops: [.init(color: Color(hex: 0xf5f5f7), location: 0.5), .init(color: Color(hex: 0x1a1a1d), location: 0.5)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            Color(hex: palette["win"] ?? 0)
         }
     }
 }
