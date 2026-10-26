@@ -1041,16 +1041,10 @@ private struct IpCard: View {
 
 // MARK: Назад
 
-/// `.back` без стекла — капсула 32 на карточке; со стеклом подложку даёт системная кнопка.
+/// `.back`: капсула 32 на карточке.
 private struct BackLook: ViewModifier {
-    @Environment(\.klickGlass) private var glass
-
     func body(content: Content) -> some View {
-        if glass {
-            content
-        } else {
-            content.padding(.leading, 8).padding(.trailing, 14).frame(height: 32).background(K.card, in: Capsule())
-        }
+        content.padding(.leading, 8).padding(.trailing, 14).frame(height: 32).background(K.card, in: Capsule())
     }
 }
 

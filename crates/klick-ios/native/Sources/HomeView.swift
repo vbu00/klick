@@ -199,16 +199,10 @@ struct Press: ButtonStyle {
     }
 }
 
-/// `.mode-chip`: без стекла — капсула 34 на карточке; со стеклом подложку даёт системная кнопка.
+/// `.mode-chip`: капсула 34 на карточке.
 struct ChipLook: ViewModifier {
-    @Environment(\.klickGlass) private var glass
-
     func body(content: Content) -> some View {
-        if glass {
-            content.padding(.horizontal, 4).frame(height: 26)
-        } else {
-            content.padding(.horizontal, 16).frame(height: 34).background(K.card, in: Capsule())
-        }
+        content.padding(.horizontal, 16).frame(height: 34).background(K.card, in: Capsule())
     }
 }
 
