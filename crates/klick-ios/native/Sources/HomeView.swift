@@ -7,7 +7,8 @@ struct HomeView: View {
     @EnvironmentObject var engine: Engine
     @Binding var tab: Int
     @State private var viewId: String?
-    @State private var expanded = false
+    /// Серверы раскрыты; `KLICK_EXPAND=1` — для снимков в симуляторе.
+    @State private var expanded = ProcessInfo.processInfo.environment["KLICK_EXPAND"] == "1"
     @State private var switchTo: String?
     /// Сервер, выбранный в другой подписке под VPN: поставить его после переключения.
     @State private var switchServer: String?

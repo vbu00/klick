@@ -190,6 +190,7 @@ jobs:
             dist/klick-ios-beta.ipa
             dist/ios-beta-*.png
             dist/ios-beta-service.log
+            dist/ios-beta-selftest.log
             dist/ios-beta-crash-*.ips
           if-no-files-found: ignore
 

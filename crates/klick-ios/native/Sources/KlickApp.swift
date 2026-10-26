@@ -41,7 +41,8 @@ struct KlickApp: App {
 final class UIState: ObservableObject {
     /// Вкладка при запуске: `KLICK_TAB` — для снимков экрана в симуляторе.
     @Published var tab = Int(ProcessInfo.processInfo.environment["KLICK_TAB"] ?? "") ?? 0
-    @Published var settingsSub: String?
+    /// Подэкран настроек; `KLICK_SETTINGS_SUB` — для снимков в симуляторе.
+    @Published var settingsSub = ProcessInfo.processInfo.environment["KLICK_SETTINGS_SUB"].flatMap { $0.isEmpty ? nil : $0 }
 }
 
 /// Вкладки веб-версии (Chrome.tsx: TABS).

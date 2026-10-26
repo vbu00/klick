@@ -402,5 +402,6 @@ final class Engine: ObservableObject {
         guard let id else { return }
         await selectConnection(id)
         await testLatency()
+        if ProcessInfo.processInfo.environment["KLICK_SELFTEST_FULL"] == "1" { await fullSelfTest() }
     }
 }

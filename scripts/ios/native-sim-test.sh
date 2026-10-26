@@ -1,7 +1,8 @@
 #!/bin/bash
-# kl!ck β в симуляторе iOS: движок запускается, приложение не падает, снимки трёх вкладок в светлой и
-# тёмной теме — dist/ios-beta-*.png. С KLICK_TEST_SUB приложение само добавляет подписку и меряет задержку
-# (Engine.selfTest), и на снимке главной видны серверы.
+# kl!ck β в симуляторе iOS: движок запускается, полная самопроверка (каждая команда движка, которой
+# пользуются экраны, — Sources/SelfTest.swift), приложение не падает, снимки вкладок и подэкранов в светлой
+# и тёмной теме — dist/ios-beta-*.png, итог самопроверки — dist/ios-beta-selftest.log. С KLICK_TEST_SUB
+# приложение само добавляет подписку и меряет задержку (Engine.selfTest), и на снимках видны серверы.
 #   scripts/ios/native-sim-test.sh dist/klick-ios-beta-sim.app
 set -euo pipefail
 app="${1:?путь к .app для симулятора}"
@@ -18,9 +19,15 @@ xcrun simctl boot "$device" 2>/dev/null || true
 xcrun simctl bootstatus "$device" -b >/dev/null
 xcrun simctl install "$device" "$app"
 
-launch() { # launch <вкладка> [light|dark] [1 — стекло]: 0 главная, 1 соединение, 2 добавить, 3 настройки
+# launch <вкладка> <light|dark> <0|1 — стекло> [ИМЯ=значение…]: 0 главная, 1 соединение, 2 добавить,
+# 3 настройки; дальше — что открыть (KLICK_SETTINGS_SUB, KLICK_CONN_SUB, KLICK_EXPAND, KLICK_SELFTEST_FULL).
+launch() {
+    local tab="$1" theme="$2" glass="$3"
+    shift 3
     xcrun simctl terminate "$device" "$bundle_id" 2>/dev/null || true
-    SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$1" SIMCTL_CHILD_KLICK_THEME="${2:-}" SIMCTL_CHILD_KLICK_GLASS="${3:-0}"         xcrun simctl launch "$device" "$bundle_id" >/dev/null
+    xcrun simctl ui "$device" appearance "$theme"
+    env SIMCTL_CHILD_KLICK_SELFTEST_SUB="${KLICK_TEST_SUB:-}" SIMCTL_CHILD_KLICK_TAB="$tab" SIMCTL_CHILD_KLICK_THEME="$theme" \
+        SIMCTL_CHILD_KLICK_GLASS="$glass" ${@+"${@/#/SIMCTL_CHILD_}"} xcrun simctl launch "$device" "$bundle_id" >/dev/null
 }
 # Список целиком, а не `| grep -q`: grep выходит на первом совпадении, launchctl получает SIGPIPE, и с
 # pipefail живое приложение выглядело закрывшимся.
@@ -41,33 +48,56 @@ crash() { # crash <метка>
     xcrun simctl spawn "$device" log show --last 2m --style compact --predicate 'process == "KlickNative" AND messageType >= 16' 2>/dev/null | tail -15 || true
 }
 shot() { xcrun simctl io "$device" screenshot "$root/dist/ios-beta-$1.png" >/dev/null 2>&1 && echo "снимок: dist/ios-beta-$1.png"; }
+# view <снимок> <вкладка> <тема> <стекло> [ИМЯ=значение…]: открыть, подождать, снять, проверить, что живо.
+view() {
+    local name="$1"
+    shift
+    launch "$@"
+    sleep 6
+    shot "$name"
+    alive || { echo "FAIL $name: приложение закрылось"; crash "$name"; bad=1; }
+}
 
 mkdir -p "$root/dist"
 rm -f "$HOME"/Library/Logs/DiagnosticReports/KlickNative*.ips
 bad=0
-xcrun simctl ui "$device" appearance light
-launch 0 light 1
+
+# Первый запуск: подписка, задержка и полная самопроверка.
+launch 0 light 1 KLICK_SELFTEST_FULL=1
 data="$(xcrun simctl get_app_container "$device" "$bundle_id" data)"
 log="$data/Library/Application Support/klick/logs/service.log"
+selftest="$data/Library/Application Support/klick/logs/selftest.log"
 for ((i = 0; i < 60; i++)); do grep -q "данные:" "$log" 2>/dev/null && break; sleep 1; done
 if grep -q "данные:" "$log" 2>/dev/null; then echo "ok   движок запустился"; else echo "FAIL движок не запустился за 60 с"; bad=1; fi
-# Подписка, список серверов и задержка через каждый — до полуминуты.
-if [[ -n "${KLICK_TEST_SUB:-}" ]]; then sleep 30; else sleep 6; fi
+if [[ -n "${KLICK_TEST_SUB:-}" ]]; then
+    for ((i = 0; i < 180; i++)); do grep -q "selftest done" "$selftest" 2>/dev/null && break; sleep 1; done
+    if grep -q "selftest done" "$selftest" 2>/dev/null; then
+        grep -v "selftest done" "$selftest" | sed 's/^/     /'
+        grep -q "^FAIL" "$selftest" && { echo "FAIL самопроверка: есть ошибки"; bad=1; } || echo "ok   самопроверка"
+    else
+        echo "FAIL самопроверка не закончилась за 3 минуты"
+        bad=1
+    fi
+    cp "$selftest" "$root/dist/ios-beta-selftest.log" 2>/dev/null || true
+else
+    sleep 6
+fi
 shot home-light
 if alive; then echo "ok   приложение работает"; else echo "FAIL приложение закрылось"; crash home; bad=1; fi
-for tab in 1 2 3; do
-    launch "$tab" light 1
-    sleep 6
-    shot "tab$tab-light"
-    alive || { echo "FAIL вкладка $tab: приложение закрылось"; crash "tab$tab-light"; bad=1; }
-done
-xcrun simctl ui "$device" appearance dark
-for tab in 0 3; do
-    launch "$tab" dark "$((tab == 0))"
-    sleep 6
-    shot "tab$tab-dark"
-    alive || { echo "FAIL тёмная тема, вкладка $tab: приложение закрылось"; crash "tab$tab-dark"; bad=1; }
-done
+
+view tab1-light 1 light 1
+view tab2-light 2 light 1
+view tab3-light 3 light 1
+view tab0-dark 0 dark 1
+view tab3-dark 3 dark 0
+# Подэкраны: серверы в карточке, «Тема», «О приложении», мой список, лист «Добавить», «Сейчас в сети».
+view servers-dark 0 dark 1 KLICK_EXPAND=1
+view theme-dark 3 dark 1 KLICK_SETTINGS_SUB=theme
+view about-light 3 light 0 KLICK_SETTINGS_SUB=about
+view list-light 1 light 1 KLICK_CONN_SUB=list
+view addrule-dark 1 dark 1 KLICK_CONN_SUB=add
+view live-light 1 light 0 KLICK_CONN_SUB=live
+
 xcrun simctl ui "$device" appearance light
 grep -E "ERROR|паника|panicked" "$log" 2>/dev/null | tail -5 || true
 cp "$log" "$root/dist/ios-beta-service.log" 2>/dev/null || true

@@ -5,8 +5,9 @@ import SwiftUI
 /// в списке он включает и выключает правило, в «Сейчас в сети» сам пишет правило в мой список.
 struct ConnectionScreen: View {
     @EnvironmentObject var engine: Engine
-    @State private var sub: String?
-    @State private var adding = false
+    /// Подэкран и лист «Добавить»; `KLICK_CONN_SUB` (`list`, `live`, `failures`, `add`) — для снимков в симуляторе.
+    @State private var sub = ProcessInfo.processInfo.environment["KLICK_CONN_SUB"].flatMap { ["list", "live", "failures"].contains($0) ? $0 : nil }
+    @State private var adding = ProcessInfo.processInfo.environment["KLICK_CONN_SUB"] == "add"
     @State private var conns: [LiveConn] = []
     @State private var fails: [Failure] = []
 
