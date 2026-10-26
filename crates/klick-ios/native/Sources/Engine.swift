@@ -39,6 +39,8 @@ final class Engine: ObservableObject {
     @Published private(set) var servers: [String: [Server]] = [:]
     @Published private(set) var traffic = Traffic()
     @Published private(set) var pinging = false
+    /// Подключения, где задержку уже мерили: тогда пустая задержка — «нет ответа», а не «ещё не мерили».
+    @Published private(set) var tested: Set<String> = []
     @Published private(set) var speed: SpeedView?
     @Published private(set) var speedTesting = false
     /// Нажали кнопку питания, движок ещё не ответил: `on` — включаю, `off` — выключаю.
@@ -146,7 +148,11 @@ final class Engine: ObservableObject {
         case "settings":
             Task { if let s = try? await get(Settings.self, "settings") { settings = s } }
         case "servers":
-            if let id = obj["connection"] as? String { Task { await viewServers(id) } }
+            if let id = obj["connection"] as? String {
+                // Замер закончился (у движка или здесь): свежие задержки и «нет ответа».
+                if id == activeId { tested.insert(id) }
+                Task { await viewServers(id) }
+            }
         case "notice":
             if let code = obj["code"] as? String, let text = Texts.notice(code, obj["params"] as? [String: Any] ?? [:]) {
                 toast = Toast(text: text, bad: Texts.noticeIsBad(code))
@@ -201,7 +207,12 @@ final class Engine: ObservableObject {
         guard let id = activeId, !pinging else { return }
         pinging = true
         defer { pinging = false }
-        do { servers[id] = try await get([Server].self, "test_latency") } catch { show(error) }
+        do {
+            servers[id] = try await get([Server].self, "test_latency")
+            tested.insert(id)
+        } catch {
+            show(error)
+        }
     }
 
     func speedTest() async {

@@ -146,6 +146,11 @@ jobs:
           go-version-file: crates/klick-ios/core/go.mod
           cache-dependency-path: crates/klick-ios/core/go.sum
 
+      # Node — для флагов стран из ui/src/lib/flags.ts (scripts/ios/build-native.sh).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Xcode 26, Rust и инструменты
         run: |
           x="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"

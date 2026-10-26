@@ -234,7 +234,7 @@ private struct PChip: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if live { LiveDot() }
-                Text(title).lineLimit(1)
+                FlagName(name: title, size: 12)
             }
             .font(.system(size: 12, weight: .medium))
             .foregroundColor(on ? K.text : K.dim)
@@ -415,6 +415,10 @@ private struct ProfileCard: View {
     @State private var confirmRemove = false
 
     private var isSub: Bool { conn.kind == "subscription" }
+    /// «Серверы по странам»: если ни одной страны не узнали, делить нечего — обычный список.
+    private var byCountry: Bool {
+        engine.settings?.serversByCountry == true && list.contains { Countries.parse($0.name, $0.kind).code != nil }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -437,7 +441,7 @@ private struct ProfileCard: View {
                 .background(K.elem, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Text(conn.name).font(.system(size: 17, weight: .semibold)).foregroundColor(K.text).lineLimit(1)
+                    FlagName(name: conn.name, size: 17).font(.system(size: 17, weight: .semibold)).foregroundColor(K.text)
                     if viewingLive && live {
                         Text("Работает").font(.system(size: 11, weight: .semibold)).foregroundColor(K.accent)
                             .padding(.horizontal, 8).frame(height: 20)
@@ -445,8 +449,15 @@ private struct ProfileCard: View {
                     }
                 }
                 HStack(spacing: 6) {
-                    Text(current?.name ?? conn.selectedServer ?? (isSub ? "Подписка" : "Одиночная конфигурация"))
-                        .lineLimit(1).foregroundColor(K.dim)
+                    // По странам: флаг и «Беларусь · Hysteria2» вместо «🇧🇾 BY · HY2».
+                    if let cur = byCountry ? current.map({ ($0, Countries.parse($0.name, $0.kind)) }) : nil, let code = cur.1.code {
+                        FlagView(code: code, size: 16)
+                        Text("\(Countries.name(code)) · \(cur.1.title.isEmpty ? Texts.protocolName(cur.0.kind) : cur.1.title)")
+                            .lineLimit(1).foregroundColor(K.dim)
+                    } else {
+                        Text(current?.name ?? conn.selectedServer ?? (isSub ? "Подписка" : "Одиночная конфигурация"))
+                            .lineLimit(1).foregroundColor(K.dim)
+                    }
                     // Задержку показываем, только когда её измерили: «нет ответа» до проверки было бы неправдой.
                     if pinging || current?.delay != nil {
                         Circle().fill(K.dim2).frame(width: 3, height: 3)
@@ -556,7 +567,7 @@ private struct ProfileCard: View {
     private var servers: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                KCaps("Серверы · \(list.count)")
+                KCaps("Серверы · \(list.count)" + (byCountry ? " · " + Texts.plural(countries, ("страна", "страны", "стран")) : ""))
                 Spacer()
                 if isActive {
                     Button(pinging ? "Проверяем…" : "Проверить задержку") { Task { await engine.testLatency() } }
@@ -575,8 +586,14 @@ private struct ProfileCard: View {
                     .font(.system(size: 12)).foregroundColor(K.dim).lineSpacing(2)
                     .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
             }
-            ForEach(list) { s in
-                serverRow(s)
+            if byCountry {
+                ServerCountries(list: list, current: current, pinging: pinging, tested: engine.tested.contains(conn.id)) { name in
+                    if isActive { Task { await engine.selectServer(name) } } else { onPickOther(name) }
+                }
+            } else {
+                ForEach(list) { s in
+                    serverRow(s)
+                }
             }
         }
         .padding(.top, 12)
@@ -610,6 +627,8 @@ private struct ProfileCard: View {
         .buttonStyle(.plain)
         .padding(.bottom, 4)
     }
+
+    private var countries: Int { Set(list.compactMap { Countries.parse($0.name, $0.kind).code }).count }
 
     private func toggle() {
         withAnimation(.easeOut(duration: 0.25)) { expanded.toggle() }

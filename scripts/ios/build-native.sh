@@ -22,8 +22,8 @@ done
 
 step() { echo; echo "== $*"; }
 
-for cmd in cargo go xcodebuild codesign xcodegen; do
-    command -v "$cmd" >/dev/null || { echo "нет $cmd: нужны Xcode, Go, Rust и xcodegen (brew install xcodegen)" >&2; exit 1; }
+for cmd in cargo go node xcodebuild codesign xcodegen; do
+    command -v "$cmd" >/dev/null || { echo "нет $cmd: нужны Xcode, Go, Rust, Node и xcodegen (brew install xcodegen)" >&2; exit 1; }
 done
 targets=(aarch64-apple-ios)
 [[ $sim == 1 ]] && targets+=(aarch64-apple-ios-sim)
@@ -63,6 +63,11 @@ JSON
 }
 for f in "$root"/ui/src/assets/icons/*.svg; do add_icon "$f" "$(basename "$f" .svg)" template; done
 for f in "$root"/ui/src/assets/status/*.svg; do add_icon "$f" "status-$(basename "$f" .svg)" original; done
+# Флаги стран — те же рисунки, что у окна (ui/src/lib/flags.ts).
+flags="$(mktemp -d)"
+node "$root/ui/scripts/export-flags.mjs" "$flags"
+for f in "$flags"/*.svg; do add_icon "$f" "flag-$(basename "$f" .svg)" original; done
+rm -rf "$flags"
 echo "$(ls "$icons" | grep -c imageset) шт."
 
 step "ядро mihomo для iOS (Go)"

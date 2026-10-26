@@ -45,7 +45,8 @@ struct AddView: View {
 
         ZStack(alignment: .topLeading) {
             if link.isEmpty {
-                Text("https://panel.example.com/sub/a1b2… или vless://…")
+                // verbatim: строковый литерал SwiftUI читает как Markdown и красит адрес как ссылку.
+                Text(verbatim: "https://panel.example.com/sub/a1b2… или vless://…")
                     .font(.system(size: 13, design: .monospaced)).foregroundColor(K.dim2)
                     .padding(.horizontal, 14).padding(.vertical, 14)
                     .allowsHitTesting(false)
