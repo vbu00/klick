@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Главная — как ui/src/screens/Home.tsx: статус, кнопка, чип режима, подписки с серверами, скорость.
 /// Подписку можно посмотреть, не переключаясь на неё; активной она становится, когда в ней включают VPN
@@ -37,8 +38,10 @@ struct HomeView: View {
             VStack(spacing: 2) {
                 Text(statusLabel(viewingLive)).font(.system(size: 15)).foregroundColor(statusTone)
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(Texts.timer(since: engine.isRunning ? engine.state?.since : nil, now: ctx.date))
+                    let timer = Texts.timer(since: engine.isRunning ? engine.state?.since : nil, now: ctx.date)
+                    Text(timer)
                         .font(.system(size: 30, weight: .medium)).tracking(0.5).monospacedDigit().foregroundColor(K.text)
+                        .kNumeric(timer)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -46,6 +49,7 @@ struct HomeView: View {
             .zIndex(2)
 
             PowerButton(core: core(viewingLive), wave: viewingLive && vpn == "connected" && engine.pending == nil) {
+                Haptics.tap()
                 Task { await onPower(view, isActiveView: isActiveView, viewingLive: viewingLive) }
             }
             .padding(.top, 22)
@@ -72,8 +76,9 @@ struct HomeView: View {
                     HStack(spacing: 6) {
                         ForEach(conns) { c in
                             PChip(title: c.name, on: c.id == view.id, live: engine.isRunning && c.id == liveId) {
+                                Haptics.pick()
                                 expanded = false
-                                viewId = c.id
+                                withAnimation(.kSpring) { viewId = c.id }
                             }
                         }
                     }
@@ -88,6 +93,9 @@ struct HomeView: View {
                 .padding(.top, conns.count > 1 ? 10 : 34)
 
             SpeedBlock()
+        }
+        .refreshable {
+            if view.kind == "subscription" { await engine.refresh(view.id) } else { await engine.reload() }
         }
         .confirmationDialog("Сменить подключение?", isPresented: Binding(get: { switchTo != nil }, set: { if !$0 { switchTo = nil; switchServer = nil } }), titleVisibility: .visible) {
             Button("Переключить") {
@@ -192,10 +200,35 @@ struct HomeView: View {
     }
 }
 
+extension View {
+    /// Долгое нажатие на сервер: проверить задержку (в активной подписке), скопировать имя.
+    func serverMenu(_ name: String, active: Bool) -> some View {
+        modifier(ServerMenu(name: name, active: active))
+    }
+}
+
+private struct ServerMenu: ViewModifier {
+    @EnvironmentObject var engine: Engine
+    let name: String
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            if active {
+                Button { Task { await engine.testLatency() } } label: { Label("Проверить задержку", image: "server") }
+            }
+            Button {
+                UIPasteboard.general.string = name
+                engine.toast = Toast("Имя скопировано", name)
+            } label: { Label("Скопировать имя", image: "copy") }
+        }
+    }
+}
+
 /// Нажатие уменьшает на 4 %, как `:active { transform: scale(0.96) }`.
 struct Press: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.scaleEffect(configuration.isPressed ? 0.96 : 1).animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+        configuration.label.scaleEffect(configuration.isPressed ? 0.96 : 1).animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -321,6 +354,7 @@ struct PowerButton: View {
         .frame(maxWidth: .infinity)
         .frame(height: 120)
         .animation(.easeInOut(duration: 0.6), value: wave)
+        .animation(.kSpring, value: core)
     }
 }
 
@@ -473,7 +507,7 @@ private struct ProfileCard: View {
                     // Задержку показываем, только когда её измерили: «нет ответа» до проверки было бы неправдой.
                     if pinging || current?.delay != nil {
                         Circle().fill(K.dim2).frame(width: 3, height: 3)
-                        Text(pinging ? "…" : Texts.ping(current?.delay)).monospacedDigit()
+                        Text(pinging ? "…" : Texts.ping(current?.delay)).monospacedDigit().kNumeric(current?.delay)
                             .foregroundColor(pinging ? K.dim : K.ping(current?.delay))
                     }
                 }
@@ -599,7 +633,7 @@ private struct ProfileCard: View {
                     .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 8)
             }
             if byCountry {
-                ServerCountries(list: list, current: current, pinging: pinging, tested: engine.tested.contains(conn.id)) { name in
+                ServerCountries(list: list, current: current, pinging: pinging, tested: engine.tested.contains(conn.id), active: isActive) { name in
                     if isActive { Task { await engine.selectServer(name) } } else { onPickOther(name) }
                 }
             } else {
@@ -618,6 +652,7 @@ private struct ProfileCard: View {
     private func serverRow(_ s: Server) -> some View {
         let on = s.name == current?.name
         return Button {
+            Haptics.pick()
             if !isActive { onPickOther(s.name) } else if !on { Task { await engine.selectServer(s.name) } }
         } label: {
             HStack(spacing: 12) {
@@ -628,7 +663,7 @@ private struct ProfileCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let speed = s.speed { Text(Texts.mbps(speed)).font(.system(size: 11)).foregroundColor(K.dim).monospacedDigit() }
-                Text(pinging ? "…" : Texts.ping(s.delay)).font(.system(size: 13)).monospacedDigit()
+                Text(pinging ? "…" : Texts.ping(s.delay)).font(.system(size: 13)).monospacedDigit().kNumeric(s.delay)
                     .foregroundColor(pinging ? K.dim : K.ping(s.delay))
             }
             .padding(.horizontal, 8)
@@ -637,13 +672,15 @@ private struct ProfileCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .serverMenu(s.name, active: isActive)
         .padding(.bottom, 4)
     }
 
     private var countries: Int { Set(list.compactMap { Countries.parse($0.name, $0.kind).code }).count }
 
     private func toggle() {
-        withAnimation(.easeOut(duration: 0.25)) { expanded.toggle() }
+        Haptics.soft()
+        withAnimation(.kSpring) { expanded.toggle() }
         if expanded && isActive && list.count > 1 && list.allSatisfy({ $0.delay == nil }) { Task { await engine.testLatency() } }
         if expanded && !isActive && engine.servers[conn.id] == nil { Task { await engine.viewServers(conn.id) } }
     }
@@ -713,6 +750,7 @@ private struct SpeedBlock: View {
             }
             .foregroundColor(K.dim)
             Text(Texts.rate(rate)).font(.system(size: 22, weight: .semibold)).monospacedDigit().foregroundColor(K.text)
+                .kNumeric(rate)
                 .lineLimit(1).minimumScaleFactor(0.7).padding(.top, 6)
             Text("всего \(Texts.bytes(sum))").font(.system(size: 12)).foregroundColor(K.dim2).padding(.top, 2)
         }

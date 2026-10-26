@@ -107,6 +107,7 @@ final class Engine: ObservableObject {
     }
 
     func show(_ error: Error) {
+        Haptics.error()
         let code = (error as? EngineError)?.code ?? "unknown"
         toast = Toast(text: Texts.error(code), bad: true)
     }
@@ -139,6 +140,15 @@ final class Engine: ObservableObject {
         case "state":
             guard let raw = obj["state"], let d = try? JSONSerialization.data(withJSONObject: raw), let st = try? decoder.decode(StateView.self, from: d) else { return }
             let switched = st.connection?.id != state?.connection?.id
+            // Итог подключения — на ощупь: подключился, сервер не отвечает, не включился.
+            if st.vpn != state?.vpn {
+                switch st.vpn {
+                case "connected": Haptics.success()
+                case "server_down": Haptics.warning()
+                case "error": Haptics.error()
+                default: break
+                }
+            }
             state = st
             // VPN выключен — скорость, график и счётчики с нуля, как в веб-версии.
             if st.vpn != "connected" && traffic != Traffic() { traffic = Traffic() }
@@ -231,6 +241,7 @@ final class Engine: ObservableObject {
         do {
             try await call("add_connection", ["source": source, "name": name.isEmpty ? NSNull() : name])
             toast = Toast("Подключение добавлено", "Проверьте задержку серверов")
+            Haptics.success()
             await reload()
             return true
         } catch let error as EngineError where error.code == "conn.exists" {

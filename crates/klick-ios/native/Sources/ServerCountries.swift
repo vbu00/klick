@@ -52,6 +52,8 @@ struct ServerCountries: View {
     let current: Server?
     let pinging: Bool
     let tested: Bool
+    /// Подписка активна: в меню сервера есть «Проверить задержку».
+    var active = true
     let onPick: (String) -> Void
 
     /// Раскрытые страны живут, пока открыто приложение.
@@ -81,7 +83,8 @@ struct ServerCountries: View {
         let best = g.items.compactMap(\.server.delay).min()
         return VStack(spacing: 0) {
             Button {
-                withAnimation(.easeOut(duration: 0.28)) {
+                Haptics.soft()
+                withAnimation(.kSpring) {
                     if open.contains(g.key) { open.remove(g.key) } else { open.insert(g.key) }
                 }
                 Self.remembered = open
@@ -134,6 +137,7 @@ struct ServerCountries: View {
         let mute = tested && !pinging && s.delay == nil
         let proto = !p.title.isEmpty && !p.named ? Texts.protocolName(s.kind) : nil
         return Button {
+            Haptics.pick()
             if !on { onPick(s.name) }
         } label: {
             HStack(spacing: 10) {
@@ -152,6 +156,7 @@ struct ServerCountries: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .serverMenu(s.name, active: active)
     }
 
     private func title(_ s: Server, _ p: ParsedServer) -> String { p.title.isEmpty ? Texts.protocolName(s.kind) : p.title }
@@ -178,7 +183,7 @@ private struct Ping: View {
         if pinging {
             Text("…").font(.system(size: size)).foregroundColor(K.dim).frame(minWidth: 44, alignment: .trailing)
         } else if let delay {
-            Text("\(delay) мс").font(.system(size: size)).monospacedDigit().foregroundColor(K.ping(delay)).frame(minWidth: 44, alignment: .trailing)
+            Text("\(delay) мс").font(.system(size: size)).monospacedDigit().kNumeric(delay).foregroundColor(K.ping(delay)).frame(minWidth: 44, alignment: .trailing)
         } else if tested {
             Text("нет ответа").font(.system(size: 11, weight: .semibold)).foregroundColor(K.red.opacity(0.9))
                 .padding(.horizontal, 8).frame(height: 20)

@@ -371,7 +371,8 @@ struct KToggle: View {
             Toggle("", isOn: $isOn).labelsHidden().toggleStyle(SwitchToggleStyle(tint: K.accent)).fixedSize()
         } else {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isOn.toggle() }
+                Haptics.soft()
+                withAnimation(.kSpring) { isOn.toggle() }
             } label: {
                 ZStack(alignment: isOn ? .trailing : .leading) {
                     Capsule().fill(isOn ? K.accent : K.raised).frame(width: 44, height: 26)
@@ -487,7 +488,8 @@ struct KSeg<T: Hashable>: View {
             ForEach(options.indices, id: \.self) { i in
                 let (v, title) = options[i]
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { value = v }
+                    if v != value { Haptics.pick() }
+                    withAnimation(.kSpring) { value = v }
                 } label: {
                     Text(title)
                         .font(.system(size: size, weight: weight))

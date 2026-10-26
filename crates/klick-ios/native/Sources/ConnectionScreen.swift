@@ -355,6 +355,7 @@ private struct MyList: View {
             .accessibilityLabel("Удалить правило")
         }
         .padding(.leading, 14).padding(.trailing, 10).padding(.vertical, 11)
+        .modifier(SwipeToDelete { Task { await engine.removeRule(routing, index) } })
     }
 }
 
