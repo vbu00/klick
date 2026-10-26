@@ -69,6 +69,8 @@ struct RootView: View {
                     .frame(maxHeight: .infinity)
                 } else if !engine.up {
                     ProgressView().tint(K.dim).frame(maxHeight: .infinity)
+                } else if let native = nativeTabs {
+                    native
                 } else {
                     Group {
                         switch Tab(rawValue: ui.tab) ?? .home {
@@ -83,6 +85,27 @@ struct RootView: View {
                 }
             }
         }
+    }
+
+    /// Со стеклом на iOS 26 — системная панель вкладок: плавающая, из Liquid Glass, выделение перетекает
+    /// между вкладками. Значки — те же, что у веб-версии.
+    private var nativeTabs: AnyView? {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *) {
+            return AnyView(
+                TabView(selection: tab) {
+                    SwiftUI.Tab("Главная", image: "home", value: Tab.home.rawValue) { HomeView(tab: tab).background(KBackground()) }
+                    SwiftUI.Tab("Соединение", image: "rules", value: Tab.connection.rawValue) { ConnectionScreen().background(KBackground()) }
+                    SwiftUI.Tab("Добавить", image: "plus", value: Tab.add.rawValue) { AddView(tab: tab).background(KBackground()) }
+                    SwiftUI.Tab("Настройки", image: "settings", value: Tab.settings.rawValue) { SettingsView().background(KBackground()) }
+                }
+                .tint(K.accent)
+                .tabBarMinimizeBehavior(.onScrollDown)
+                .overlay(alignment: .bottom) { ToastView().padding(.horizontal, 16).padding(.bottom, 96) }
+            )
+        }
+        #endif
+        return nil
     }
 
     /// `.nav` и `.toasts`: панель вкладок в 22 от низа, уведомления над ней. Без стекла под панелью —
@@ -138,6 +161,7 @@ struct TitleBar: View {
 /// `.toast`: светлая плашка на тёмной теме (фон — цвет текста), точка цвета события, заголовок и подпись.
 struct ToastView: View {
     @EnvironmentObject var engine: Engine
+    @Environment(\.klickGlass) private var glass
 
     var body: some View {
         if let toast = engine.toast {
@@ -152,11 +176,11 @@ struct ToastView: View {
                 .padding(.trailing, 10)
                 Spacer(minLength: 0)
             }
-            .foregroundColor(K.win)
+            .foregroundColor(glass ? K.text : K.win)
             .padding(.vertical, 6)
             .padding(.leading, 8)
             .frame(minHeight: 48)
-            .background(K.text, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .kSurface(RoundedRectangle(cornerRadius: 14, style: .continuous), solid: K.text, interactive: true)
             .shadow(color: .black.opacity(0.24), radius: 12, y: 8)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .onTapGesture { engine.toast = nil }

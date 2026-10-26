@@ -39,7 +39,7 @@ struct AddView: View {
                 Text("Сканировать QR-код")
             }
         }
-        .buttonStyle(CardButtonStyle())
+        .kButton(.card())
         .disabled(busy)
         .padding(.top, 12)
 
@@ -89,7 +89,7 @@ struct AddView: View {
         } label: {
             Text(busy ? "Добавляем…" : "Добавить")
         }
-        .buttonStyle(PrimaryButtonStyle(enabled: canAdd))
+        .kButton(.primary(canAdd))
         .disabled(!canAdd)
         .padding(.top, 14)
 

@@ -153,7 +153,7 @@ struct KSurface<S: InsettableShape>: ViewModifier {
         if glass {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
-                content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
+                content.glassEffect(interactive ? .regular.tint(tint).interactive() : tint == nil ? .clear : .regular.tint(tint), in: shape)
             } else {
                 legacy(content)
             }
@@ -367,6 +367,89 @@ struct KToggle: View {
 
 // MARK: Кнопки
 
+/// Вид кнопки веб-версии: `.btn-elem`, `.btn-card`, `.btn-primary`, чип, круглая.
+enum KButtonKind {
+    case elem
+    case card(Font.Weight = .medium)
+    case primary(Bool)
+    case chip
+    case circle
+}
+
+extension View {
+    /// Кнопка веб-версии; со стеклом на iOS 26 — системная стеклянная кнопка iPhone (`.glass`,
+    /// у главной — `.glassProminent` в цвете акцента): тянется и переливается под пальцем.
+    func kButton(_ kind: KButtonKind) -> some View { modifier(KButtonModifier(kind: kind)) }
+}
+
+private struct KButtonModifier: ViewModifier {
+    @Environment(\.klickGlass) private var glass
+    let kind: KButtonKind
+
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *) {
+            native(content)
+        } else {
+            custom(content)
+        }
+        #else
+        custom(content)
+        #endif
+    }
+
+    @ViewBuilder
+    private func custom(_ content: Content) -> some View {
+        switch kind {
+        case .elem: content.buttonStyle(ElemButtonStyle())
+        case .card(let w): content.buttonStyle(CardButtonStyle(weight: w))
+        case .primary(let on): content.buttonStyle(PrimaryButtonStyle(enabled: on))
+        case .chip, .circle: content.buttonStyle(Press())
+        }
+    }
+
+    #if compiler(>=6.2)
+    @available(iOS 26.0, *)
+    @ViewBuilder
+    private func native(_ content: Content) -> some View {
+        switch kind {
+        case .elem:
+            content.buttonStyle(GlassButton(font: .system(size: 12, weight: .medium))).controlSize(.small)
+        case .card(let w):
+            content.buttonStyle(GlassButton(font: .system(size: 14, weight: w), wide: true, shape: .roundedRectangle(radius: 12))).controlSize(.large)
+        case .primary(let on):
+            content.buttonStyle(GlassButton(font: .system(size: 15, weight: .semibold), wide: true, prominent: on, shape: .roundedRectangle(radius: 14))).controlSize(.large)
+        case .chip:
+            content.buttonStyle(GlassButton(font: .system(size: 13)))
+        case .circle:
+            content.buttonStyle(GlassButton(font: .system(size: 13), shape: .circle))
+        }
+    }
+    #endif
+}
+
+#if compiler(>=6.2)
+/// Системная стеклянная кнопка iOS 26 вокруг подписи кнопки (во всю ширину — `wide`).
+@available(iOS 26.0, *)
+struct GlassButton: PrimitiveButtonStyle {
+    var font: Font
+    var wide = false
+    var prominent = false
+    var shape: ButtonBorderShape = .capsule
+
+    func makeBody(configuration: Configuration) -> some View {
+        let label = configuration.label.font(font).frame(maxWidth: wide ? .infinity : nil)
+        if prominent {
+            Button(role: configuration.role, action: configuration.trigger) { label.foregroundStyle(K.onAccent) }
+                .buttonStyle(.glassProminent).buttonBorderShape(shape).tint(K.accent)
+        } else {
+            Button(role: configuration.role, action: configuration.trigger) { label.foregroundStyle(K.text) }
+                .buttonStyle(.glass).buttonBorderShape(shape)
+        }
+    }
+}
+#endif
+
 /// `.btn-elem`: 28, скругление 14, фон `--elem`, 12 средний, значок через 6.
 struct ElemButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -434,7 +517,26 @@ struct KSeg<T: Hashable>: View {
     var size: CGFloat = 13
     var weight: Font.Weight = .medium
 
+    @Environment(\.klickGlass) private var glass
+
     var body: some View {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *) {
+            Picker("", selection: $value) {
+                ForEach(options.indices, id: \.self) { i in Text(options[i].1).tag(options[i].0) }
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.large)
+            .labelsHidden()
+        } else {
+            plain
+        }
+        #else
+        plain
+        #endif
+    }
+
+    private var plain: some View {
         HStack(spacing: 2) {
             ForEach(options.indices, id: \.self) { i in
                 let (v, title) = options[i]

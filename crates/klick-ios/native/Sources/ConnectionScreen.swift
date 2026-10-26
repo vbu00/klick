@@ -76,7 +76,7 @@ struct ConnectionScreen: View {
                     Text("Добавить")
                 }
             }
-            .buttonStyle(CardButtonStyle(weight: .semibold))
+            .kButton(.card(.semibold))
             .padding(.top, 8)
 
             CxHead("Сейчас в сети", wide: true)
@@ -323,7 +323,7 @@ private struct MyList: View {
                     Text("Добавить")
                 }
             }
-            .buttonStyle(CardButtonStyle(weight: .semibold))
+            .kButton(.card(.semibold))
             .padding(.top, 12)
         }
     }
@@ -945,7 +945,7 @@ private struct IpCard: View {
                         Text(busy ? "Проверяю…" : "Проверить")
                     }
                 }
-                .buttonStyle(CardButtonStyle())
+                .kButton(.card())
                 .disabled(busy)
                 .padding(.top, 12)
             }
@@ -1040,6 +1040,19 @@ private struct IpCard: View {
 
 // MARK: Назад
 
+/// `.back` без стекла — капсула 32 на карточке; со стеклом подложку даёт системная кнопка.
+private struct BackLook: ViewModifier {
+    @Environment(\.klickGlass) private var glass
+
+    func body(content: Content) -> some View {
+        if glass {
+            content
+        } else {
+            content.padding(.leading, 8).padding(.trailing, 14).frame(height: 32).background(K.card, in: Capsule())
+        }
+    }
+}
+
 /// `.back`: «‹ Назад» над подэкраном.
 struct BackButton: View {
     let label: String
@@ -1052,11 +1065,9 @@ struct BackButton: View {
                 Text(label).font(.system(size: 13, weight: .medium))
             }
             .foregroundColor(K.text2)
-            .padding(.leading, 8).padding(.trailing, 14)
-            .frame(height: 32)
-            .kSurface(Capsule(), interactive: true)
+            .modifier(BackLook())
         }
-        .buttonStyle(Press())
+        .kButton(.chip)
         .padding(.top, 14)
     }
 }

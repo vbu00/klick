@@ -58,11 +58,9 @@ struct HomeView: View {
                     Text(engine.state?.routing == "all_vpn" ? "VPN для всего" : "VPN для выбранного")
                         .font(.system(size: 13)).foregroundColor(K.text2)
                 }
-                .padding(.horizontal, 16)
-                .frame(height: 34)
-                .kSurface(Capsule(), interactive: true)
+                .modifier(ChipLook())
             }
-            .buttonStyle(Press())
+            .kButton(.chip)
             .frame(maxWidth: .infinity)
             .padding(.top, 18)
 
@@ -200,6 +198,19 @@ struct Press: ButtonStyle {
     }
 }
 
+/// `.mode-chip`: без стекла — капсула 34 на карточке; со стеклом подложку даёт системная кнопка.
+struct ChipLook: ViewModifier {
+    @Environment(\.klickGlass) private var glass
+
+    func body(content: Content) -> some View {
+        if glass {
+            content.padding(.horizontal, 4).frame(height: 26)
+        } else {
+            content.padding(.horizontal, 16).frame(height: 34).background(K.card, in: Capsule())
+        }
+    }
+}
+
 /// `.banner`: оранжевая (или красная) плашка с точкой.
 private struct Banner: View {
     let title: String
@@ -289,23 +300,50 @@ struct PowerButton: View {
         }
     }
 
+    @Environment(\.klickGlass) private var glass
+
+    private var plainButton: some View {
+        Button(action: action) {
+            ZStack {
+                if core == .live { Pulse() }
+                Circle().fill(fill).frame(width: 84, height: 84)
+                    .overlay(Circle().strokeBorder(border, lineWidth: 1))
+                if core == .busy || core == .busyWarn { Spinner(color: core == .busyWarn ? K.orange : K.accent) }
+                KIcon("power", size: 34).foregroundColor(iconColor)
+            }
+            .frame(width: 120, height: 120)
+            .contentShape(Circle())
+        }
+        .buttonStyle(Press())
+        .accessibilityLabel(core == .off ? "Включить VPN" : "Отключить VPN")
+    }
+
+    /// Со стеклом на iOS 26 — системная стеклянная кнопка-круг: тянется под пальцем, работает — стекло зелёное.
+    private var glassButton: AnyView? {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *) {
+            return AnyView(
+                ZStack {
+                    if core == .live { Pulse() }
+                    Button(action: action) {
+                        KIcon("power", size: 34).foregroundColor(iconColor).frame(width: 64, height: 64)
+                    }
+                    .buttonStyle(GlassButton(font: .body, prominent: core == .live, shape: .circle))
+                    .controlSize(.extraLarge)
+                    if core == .busy || core == .busyWarn { Spinner(color: core == .busyWarn ? K.orange : K.accent).allowsHitTesting(false) }
+                }
+                .frame(width: 120, height: 120)
+                .accessibilityLabel(core == .off ? "Включить VPN" : "Отключить VPN")
+            )
+        }
+        #endif
+        return nil
+    }
+
     var body: some View {
         ZStack {
             if wave { Wave().transition(.opacity) }
-            Button(action: action) {
-                ZStack {
-                    if core == .live { Pulse() }
-                    Circle().fill(fill).frame(width: 84, height: 84)
-                        .overlay(Circle().strokeBorder(border, lineWidth: 1))
-                        .glassCircle()
-                    if core == .busy || core == .busyWarn { Spinner(color: core == .busyWarn ? K.orange : K.accent) }
-                    KIcon("power", size: 34).foregroundColor(iconColor)
-                }
-                .frame(width: 120, height: 120)
-                .contentShape(Circle())
-            }
-            .buttonStyle(Press())
-            .accessibilityLabel(core == .off ? "Включить VPN" : "Отключить VPN")
+            if let glassButton { glassButton } else { plainButton }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 120)
@@ -527,7 +565,7 @@ private struct ProfileCard: View {
                         Text(refreshing ? "Обновляем…" : "Обновить")
                     }
                 }
-                .buttonStyle(ElemButtonStyle())
+                .kButton(.elem)
                 .disabled(refreshing)
             }
             .padding(.top, total > 0 || unlimited ? 12 : 0)
@@ -537,7 +575,7 @@ private struct ProfileCard: View {
             if !links.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(links, id: \.0) { l in
-                        Button(l.0) { openURL(l.1) }.buttonStyle(ElemButtonStyle())
+                        Button(l.0) { openURL(l.1) }.kButton(.elem)
                     }
                 }
                 .padding(.top, 12)
@@ -571,7 +609,7 @@ private struct ProfileCard: View {
                 Spacer()
                 if isActive {
                     Button(pinging ? "Проверяем…" : "Проверить задержку") { Task { await engine.testLatency() } }
-                        .buttonStyle(ElemButtonStyle())
+                        .kButton(.elem)
                         .disabled(pinging)
                 }
             }
@@ -684,7 +722,7 @@ private struct SpeedBlock: View {
                     Text(engine.speedTesting ? "Меряю…" : engine.speed != nil ? "Ещё раз" : "Проверить скорость")
                 }
             }
-            .buttonStyle(ElemButtonStyle())
+            .kButton(.elem)
             .disabled(engine.speedTesting || !connected)
         }
         .padding(.horizontal, 14)
@@ -803,7 +841,7 @@ private struct EmptyHome: View {
                     step(3, "Нажмите кнопку питания", "Заблокированные сервисы пойдут через VPN, остальное — напрямую")
                 }
                 .padding(.top, 26)
-                Button("Добавить подключение", action: onAdd).buttonStyle(PrimaryButtonStyle()).padding(.top, 22)
+                Button("Добавить подключение", action: onAdd).kButton(.primary(true)).padding(.top, 22)
             }
             .padding(.top, 36)
         }
