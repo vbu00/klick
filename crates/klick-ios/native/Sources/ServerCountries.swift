@@ -148,7 +148,7 @@ struct ServerCountries: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 38)
-            .background(on ? K.hover : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(on ? K.hover : Color.clear, in: RoundedRectangle(cornerRadius: K.r(10), style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

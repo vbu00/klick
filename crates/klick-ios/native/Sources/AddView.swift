@@ -55,8 +55,8 @@ struct AddView: View {
                 .padding(.horizontal, 9).padding(.vertical, 6)
         }
         .frame(height: 110)
-        .background(K.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .background(K.card, in: RoundedRectangle(cornerRadius: K.r(14), style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: K.r(14), style: .continuous)
             .strokeBorder(d.kind == "bad" ? K.red.opacity(0.55) : d.kind == "empty" ? K.line : K.accent.opacity(0.55), lineWidth: 1))
         .padding(.top, 16)
         .accessibilityLabel("Ссылка на подписку или конфигурацию")
@@ -108,7 +108,7 @@ struct AddView: View {
         HStack(alignment: .top, spacing: 12) {
             KIcon(icon, size: 18).foregroundColor(K.dim)
                 .frame(width: 32, height: 32)
-                .background(K.elem, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .background(K.elem, in: RoundedRectangle(cornerRadius: K.r(9), style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(K.text)
                 Text(text).font(.system(size: 12)).foregroundColor(K.text3).fixedSize(horizontal: false, vertical: true)
@@ -134,8 +134,8 @@ struct AddView: View {
             .foregroundColor(K.dim)
             .frame(maxWidth: .infinity)
             .frame(height: 190)
-            .background(K.card.opacity(0.5), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(K.raised, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
+            .background(K.card.opacity(0.5), in: RoundedRectangle(cornerRadius: K.r(16), style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: K.r(16), style: .continuous).strokeBorder(K.raised, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

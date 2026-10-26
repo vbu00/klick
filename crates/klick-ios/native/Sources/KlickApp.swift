@@ -60,7 +60,7 @@ struct RootView: View {
         ZStack {
             KBackground()
             VStack(spacing: 0) {
-                TitleBar()
+                if !nativeBars { TitleBar() }
                 if let error = engine.startError {
                     VStack(spacing: 8) {
                         Text("Движок kl!ck не запустился").font(.system(size: 15, weight: .semibold)).foregroundColor(K.text)
@@ -86,6 +86,14 @@ struct RootView: View {
                 }
             }
         }
+    }
+
+    /// iOS-вид (стекло на iOS 26): шапка — у экранов над прокруткой, вкладки — системные.
+    private var nativeBars: Bool {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *), engine.up { return true }
+        #endif
+        return false
     }
 
     /// Со стеклом на iOS 26 — системная панель вкладок: плавающая, из Liquid Glass, выделение перетекает
@@ -134,6 +142,7 @@ struct RootView: View {
 /// `.titlebar`: значок состояния и «kl!ck», 44, линия снизу (на iOS — без кнопок окна).
 struct TitleBar: View {
     @EnvironmentObject var engine: Engine
+    @Environment(\.klickGlass) private var glass
 
     private var icon: String {
         if engine.startError != nil { return "status-error" }
@@ -155,7 +164,7 @@ struct TitleBar: View {
         .padding(.leading, 16)
         .padding(.trailing, 10)
         .frame(height: 44)
-        .overlay(alignment: .bottom) { Rectangle().fill(K.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { if !glass { Rectangle().fill(K.line).frame(height: 1) } }
     }
 }
 
@@ -177,11 +186,11 @@ struct ToastView: View {
                 .padding(.trailing, 10)
                 Spacer(minLength: 0)
             }
-            .foregroundColor(glass ? K.text : K.win)
+            .foregroundColor(K.win)
             .padding(.vertical, 6)
             .padding(.leading, 8)
             .frame(minHeight: 48)
-            .kSurface(RoundedRectangle(cornerRadius: 14, style: .continuous), solid: K.text, interactive: true)
+            .background(K.text, in: RoundedRectangle(cornerRadius: K.r(14), style: .continuous))
             .shadow(color: .black.opacity(0.24), radius: 12, y: 8)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .onTapGesture { engine.toast = nil }

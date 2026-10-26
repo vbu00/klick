@@ -92,6 +92,20 @@ enum K {
         Color(UIColor { t in UIColor(hex: Palette.palettes[Palette.base(t)]?[name] ?? 0xff00ff) })
     }
 
+    /// Скругление: веб-версии — как есть; в iOS-виде (со стеклом) — крупнее, как в «Настройках» iOS 26
+    /// (карточки 26 вместо 20). Мелкие (меньше 9) не меняются.
+    static func r(_ web: CGFloat) -> CGFloat {
+        guard Palette.glass, web >= 9 else { return web }
+        switch web {
+        case 20...: return 26
+        case 18..<20: return 24
+        case 16..<18: return 22
+        case 14..<16: return 20
+        case 12..<14: return 16
+        default: return web + 3
+        }
+    }
+
     /// Задержка: до 80 мс — акцент, до 160 — обычная, дальше — оранжевая, нет ответа — красная (format.ts).
     static func ping(_ delay: Int?) -> Color {
         guard let d = delay else { return red }
@@ -148,12 +162,15 @@ struct KSurface<S: InsettableShape>: ViewModifier {
     let solid: Color
     var tint: Color?
     var interactive = false
+    /// Навигация (панель вкладок, шапка): только она стеклянная — карточки, поля и кнопки сплошные,
+    /// как в «Настройках» iOS.
+    var glassy = false
 
     func body(content: Content) -> some View {
-        if glass {
+        if glass && glassy {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) {
-                content.glassEffect(interactive ? .regular.tint(tint).interactive() : tint == nil ? .clear : .regular.tint(tint), in: shape)
+                content.glassEffect(interactive ? .regular.tint(tint).interactive() : .regular.tint(tint), in: shape)
             } else {
                 legacy(content)
             }
@@ -176,41 +193,45 @@ struct KSurface<S: InsettableShape>: ViewModifier {
 }
 
 extension View {
-    func kSurface<S: InsettableShape>(_ shape: S, solid: Color = K.card, tint: Color? = nil, interactive: Bool = false) -> some View {
-        modifier(KSurface(shape: shape, solid: solid, tint: tint, interactive: interactive))
+    func kSurface<S: InsettableShape>(_ shape: S, solid: Color = K.card, tint: Color? = nil, interactive: Bool = false, glassy: Bool = false) -> some View {
+        modifier(KSurface(shape: shape, solid: solid, tint: tint, interactive: interactive, glassy: glassy))
     }
 
-    /// Карточка `--card` со скруглением (20 — карточки и списки, 14 — карточки «Соединения»).
+    /// Карточка `--card` со скруглением веб-версии (20 — карточки и списки, 14 — карточки «Соединения»);
+    /// в iOS-виде — крупнее, как в «Настройках» iOS (`K.r`).
     func kCard(_ radius: CGFloat = 20) -> some View {
-        kSurface(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        kSurface(RoundedRectangle(cornerRadius: K.r(radius), style: .continuous))
     }
 }
 
-/// Фон окна. Со стеклом — перелив в цвете темы с отсветом акцента сверху: стеклу iPhone нужно, что
-/// преломлять, на ровном фоне оно не видно.
+/// Фон окна — `--win`.
 struct KBackground: View {
-    @Environment(\.klickGlass) private var glass
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        ZStack {
-            K.win
-            if glass {
-                LinearGradient(colors: [K.accent.opacity(scheme == .dark ? 0.28 : 0.22), K.accent.opacity(0)], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
-                RadialGradient(colors: [K.accent.opacity(scheme == .dark ? 0.22 : 0.16), .clear], center: UnitPoint(x: 0.85, y: 0.95), startRadius: 0, endRadius: 420)
-            }
-        }
-        .ignoresSafeArea()
-    }
+    var body: some View { K.win.ignoresSafeArea() }
 }
 
 // MARK: Экран и разделы
 
 /// Экран: `.content` веб-версии — поля 16, снизу место под панель вкладок; на iPad колонка до 560.
 struct KScreen<Content: View>: View {
+    @Environment(\.klickGlass) private var glass
     @ViewBuilder var content: Content
 
     var body: some View {
+        #if compiler(>=6.2)
+        if glass, #available(iOS 26.0, *) {
+            // Шапка над прокруткой: содержимое уходит под неё и мягко размывается — как у навигации iOS 26.
+            scroll
+                .safeAreaBar(edge: .top) { TitleBar() }
+                .scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            scroll
+        }
+        #else
+        scroll
+        #endif
+    }
+
+    private var scroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) { content }
                 .padding(.horizontal, 16)
@@ -377,29 +398,14 @@ enum KButtonKind {
 }
 
 extension View {
-    /// Кнопка веб-версии; со стеклом на iOS 26 — системная стеклянная кнопка iPhone (`.glass`,
-    /// у главной — `.glassProminent` в цвете акцента): тянется и переливается под пальцем.
+    /// Кнопка веб-версии.
     func kButton(_ kind: KButtonKind) -> some View { modifier(KButtonModifier(kind: kind)) }
 }
 
 private struct KButtonModifier: ViewModifier {
-    @Environment(\.klickGlass) private var glass
     let kind: KButtonKind
 
     func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if glass, #available(iOS 26.0, *) {
-            native(content)
-        } else {
-            custom(content)
-        }
-        #else
-        custom(content)
-        #endif
-    }
-
-    @ViewBuilder
-    private func custom(_ content: Content) -> some View {
         switch kind {
         case .elem: content.buttonStyle(ElemButtonStyle())
         case .card(let w): content.buttonStyle(CardButtonStyle(weight: w))
@@ -407,48 +413,7 @@ private struct KButtonModifier: ViewModifier {
         case .chip, .circle: content.buttonStyle(Press())
         }
     }
-
-    #if compiler(>=6.2)
-    @available(iOS 26.0, *)
-    @ViewBuilder
-    private func native(_ content: Content) -> some View {
-        switch kind {
-        case .elem:
-            content.buttonStyle(GlassButton(font: .system(size: 12, weight: .medium))).controlSize(.small)
-        case .card(let w):
-            content.buttonStyle(GlassButton(font: .system(size: 14, weight: w), wide: true, shape: .roundedRectangle(radius: 12))).controlSize(.large)
-        case .primary(let on):
-            content.buttonStyle(GlassButton(font: .system(size: 15, weight: .semibold), wide: true, prominent: on, shape: .roundedRectangle(radius: 14))).controlSize(.large)
-        case .chip:
-            content.buttonStyle(GlassButton(font: .system(size: 13)))
-        case .circle:
-            content.buttonStyle(GlassButton(font: .system(size: 13), shape: .circle))
-        }
-    }
-    #endif
 }
-
-#if compiler(>=6.2)
-/// Системная стеклянная кнопка iOS 26 вокруг подписи кнопки (во всю ширину — `wide`).
-@available(iOS 26.0, *)
-struct GlassButton: PrimitiveButtonStyle {
-    var font: Font
-    var wide = false
-    var prominent = false
-    var shape: ButtonBorderShape = .capsule
-
-    func makeBody(configuration: Configuration) -> some View {
-        let label = configuration.label.font(font).frame(maxWidth: wide ? .infinity : nil)
-        if prominent {
-            Button(role: configuration.role, action: configuration.trigger) { label.foregroundStyle(K.onAccent) }
-                .buttonStyle(.glassProminent).buttonBorderShape(shape).tint(K.accent)
-        } else {
-            Button(role: configuration.role, action: configuration.trigger) { label.foregroundStyle(K.text) }
-                .buttonStyle(.glass).buttonBorderShape(shape)
-        }
-    }
-}
-#endif
 
 /// `.btn-elem`: 28, скругление 14, фон `--elem`, 12 средний, значок через 6.
 struct ElemButtonStyle: ButtonStyle {
@@ -474,7 +439,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .foregroundColor(enabled ? K.win : K.dim)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .kSurface(RoundedRectangle(cornerRadius: 14, style: .continuous), solid: enabled ? K.text : K.elem, tint: enabled ? K.text : nil, interactive: true)
+            .kSurface(RoundedRectangle(cornerRadius: K.r(14), style: .continuous), solid: enabled ? K.text : K.elem, tint: enabled ? K.text : nil, interactive: true)
             .scaleEffect(configuration.isPressed && enabled ? 0.98 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
@@ -490,7 +455,7 @@ struct CardButtonStyle: ButtonStyle {
             .foregroundColor(K.text)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
-            .kSurface(RoundedRectangle(cornerRadius: 12, style: .continuous), interactive: true)
+            .kSurface(RoundedRectangle(cornerRadius: K.r(12), style: .continuous), interactive: true)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
@@ -517,26 +482,7 @@ struct KSeg<T: Hashable>: View {
     var size: CGFloat = 13
     var weight: Font.Weight = .medium
 
-    @Environment(\.klickGlass) private var glass
-
     var body: some View {
-        #if compiler(>=6.2)
-        if glass, #available(iOS 26.0, *) {
-            Picker("", selection: $value) {
-                ForEach(options.indices, id: \.self) { i in Text(options[i].1).tag(options[i].0) }
-            }
-            .pickerStyle(.segmented)
-            .controlSize(.large)
-            .labelsHidden()
-        } else {
-            plain
-        }
-        #else
-        plain
-        #endif
-    }
-
-    private var plain: some View {
         HStack(spacing: 2) {
             ForEach(options.indices, id: \.self) { i in
                 let (v, title) = options[i]
@@ -548,14 +494,14 @@ struct KSeg<T: Hashable>: View {
                         .foregroundColor(v == value ? K.text : K.dim)
                         .frame(maxWidth: .infinity)
                         .frame(height: height)
-                        .background(v == value ? K.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .background(v == value ? K.raised : Color.clear, in: RoundedRectangle(cornerRadius: K.r(9), style: .continuous))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .kSurface(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .kSurface(RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
     }
 }
 
@@ -604,7 +550,7 @@ private struct BarSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         if glass {
-            content.kSurface(Capsule())
+            content.kSurface(Capsule(), glassy: true)
         } else {
             content
                 .background(K.card.opacity(0.92), in: Capsule())
@@ -614,7 +560,7 @@ private struct BarSurface: ViewModifier {
     }
 }
 
-/// Кнопка питания: со стеклом на iOS 26 — Liquid Glass вокруг круга.
+/// Кнопка питания в стекле — не используется: стекло только у навигации.
 private struct GlassCircle: ViewModifier {
     @Environment(\.klickGlass) private var glass
 

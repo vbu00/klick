@@ -229,8 +229,8 @@ private struct Banner: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background((bad ? K.red : K.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .background(K.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background((bad ? K.red : K.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: K.r(14), style: .continuous))
+        .background(K.card, in: RoundedRectangle(cornerRadius: K.r(14), style: .continuous))
         .padding(.top, 16)
     }
 }
@@ -319,32 +319,10 @@ struct PowerButton: View {
         .accessibilityLabel(core == .off ? "Включить VPN" : "Отключить VPN")
     }
 
-    /// Со стеклом на iOS 26 — системная стеклянная кнопка-круг: тянется под пальцем, работает — стекло зелёное.
-    private var glassButton: AnyView? {
-        #if compiler(>=6.2)
-        if glass, #available(iOS 26.0, *) {
-            return AnyView(
-                ZStack {
-                    if core == .live { Pulse() }
-                    Button(action: action) {
-                        KIcon("power", size: 34).foregroundColor(iconColor).frame(width: 64, height: 64)
-                    }
-                    .buttonStyle(GlassButton(font: .body, prominent: core == .live, shape: .circle))
-                    .controlSize(.extraLarge)
-                    if core == .busy || core == .busyWarn { Spinner(color: core == .busyWarn ? K.orange : K.accent).allowsHitTesting(false) }
-                }
-                .frame(width: 120, height: 120)
-                .accessibilityLabel(core == .off ? "Включить VPN" : "Отключить VPN")
-            )
-        }
-        #endif
-        return nil
-    }
-
     var body: some View {
         ZStack {
             if wave { Wave().transition(.opacity) }
-            if let glassButton { glassButton } else { plainButton }
+            plainButton
         }
         .frame(maxWidth: .infinity)
         .frame(height: 120)
@@ -375,11 +353,12 @@ private struct Spinner: View {
     }
 }
 
-/// `.wave`: сетка точек 14 вокруг кнопки (гаснет к краям), по ней раз в 5.2 с расходится зелёная волна,
+/// `.wave`: сетка точек 14 вокруг кнопки (гаснет к краям), по ней раз в 5.2 с расходится зелёная волна
+/// (30 кадров в секунду — глазу хватает, батарее легче),
 /// а от круга — кольцо (`.lit`, `.ringfx`).
 private struct Wave: View {
     var body: some View {
-        TimelineView(.animation) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5.2) / 5.2
             Canvas { g, size in
                 let c = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -477,7 +456,7 @@ private struct ProfileCard: View {
         HStack(spacing: 14) {
             KIcon(isSub ? "globe" : "rules", size: 24).foregroundColor(K.dim)
                 .frame(width: 52, height: 52)
-                .background(K.elem, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(K.elem, in: RoundedRectangle(cornerRadius: K.r(16), style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
                     FlagName(name: conn.name, size: 17).font(.system(size: 17, weight: .semibold)).foregroundColor(K.text)
@@ -660,7 +639,7 @@ private struct ProfileCard: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 10)
-            .background(on ? K.hover : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(on ? K.hover : Color.clear, in: RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

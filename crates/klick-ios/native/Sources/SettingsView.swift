@@ -141,7 +141,7 @@ struct ChoiceCard: View {
             }
             .padding(14)
             .kCard()
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(on ? K.ring : Color.clear, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: K.r(20), style: .continuous).strokeBorder(on ? K.ring : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -269,8 +269,8 @@ private struct ThemeCard: View {
                 .padding(8)
                 .frame(height: 72)
                 .background(preview(sys))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .clipShape(RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: K.r(12), style: .continuous)
                     .strokeBorder(sys ? Color.gray.opacity(0.3) : Color(hex: palette["line"] ?? 0), lineWidth: 1))
                 HStack(spacing: 8) {
                     KRadio(on: on)
@@ -280,7 +280,7 @@ private struct ThemeCard: View {
             }
             .padding(8)
             .kCard()
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(on ? K.ring : Color.clear, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: K.r(20), style: .continuous).strokeBorder(on ? K.ring : Color.clear, lineWidth: 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -358,7 +358,7 @@ private struct AboutScreen: View {
             VStack(spacing: 0) {
                 KIcon("power", size: 32).foregroundColor(K.accent)
                     .frame(width: 72, height: 72)
-                    .kSurface(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .kSurface(RoundedRectangle(cornerRadius: K.r(20), style: .continuous))
                 Text("kl!ck").font(.system(size: 22, weight: .bold)).foregroundColor(K.text).padding(.top, 12)
                 Text("Версия \(about?.version ?? "…") · бета с родным интерфейсом").font(.system(size: 12)).foregroundColor(K.dim).padding(.top, 4)
             }

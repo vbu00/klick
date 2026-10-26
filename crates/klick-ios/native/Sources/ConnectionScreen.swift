@@ -413,7 +413,7 @@ private struct AddRuleSheet: View {
                                 }
                                 .padding(10)
                                 .kCard(12)
-                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(on ? K.accent : Color.clear, lineWidth: 1))
+                                .overlay(RoundedRectangle(cornerRadius: K.r(12), style: .continuous).strokeBorder(on ? K.accent : Color.clear, lineWidth: 1))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -435,7 +435,7 @@ private struct AddRuleSheet: View {
                             .onSubmit { Task { await submit() } }
                             .padding(.horizontal, 14).frame(height: 44)
                             .kCard(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(K.line, lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: K.r(12), style: .continuous).strokeBorder(K.line, lineWidth: 1))
                         Text("Поддомены включаются автоматически.").font(.system(size: 12)).foregroundColor(K.dim).padding(.horizontal, 4)
                     }
                 }
@@ -449,7 +449,7 @@ private struct AddRuleSheet: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(count > 0 ? K.onAccent : K.dim2)
                     .frame(maxWidth: .infinity).frame(height: 46)
-                    .background(count > 0 ? K.accent : K.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(count > 0 ? K.accent : K.card, in: RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
             }
             .buttonStyle(Press())
             .disabled(count == 0 || busy)
@@ -858,7 +858,7 @@ private struct LiveSchema: View {
 
     private func node<Icon: View>(title: String, sub: String, @ViewBuilder icon: () -> Icon) -> some View {
         VStack(spacing: 0) {
-            icon().frame(width: 40, height: 40).background(K.elem, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            icon().frame(width: 40, height: 40).background(K.elem, in: RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
             Text(title).font(.system(size: 12, weight: .semibold)).foregroundColor(K.text).padding(.top, 6)
             Text(sub).font(.system(size: 11)).foregroundColor(K.dim)
         }
@@ -871,8 +871,8 @@ private struct LiveSchema: View {
             Text(text).font(.system(size: 12, weight: .semibold)).foregroundColor(live ? K.text : K.dim).lineLimit(1)
         }
         .padding(.horizontal, 10).frame(height: 28)
-        .background(live ? K.accent.opacity(0.16) : K.win, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .background(live ? K.accent.opacity(0.16) : K.win, in: RoundedRectangle(cornerRadius: K.r(9), style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: K.r(9), style: .continuous)
             .strokeBorder(live ? K.accent.opacity(0.4) : K.ring, style: StrokeStyle(lineWidth: 1, dash: live ? [] : [3, 3])))
         .frame(maxWidth: 190)
     }
@@ -880,8 +880,8 @@ private struct LiveSchema: View {
     private func plainChip(_ text: String) -> some View {
         Text(text).font(.system(size: 12, weight: .semibold)).foregroundColor(K.text)
             .padding(.horizontal, 10).frame(height: 28)
-            .background(K.win, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(K.line, lineWidth: 1))
+            .background(K.win, in: RoundedRectangle(cornerRadius: K.r(9), style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: K.r(9), style: .continuous).strokeBorder(K.line, lineWidth: 1))
     }
 }
 
@@ -893,7 +893,7 @@ private struct FlowPath: View {
     let speed: Double
 
     var body: some View {
-        TimelineView(.animation(paused: !active)) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active)) { ctx in
             let phase = active ? CGFloat(ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: speed) / speed) * -16 : 0
             Canvas { g, size in
                 let sx = size.width / 100, sy = size.height / 100, y = up ? 24.0 : 76.0
