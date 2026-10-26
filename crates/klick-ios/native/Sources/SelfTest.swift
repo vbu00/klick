@@ -43,7 +43,7 @@ extension Engine {
         if let id = s0.activeConnection, let list = await attempt("connection_servers", [Server].self, "connection_servers", ["id": id]) {
             check("connection_servers", !list.isEmpty, "\(list.count) шт.")
         }
-        let catalog = await attempt("catalog", [Service].self, "catalog") ?? []
+        let catalog = await attempt("catalog", Catalog.self, "catalog")?.services ?? []
         check("catalog", !catalog.isEmpty, "\(catalog.count) сервисов")
         if let a = await attempt("about", About.self, "about") { check("about", !a.version.isEmpty, "версия \(a.version)") }
         if let l = await attempt("log", [LogLine].self, "log") { check("log", true, "\(l.count) записей") }

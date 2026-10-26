@@ -278,7 +278,7 @@ final class Engine: ObservableObject {
     @Published private(set) var catalog: [Service] = []
 
     func loadCatalog() async {
-        if catalog.isEmpty, let c = try? await get([Service].self, "catalog") { catalog = c }
+        if catalog.isEmpty, let c = try? await get(Catalog.self, "catalog") { catalog = c.services }
     }
 
     private func reloadSettings() async {

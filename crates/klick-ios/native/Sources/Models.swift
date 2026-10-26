@@ -65,6 +65,11 @@ struct Rule: Decodable, Equatable {
     }
 }
 
+/// Ответ `catalog`: `{services: […]}`.
+struct Catalog: Decodable {
+    var services: [Service]
+}
+
 /// Сервис каталога (`catalog`): название, домены и сети — для «Добавить» и «Сейчас в сети».
 struct Service: Decodable, Identifiable, Equatable {
     var id: String
