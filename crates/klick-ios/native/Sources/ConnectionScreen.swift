@@ -996,10 +996,10 @@ private struct IpCard: View {
         return VStack(spacing: 8) {
             HStack {
                 Text("").frame(width: 92, alignment: .leading)
-                Text("ЧЕРЕЗ VPN").frame(maxWidth: .infinity, alignment: .leading)
-                Text("НАПРЯМУЮ").frame(maxWidth: .infinity, alignment: .leading)
+                Text("ЧЕРЕЗ VPN").tracking(0.5).frame(maxWidth: .infinity, alignment: .leading)
+                Text("НАПРЯМУЮ").tracking(0.5).frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.system(size: 11)).tracking(0.5).foregroundColor(K.dim)
+            .font(.system(size: 11)).foregroundColor(K.dim)
             ForEach(labels.indices, id: \.self) { i in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(labels[i]).foregroundColor(K.dim).frame(width: 92, alignment: .leading)
