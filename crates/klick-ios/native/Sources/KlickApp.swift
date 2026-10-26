@@ -57,7 +57,7 @@ struct RootView: View {
                     Group {
                         switch Tab(rawValue: tab) ?? .home {
                         case .home: HomeView(tab: $tab)
-                        case .connection: ConnectionView()
+                        case .connection: ConnectionScreen()
                         case .add: AddView(tab: $tab)
                         case .settings: SettingsView()
                         }

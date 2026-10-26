@@ -2,7 +2,7 @@ import SwiftUI
 
 /// «Соединение» — как ui/src/screens/Connection.tsx на iOS: куда направлять, готовые наборы и мой список.
 /// Добавление в список, «Сейчас в сети» и схема — пока в обычном kl!ck.
-struct ConnectionView: View {
+struct ConnectionScreen: View {
     @EnvironmentObject var engine: Engine
     @State private var catalog: [Service] = []
     @State private var showList = false
