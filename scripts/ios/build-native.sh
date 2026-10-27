@@ -99,6 +99,7 @@ app="$native/build/KlickNative.xcarchive/Products/Applications/KlickNative.app"
 
 step "подпись без сертификата с правами (ad-hoc)"
 codesign --force --sign - --timestamp=none --entitlements "$native/KlickNativeTunnel.entitlements" "$app/PlugIns/KlickTunnel.appex"
+codesign --force --sign - --timestamp=none --entitlements "$native/KlickNativeWidgets.entitlements" "$app/PlugIns/KlickWidgets.appex"
 codesign --force --sign - --timestamp=none --entitlements "$native/KlickNative.entitlements" "$app"
 
 step "klick-ios-beta.ipa"

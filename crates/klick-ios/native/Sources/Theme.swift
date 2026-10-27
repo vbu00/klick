@@ -482,6 +482,7 @@ struct KSeg<T: Hashable>: View {
     var height: CGFloat = 34
     var size: CGFloat = 13
     var weight: Font.Weight = .medium
+    @Namespace private var pill
 
     var body: some View {
         HStack(spacing: 2) {
@@ -496,14 +497,21 @@ struct KSeg<T: Hashable>: View {
                         .foregroundColor(v == value ? K.text : K.dim)
                         .frame(maxWidth: .infinity)
                         .frame(height: height)
-                        .background(v == value ? K.raised : Color.clear, in: RoundedRectangle(cornerRadius: K.r(9), style: .continuous))
+                        .background {
+                            // Выбранное — «пилюля», которая перетекает между положениями.
+                            if v == value {
+                                RoundedRectangle(cornerRadius: K.r(9), style: .continuous).fill(K.raised)
+                                    .matchedGeometryEffect(id: "pill", in: pill)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .kSurface(RoundedRectangle(cornerRadius: K.r(12), style: .continuous))
+        // Сегменты — в стекле, как переключатели iOS 26 (если стекло включено).
+        .kSurface(RoundedRectangle(cornerRadius: K.r(12), style: .continuous), glassy: true)
     }
 }
 

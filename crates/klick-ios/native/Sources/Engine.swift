@@ -117,6 +117,7 @@ final class Engine: ObservableObject {
     func reload() async {
         if let st = try? await get(StateView.self, "status") { state = st }
         if let s = try? await get(Settings.self, "settings") { settings = s }
+        if let st = state { WidgetBridge.update(st, name: settings?.connections.first { $0.id == activeId }?.name) }
         await loadServers()
     }
 
@@ -150,6 +151,7 @@ final class Engine: ObservableObject {
                 }
             }
             state = st
+            WidgetBridge.update(st, name: settings?.connections.first { $0.id == activeId }?.name)
             // VPN выключен — скорость, график и счётчики с нуля, как в веб-версии.
             if st.vpn != "connected" && traffic != Traffic() { traffic = Traffic() }
             if switched { Task { await reload() } }

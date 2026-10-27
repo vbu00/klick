@@ -25,6 +25,8 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # Общее с виджетами: VPN без приложения, состояние для виджета, Live Activity.
+      - path: Common
       - path: ../gen/apple/Sources/klick-ios/Host.swift
       - path: ../gen/apple/Sources/klick-ios/QRScanner.swift
       - path: ../gen/apple/Shared
@@ -54,6 +56,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Камера нужна, чтобы отсканировать QR-код подписки.
+        # Live Activity и Dynamic Island, пока VPN работает.
+        NSSupportsLiveActivities: true
         # Имя общей папки в этой сборке; подписчики переписывают его — см. ../gen/apple/Shared/AppGroup.swift.
         KlickAppGroup: group.app.klick.native
     entitlements:
@@ -72,6 +76,10 @@ targets:
         OTHER_LDFLAGS: $(inherited) -lklick_native -lklickcore -lresolv
     dependencies:
       - target: KlickNativeTunnel
+      - target: KlickNativeWidgets
+      - sdk: WidgetKit.framework
+      - sdk: ActivityKit.framework
+      - sdk: AppIntents.framework
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
@@ -113,3 +121,39 @@ targets:
     dependencies:
       - sdk: NetworkExtension.framework
       - sdk: Security.framework
+
+  # Виджеты (iOS 18+): рабочий стол и экран блокировки, Live Activity с Dynamic Island, кнопка в Пункте
+  # управления. Права на VPN — чтобы включать туннель без приложения (Common/VPNSwitch.swift).
+  KlickNativeWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Widgets
+      - path: Common
+      - path: ../gen/apple/Shared
+    info:
+      path: Widgets-Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck β
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        KlickAppGroup: group.app.klick.native
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: KlickNativeWidgets.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.app.klick.native]
+    settings:
+      base:
+        PRODUCT_NAME: KlickWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: app.klick.native.widgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: ActivityKit.framework
+      - sdk: AppIntents.framework
+      - sdk: NetworkExtension.framework

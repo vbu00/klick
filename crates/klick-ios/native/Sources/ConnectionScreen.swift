@@ -1045,7 +1045,7 @@ private struct IpCard: View {
 /// `.back`: капсула 32 на карточке.
 private struct BackLook: ViewModifier {
     func body(content: Content) -> some View {
-        content.padding(.leading, 8).padding(.trailing, 14).frame(height: 32).background(K.card, in: Capsule())
+        content.padding(.leading, 8).padding(.trailing, 14).frame(height: 32).kSurface(Capsule(), interactive: true, glassy: true)
     }
 }
 

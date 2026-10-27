@@ -174,12 +174,17 @@ final class Tunnel {
         }
     }
 
-    /// Идентификатор расширения в этой подписи: подписчики меняют его под свой аккаунт.
+    /// Идентификатор расширения VPN в этой подписи: подписчики меняют его под свой аккаунт. Расширений
+    /// бывает несколько (у беты — ещё виджеты), поэтому ищем именно туннель по точке расширения.
     private static var extensionBundleId: String? {
         guard let plugins = Bundle.main.builtInPlugInsURL,
-              let appex = (try? FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil))?.first(where: { $0.pathExtension == "appex" })
+              let list = try? FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil)
         else { return nil }
-        return Bundle(url: appex)?.bundleIdentifier
+        let tunnel = list.lazy.filter { $0.pathExtension == "appex" }.compactMap { Bundle(url: $0) }.first { bundle in
+            let ext = bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any]
+            return ext?["NSExtensionPointIdentifier"] as? String == "com.apple.networkextension.packet-tunnel"
+        }
+        return tunnel?.bundleIdentifier
     }
 
     /// Почему расширение не подняло туннель: оно пишет это в общую папку.

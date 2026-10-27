@@ -235,7 +235,8 @@ struct Press: ButtonStyle {
 /// `.mode-chip`: капсула 34 на карточке.
 struct ChipLook: ViewModifier {
     func body(content: Content) -> some View {
-        content.padding(.horizontal, 16).frame(height: 34).background(K.card, in: Capsule())
+        // Со стеклом — стеклянная капсула, откликается на касание.
+        content.padding(.horizontal, 16).frame(height: 34).kSurface(Capsule(), interactive: true, glassy: true)
     }
 }
 
@@ -279,10 +280,25 @@ private struct PChip: View {
             .foregroundColor(on ? K.text : K.dim)
             .padding(.horizontal, 12)
             .frame(height: 30)
-            .background(on ? K.raised : Color.clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(on ? K.raised : K.line, lineWidth: 1))
+            .modifier(PChipLook(on: on))
         }
         .buttonStyle(Press())
+    }
+}
+
+/// Чип: без стекла — обводка, выбранный залит; со стеклом — стеклянная капсула (выбранная — плотнее).
+private struct PChipLook: ViewModifier {
+    @Environment(\.klickGlass) private var glass
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if glass {
+            content.kSurface(Capsule(), tint: on ? K.raised : nil, interactive: true, glassy: true)
+        } else {
+            content
+                .background(on ? K.raised : Color.clear, in: Capsule())
+                .overlay(Capsule().strokeBorder(on ? K.raised : K.line, lineWidth: 1))
+        }
     }
 }
 
