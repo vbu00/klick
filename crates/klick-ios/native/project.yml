@@ -33,6 +33,10 @@ targets:
       - path: ../gen/apple/Assets.xcassets
       # Значки веб-версии (кладёт scripts/ios/build-native.sh из ui/src/assets).
       - path: Icons.xcassets
+      # Иконка под iOS 26 (Icon Composer) — собирает scripts/ios/build-native.sh из docs/logo/keycap.svg.
+      - path: KlickGlass.icon
+        type: file
+        buildPhase: resources
       # Наборы правил, каталог сервисов и база стран (кладёт scripts/ios/build-native.sh).
       - path: klick-resources
         type: folder
@@ -70,7 +74,7 @@ targets:
       base:
         PRODUCT_NAME: KlickNative
         PRODUCT_BUNDLE_IDENTIFIER: app.klick.native
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: KlickGlass
         SWIFT_OBJC_BRIDGING_HEADER: Bridging.h
         LIBRARY_SEARCH_PATHS: $(inherited) $(KLICK_RUST_DIR) $(KLICK_CORE_DIR)
         OTHER_LDFLAGS: $(inherited) -lklick_native -lklickcore -lresolv

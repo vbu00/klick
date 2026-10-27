@@ -70,6 +70,44 @@ for f in "$flags"/*.svg; do add_icon "$f" "flag-$(basename "$f" .svg)" original;
 rm -rf "$flags"
 echo "$(ls "$icons" | grep -c imageset) шт."
 
+step "иконка под iOS 26 (стекло)"
+# Слоёная иконка Icon Composer: клавиша Дмитрия (docs/logo/keycap.svg) на графите — стекло, блик, тёмный
+# и тонированный варианты iOS 26 рисует сама, для iOS 15–18 Xcode делает обычные картинки из неё же.
+# Черновик: чистовая — у дизайнера в Icon Composer.
+glass_icon="$native/KlickGlass.icon"
+rm -rf "$glass_icon"
+mkdir -p "$glass_icon/Assets"
+cp "$root/docs/logo/keycap.svg" "$glass_icon/Assets/keycap.svg"
+cat >"$glass_icon/icon.json" <<'JSON'
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:0.10196,0.10196,0.11373,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "keycap.svg",
+          "name" : "keycap"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.4
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}
+JSON
+
 step "ядро mihomo для iOS (Go)"
 if [[ -f "$ios/core/build/iphoneos/libklickcore.a" && -f "$ios/core/build/iphonesimulator/libklickcore.a" ]]; then
     echo "уже собрано (scripts/ios/build.sh)"
