@@ -232,6 +232,7 @@ struct Toast: Identifiable, Equatable {
 enum Prefs {
     static let liveActivity = "pref.liveActivity"
     static let toasts = "pref.toasts"
+    static let haptics = "pref.haptics"
 
     /// Не трогали — включено.
     static func on(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }

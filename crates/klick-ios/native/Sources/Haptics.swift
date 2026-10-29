@@ -10,15 +10,18 @@ enum Haptics {
     private static let selection = UISelectionFeedbackGenerator()
     private static let notification = UINotificationFeedbackGenerator()
 
+    /// Выключили в настройках — молчат все.
+    private static var on: Bool { Prefs.on(Prefs.haptics) }
+
     /// Кнопка питания, «Добавить» и подобное.
-    static func tap() { medium.impactOccurred() }
-    /// Тумблер, удаление строки.
-    static func soft() { light.impactOccurred() }
+    static func tap() { if on { medium.impactOccurred() } }
+    /// Тумблер, удаление строки, копирование, конец замера задержки.
+    static func soft() { if on { light.impactOccurred() } }
     /// Выбор: сервер, сегмент, подписка, тема.
-    static func pick() { selection.selectionChanged() }
-    static func success() { notification.notificationOccurred(.success) }
-    static func warning() { notification.notificationOccurred(.warning) }
-    static func error() { notification.notificationOccurred(.error) }
+    static func pick() { if on { selection.selectionChanged() } }
+    static func success() { if on { notification.notificationOccurred(.success) } }
+    static func warning() { if on { notification.notificationOccurred(.warning) } }
+    static func error() { if on { notification.notificationOccurred(.error) } }
 }
 
 extension View {
@@ -43,6 +46,8 @@ struct SwipeToDelete: ViewModifier {
     let action: () -> Void
     @State private var offset: CGFloat = 0
     @State private var width: CGFloat = 0
+    /// Палец за порогом «отпустить — удалить»: пересёк — щелчок, как в списках iOS.
+    @State private var armed = false
     private let button: CGFloat = 82
 
     func body(content: Content) -> some View {
@@ -66,8 +71,11 @@ struct SwipeToDelete: ViewModifier {
                         .onChanged { g in
                             guard abs(g.translation.width) > abs(g.translation.height) else { return }
                             offset = min(0, g.translation.width + (offset <= -button ? -button : 0))
+                            let past = -g.translation.width > width * 0.6
+                            if past != armed { armed = past; Haptics.pick() }
                         }
                         .onEnded { g in
+                            armed = false
                             if -g.translation.width > width * 0.6 {
                                 remove()
                             } else {

@@ -37,6 +37,7 @@ private struct SettingsMain: View {
     @State private var lang = false
     @AppStorage(Prefs.liveActivity) private var liveActivity = true
     @AppStorage(Prefs.toasts) private var toasts = true
+    @AppStorage(Prefs.haptics) private var haptics = true
     let onSub: (String) -> Void
 
     var body: some View {
@@ -63,6 +64,11 @@ private struct SettingsMain: View {
                     KDivider()
                     KRow(title: "Плашки внизу экрана", sub: "«Связь восстановлена», «Подписка обновлена» и другие. Ошибки видно всегда", wrap: true) {
                         KToggle(isOn: $toasts)
+                    }
+                    KDivider()
+                    KRow(title: "Вибрация", sub: "Отклик на нажатия и итог подключения", wrap: true) {
+                        // Включили — сразу щелчок, чтобы было понятно, что это.
+                        KToggle(isOn: Binding(get: { haptics }, set: { v in haptics = v; if v { Haptics.success() } }))
                     }
                 }
 
@@ -127,6 +133,7 @@ private struct SettingsMain: View {
     private func report() async {
         if let text = await engine.report() {
             UIPasteboard.general.string = text
+            Haptics.soft()
             engine.toast = Toast("Отчёт скопирован")
         } else {
             engine.toast = Toast("Служба не отдала отчёт", tone: "bad")

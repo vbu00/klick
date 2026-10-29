@@ -222,6 +222,7 @@ final class Engine: ObservableObject {
         do {
             servers[id] = try await get([Server].self, "test_latency")
             tested.insert(id)
+            Haptics.soft()
         } catch {
             show(error)
         }
@@ -233,6 +234,7 @@ final class Engine: ObservableObject {
         defer { speedTesting = false }
         do {
             speed = try await get(SpeedView.self, "speed_test")
+            Haptics.success()
             await loadServers()
         } catch {
             show(error)
@@ -378,6 +380,7 @@ final class Engine: ObservableObject {
         do {
             try await call("refresh_connection", ["id": id])
             toast = Toast("Подписка обновлена")
+            Haptics.success()
         } catch {
             show(error)
         }

@@ -219,6 +219,7 @@ private struct ServerMenu: ViewModifier {
             }
             Button {
                 UIPasteboard.general.string = name
+                Haptics.soft()
                 engine.toast = Toast("Имя скопировано", name)
             } label: { Label("Скопировать имя", image: "copy") }
         }
