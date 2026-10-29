@@ -233,7 +233,17 @@ enum Prefs {
     static let liveActivity = "pref.liveActivity"
     static let toasts = "pref.toasts"
     static let haptics = "pref.haptics"
+    /// Dynamic Island: когда (`never`, `trouble`, `always`) и что слева (`logo`, `flag`, `dot`) и справа
+    /// (`none`, `ping`, `server`, `time`) в режиме «всегда».
+    static let island = "pref.island"
+    static let islandLeft = "pref.islandLeft"
+    static let islandRight = "pref.islandRight"
 
     /// Не трогали — включено.
     static func on(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
+    /// Режим острова; до него был переключатель «Dynamic Island» — выключенный значит «никогда».
+    static var islandMode: String { UserDefaults.standard.string(forKey: island) ?? (on(liveActivity) ? "trouble" : "never") }
+    static var left: String { UserDefaults.standard.string(forKey: islandLeft) ?? "logo" }
+    static var right: String { UserDefaults.standard.string(forKey: islandRight) ?? "server" }
 }

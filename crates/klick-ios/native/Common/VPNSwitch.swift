@@ -50,6 +50,10 @@ struct WidgetState: Codable, Equatable {
     var name: String?
     var server: String?
     var since: Double?
+    /// Задержка текущего сервера по последнему замеру, мс.
+    var ping: Int?
+    /// Страна сервера, ISO-код (`DE`); nil — в имени её нет.
+    var flag: String?
 
     private static var file: URL? { AppGroup.directory?.appendingPathComponent("widget-state.json") }
 
@@ -61,5 +65,10 @@ struct WidgetState: Codable, Equatable {
     func save() {
         guard let file = Self.file, let data = try? JSONEncoder().encode(self) else { return }
         try? data.write(to: file, options: .atomic)
+    }
+
+    /// `DE` → 🇩🇪.
+    static func emoji(_ code: String) -> String {
+        String(String.UnicodeScalarView(code.uppercased().unicodeScalars.compactMap { Unicode.Scalar(0x1F1E6 + $0.value - 65) }))
     }
 }

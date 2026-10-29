@@ -14,6 +14,8 @@ struct SettingsView: View {
             case "theme": ThemeScreen { ui.settingsSub = nil }
             case "log": LogScreen { ui.settingsSub = nil }
             case "about": AboutScreen { ui.settingsSub = nil }
+            case "island":
+                if #available(iOS 16.1, *) { IslandScreen { ui.settingsSub = nil } }
             default: SettingsMain { ui.settingsSub = $0 }
             }
         }
@@ -27,6 +29,13 @@ let serverDownTexts: [(String, String, String, String?)] = [
     ("fastest", "Всегда самый быстрый", "kl!ck держится сервера с наименьшей задержкой и переходит на другой, когда тот становится быстрее.", nil),
 ]
 
+/// Когда показывать Dynamic Island: ключ, название, пояснение.
+private let islandModes = [
+    ("trouble", "Только при проблеме", "Появляется, когда сервер не отвечает или kl!ck переподключается, и сам исчезает."),
+    ("always", "Всегда с VPN", "Остров виден всё время, пока VPN включён. Что в нём слева и справа — выберите ниже."),
+    ("never", "Никогда", "Состояние — только в приложении, на виджете и в Пункте управления."),
+]
+
 private let themeNames = [("system", "Системная"), ("light", "Светлая"), ("dark", "Тёмная"), ("custom", "Своя")]
 
 private struct SettingsMain: View {
@@ -35,7 +44,7 @@ private struct SettingsMain: View {
     @State private var about: About?
     @State private var logCount: Int?
     @State private var lang = false
-    @AppStorage(Prefs.liveActivity) private var liveActivity = true
+    @AppStorage(Prefs.island) private var island = Prefs.islandMode
     @AppStorage(Prefs.toasts) private var toasts = true
     @AppStorage(Prefs.haptics) private var haptics = true
     let onSub: (String) -> Void
@@ -55,13 +64,10 @@ private struct SettingsMain: View {
 
                 KSectionHead("Уведомления")
                 KCardList {
-                    KRow(title: "Dynamic Island", sub: "Показывать, когда сервер не отвечает или kl!ck переподключается", wrap: true) {
-                        KToggle(isOn: Binding(get: { liveActivity }, set: { v in
-                            liveActivity = v
-                            if !v { WidgetBridge.endActivities() }
-                        }))
+                    if #available(iOS 16.1, *) {
+                        KRow("Dynamic Island", sub: islandModes.first { $0.0 == island }?.1, chevron: true) { onSub("island") }
+                        KDivider()
                     }
-                    KDivider()
                     KRow(title: "Плашки внизу экрана", sub: "«Связь восстановлена», «Подписка обновлена» и другие. Ошибки видно всегда", wrap: true) {
                         KToggle(isOn: $toasts)
                     }
@@ -189,6 +195,73 @@ private struct ServerDownScreen: View {
             }
             .padding(.top, 16)
         }
+    }
+}
+
+/// «Dynamic Island»: предпросмотр свёрнутого острова, когда его показывать и что в нём слева и справа.
+@available(iOS 16.1, *)
+private struct IslandScreen: View {
+    @EnvironmentObject var engine: Engine
+    @AppStorage(Prefs.island) private var mode = Prefs.islandMode
+    @AppStorage(Prefs.islandLeft) private var left = Prefs.left
+    @AppStorage(Prefs.islandRight) private var right = Prefs.right
+    let onBack: () -> Void
+
+    var body: some View {
+        KScreen {
+            BackButton(label: "Настройки", action: onBack)
+            KTitle("Dynamic Island")
+            preview
+            VStack(spacing: 8) {
+                ForEach(islandModes, id: \.0) { k, title, desc in
+                    ChoiceCard(title: title, desc: desc, on: mode == k) {
+                        guard mode != k else { return }
+                        Haptics.pick()
+                        withAnimation(.kSpring) { mode = k }
+                        WidgetBridge.restyle()
+                    }
+                }
+            }
+            .padding(.top, 16)
+            if mode == "always" {
+                KSectionHead("Слева")
+                KSeg(value: Binding(get: { left }, set: { left = $0; WidgetBridge.restyle() }),
+                     options: [("logo", "Логотип"), ("flag", "Флаг"), ("dot", "Точка")])
+                    .padding(.top, 10)
+                KSectionHead("Справа")
+                KSeg(value: Binding(get: { right }, set: { right = $0; WidgetBridge.restyle() }),
+                     options: [("none", "Ничего"), ("ping", "Пинг"), ("server", "Сервер"), ("time", "Время")])
+                    .padding(.top, 10)
+                Text("Флаг — если страна есть в имени сервера, иначе логотип. Пинг — с последней проверки: пока kl!ck свёрнут, он не обновляется. Время система отсчитывает сама.")
+                    .font(.system(size: 12)).foregroundColor(K.dim2).padding(.top, 12)
+            }
+            if mode != "never" {
+                Text("iOS разрешает показать остров, только когда kl!ck открыт: если VPN включили из Пункта управления или беда случилась в фоне, остров появится, когда вы откроете приложение.")
+                    .font(.system(size: 12)).foregroundColor(K.dim2).padding(.top, 12)
+            }
+        }
+    }
+
+    /// Свёрнутый остров на чёрной капсуле — как он будет выглядеть с текущим сервером.
+    private var preview: some View {
+        let st = engine.state
+        let server = engine.activeId.flatMap { engine.servers[$0] }?.first { $0.name == st?.server }
+        let vpn = mode == "trouble" ? "server_down" : "connected"
+        let since = st?.since.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil } ?? Date().addingTimeInterval(-42 * 60)
+        return HStack(spacing: 0) {
+            Island.leading(vpn: vpn, left: left, flag: st?.server.flatMap { Countries.parse($0, server?.kind ?? "").code })
+            Spacer(minLength: 70)
+            Island.trailing(vpn: vpn, right: right, server: st?.server ?? "Hysteria 5", ping: server?.delay ?? (st == nil ? 42 : nil), since: since)
+        }
+        .padding(.horizontal, 16)
+        .frame(width: 240, height: 37)
+        .background(Capsule().fill(Color.black))
+        .opacity(mode == "never" ? 0.2 : 1)
+        .animation(.kSpring, value: mode)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22)
+        .kCard()
+        .padding(.top, 16)
     }
 }
 

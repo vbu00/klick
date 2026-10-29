@@ -90,10 +90,11 @@ view tab2-light 2 light 1
 view tab3-light 3 light 1
 view tab0-dark 0 dark 1
 view tab3-dark 3 dark 0
-# Подэкраны: серверы в карточке, «Тема», «О приложении», мой список, лист «Добавить», «Сейчас в сети».
+# Подэкраны: серверы в карточке, «Тема», «О приложении», «Dynamic Island», мой список, лист «Добавить», «Сейчас в сети».
 view servers-dark 0 dark 1 KLICK_EXPAND=1
 view theme-dark 3 dark 1 KLICK_SETTINGS_SUB=theme
 view about-light 3 light 0 KLICK_SETTINGS_SUB=about
+view island-dark 3 dark 1 KLICK_SETTINGS_SUB=island
 view list-light 1 light 1 KLICK_CONN_SUB=list
 view addrule-dark 1 dark 1 KLICK_CONN_SUB=add
 view live-light 1 light 0 KLICK_CONN_SUB=live

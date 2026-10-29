@@ -28,7 +28,7 @@ struct ToggleVPNIntent: SetValueIntent {
     }
 }
 
-/// Live Activity и Dynamic Island, пока VPN работает: подключение, сервер, время.
+/// Live Activity и Dynamic Island: при беде со связью или всё время с VPN — как выбрано в настройках.
 @available(iOS 16.1, *)
 struct KlickActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
@@ -36,6 +36,11 @@ struct KlickActivityAttributes: ActivityAttributes {
         var vpn: String
         var server: String?
         var since: Date
+        /// Что в свёрнутом острове, пока всё хорошо (Prefs.islandLeft / islandRight).
+        var left: String
+        var right: String
+        var ping: Int?
+        var flag: String?
     }
 
     /// Подключение (подписка).

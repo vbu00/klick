@@ -128,24 +128,23 @@ struct StatusView: View {
 
 // MARK: Live Activity и Dynamic Island
 
-/// Остров занят, только пока со связью беда («переподключаюсь», «сервер не отвечает»): когда всё хорошо,
-/// хватает значка VPN в строке состояния. Таймера нет — его постоянный отсчёт отвлекал.
+/// Остров — как выбрано в настройках kl!ck: только при беде со связью или всё время с VPN. Свёрнутый —
+/// Island.leading / trailing (что слева и справа, выбирают там же); раскрытый и экран блокировки —
+/// состояние, сервер, задержка и «Отключить».
 struct KlickLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: KlickActivityAttributes.self) { context in
             // Экран блокировки.
             HStack(spacing: 12) {
-                Image(systemName: icon(context.state.vpn)).font(.system(size: 18, weight: .semibold)).foregroundStyle(.orange)
+                Image(systemName: symbol(context.state.vpn)).font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Island.tint(context.state.vpn))
                     .frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.1)))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(label(context.state.vpn)).font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
-                    Text(context.state.server ?? context.attributes.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    status(context.state).font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
+                    Text(title(context)).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Button(intent: ToggleVPNIntent(value: false)) {
-                    Text("Отключить").font(.system(size: 13, weight: .semibold))
-                }
-                .tint(.red)
+                off
             }
             .padding(16)
             .activityBackgroundTint(Color(red: 0x1a / 255, green: 0x1a / 255, blue: 0x1d / 255).opacity(0.9))
@@ -153,43 +152,63 @@ struct KlickLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label { Text("kl!ck") } icon: { Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange) }
+                    Label { Text("kl!ck") } icon: { Image(systemName: symbol(context.state.vpn)).foregroundStyle(Island.tint(context.state.vpn)) }
                         .font(.system(size: 14, weight: .semibold))
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    if let ping = context.state.ping, !Island.trouble(context.state.vpn) {
+                        Text("\(ping) мс").font(.system(size: 14, weight: .semibold)).monospacedDigit().foregroundStyle(Island.green)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(label(context.state.vpn)).font(.system(size: 12)).foregroundStyle(.secondary)
-                            Text(context.state.server ?? context.attributes.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                            status(context.state).font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text(title(context)).font(.system(size: 15, weight: .semibold)).lineLimit(1)
                         }
                         Spacer()
-                        Button(intent: ToggleVPNIntent(value: false)) {
-                            Text("Отключить").font(.system(size: 13, weight: .semibold))
-                        }
-                        .tint(.red)
+                        off
                     }
                 }
             } compactLeading: {
-                Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange).font(.system(size: 13, weight: .bold))
+                Island.leading(vpn: context.state.vpn, left: context.state.left, flag: context.state.flag)
             } compactTrailing: {
-                Text(short(context.state.vpn)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
+                Island.trailing(vpn: context.state.vpn, right: context.state.right, server: context.state.server,
+                                ping: context.state.ping, since: context.state.since)
             } minimal: {
-                Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange).font(.system(size: 12, weight: .bold))
+                Island.leading(vpn: context.state.vpn, left: context.state.left, flag: context.state.flag)
             }
-            .keylineTint(.orange)
+            .keylineTint(Island.tint(context.state.vpn))
         }
     }
 
-    private func icon(_ vpn: String) -> String {
-        vpn == "reconnecting" ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle.fill"
+    private func symbol(_ vpn: String) -> String {
+        Island.trouble(vpn) ? Island.icon(vpn) : "checkmark.shield.fill"
     }
 
-    private func label(_ vpn: String) -> String {
-        vpn == "reconnecting" ? "переподключаюсь…" : "сервер не отвечает"
+    /// «сервер не отвечает» или «подключено · 0:42:05».
+    @ViewBuilder
+    private func status(_ s: KlickActivityAttributes.ContentState) -> some View {
+        if Island.trouble(s.vpn) {
+            Text(Island.status(s.vpn))
+        } else {
+            HStack(spacing: 0) {
+                Text("подключено · ")
+                Text(timerInterval: s.since...Date.distantFuture, countsDown: false).monospacedDigit()
+            }
+        }
     }
 
-    private func short(_ vpn: String) -> String {
-        vpn == "reconnecting" ? "связь…" : "нет связи"
+    /// Сервер с флагом страны, если она есть в имени.
+    private func title(_ context: ActivityViewContext<KlickActivityAttributes>) -> String {
+        (context.state.flag.map { WidgetState.emoji($0) + " " } ?? "") + (context.state.server ?? context.attributes.name)
+    }
+
+    private var off: some View {
+        Button(intent: ToggleVPNIntent(value: false)) {
+            Text("Отключить").font(.system(size: 13, weight: .semibold))
+        }
+        .tint(.red)
     }
 }
 

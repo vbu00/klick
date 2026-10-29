@@ -117,13 +117,22 @@ final class Engine: ObservableObject {
     func reload() async {
         if let st = try? await get(StateView.self, "status") { state = st }
         if let s = try? await get(Settings.self, "settings") { settings = s }
-        if let st = state { WidgetBridge.update(st, name: settings?.connections.first { $0.id == activeId }?.name) }
+        syncWidgets()
         await loadServers()
     }
 
     func loadServers() async {
         guard let id = activeId else { return }
         if let list = try? await get([Server].self, "servers") { servers[id] = list }
+        syncWidgets()
+    }
+
+    /// Виджеты и остров: состояние, подключение, текущий сервер с задержкой и страной.
+    private func syncWidgets() {
+        guard let st = state else { return }
+        let s = activeId.flatMap { servers[$0] }?.first { $0.name == st.server }
+        WidgetBridge.update(st, name: settings?.connections.first { $0.id == activeId }?.name, ping: s?.delay,
+                            flag: st.server.flatMap { Countries.parse($0, s?.kind ?? "").code })
     }
 
     /// Серверы любой подписки — не переключаясь на неё.
@@ -151,7 +160,7 @@ final class Engine: ObservableObject {
                 }
             }
             state = st
-            WidgetBridge.update(st, name: settings?.connections.first { $0.id == activeId }?.name)
+            syncWidgets()
             // VPN выключен — скорость, график и счётчики с нуля, как в веб-версии.
             if st.vpn != "connected" && traffic != Traffic() { traffic = Traffic() }
             if switched { Task { await reload() } }
@@ -222,6 +231,7 @@ final class Engine: ObservableObject {
         do {
             servers[id] = try await get([Server].self, "test_latency")
             tested.insert(id)
+            syncWidgets()
             Haptics.soft()
         } catch {
             show(error)
