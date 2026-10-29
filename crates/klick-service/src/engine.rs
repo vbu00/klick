@@ -227,6 +227,8 @@ pub struct Engine {
     servers: HashMap<String, Vec<ServerView>>,
     /// Ждут итога проверки задержки, которая идёт в фоне; не пусто — проверка идёт.
     latency_waiters: Vec<Reply>,
+    /// Замер уже перезапускался из-за смены сети: второй раз — честная ошибка, а не бесконечный круг.
+    latency_retried: bool,
     probe_waiters: Vec<Reply>,
     last_probe: HashMap<String, ProbeLast>,
     shared_at: HashMap<String, Instant>,
@@ -464,6 +466,7 @@ pub fn spawn(paths: Paths, profile: Profile) -> anyhow::Result<(EngineHandle, to
         server_dns: Vec::new(),
         servers: HashMap::new(),
         latency_waiters: Vec::new(),
+        latency_retried: false,
         probe_waiters: Vec::new(),
         last_probe: HashMap::new(),
         shared_at: HashMap::new(),
@@ -659,7 +662,7 @@ impl Engine {
                         // Идёт проверка задержки: список придёт вместе с её итогом (и второе проверочное
                         // ядро на том же входе управления не запустится).
                         Msg::Cmd(Command::Servers, reply) if !self.latency_waiters.is_empty() => self.latency_waiters.push(reply),
-                        Msg::Measured { conn, net, result } => self.measured(conn, net, result),
+                        Msg::Measured { conn, net, result } => self.measured(conn, net, result).await,
                         Msg::ProbeDone { conn, net, result } => self.probe_done(conn, net, result),
                         Msg::Cmd(cmd, reply) => {
                             let res = self.handle(cmd).await;
@@ -2764,6 +2767,7 @@ impl Engine {
         if self.latency_waiters.len() > 1 {
             return;
         }
+        self.latency_retried = false;
         if let Err(e) = self.start_latency().await {
             for w in self.latency_waiters.drain(..) {
                 let _ = w.send(Err(e.clone()));
@@ -2793,8 +2797,18 @@ impl Engine {
         Ok(())
     }
 
-    fn measured(&mut self, conn_id: String, net: u64, result: Result<Measured, ErrorInfo>) {
-        // Сеть сменилась во время замера: половина задержек — из прежней сети.
+    async fn measured(&mut self, conn_id: String, net: u64, result: Result<Measured, ErrorInfo>) {
+        // Сеть сменилась во время замера: половина задержек — из прежней сети. Первый раз замеряем заново
+        // молча (на телефоне сеть «меняется» и без смены Wi-Fi), второй — говорим как есть.
+        if net != self.net_seq && !self.latency_retried {
+            self.latency_retried = true;
+            if let Err(e) = self.start_latency().await {
+                for w in self.latency_waiters.drain(..) {
+                    let _ = w.send(Err(e.clone()));
+                }
+            }
+            return;
+        }
         let result = if net == self.net_seq { result } else { Err(ErrorInfo::new("latency.network_changed")) };
         let reply = result.and_then(|(list, delays, now)| {
             let conn = self.settings.connections.iter().find(|c| c.id == conn_id).cloned().ok_or_else(|| ErrorInfo::new("conn.not_found"))?;

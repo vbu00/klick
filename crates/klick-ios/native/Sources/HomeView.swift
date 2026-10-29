@@ -157,7 +157,7 @@ struct HomeView: View {
     }
 
     private var modeDot: Color {
-        vpn == "error" ? K.red : vpn == "reconnecting" || vpn == "server_down" ? K.orange : engine.isRunning ? K.accent : K.dim
+        vpn == "error" ? K.red : vpn == "reconnecting" || vpn == "server_down" ? K.orange : engine.isRunning ? K.green : K.dim
     }
 
     @ViewBuilder
@@ -306,9 +306,9 @@ private struct PChipLook: ViewModifier {
 private struct LiveDot: View {
     @State private var on = false
     var body: some View {
-        Circle().fill(K.accent).frame(width: 6, height: 6)
+        Circle().fill(K.green).frame(width: 6, height: 6)
             .background(
-                Circle().fill(K.accent.opacity(0.35)).scaleEffect(on ? 7 : 1).opacity(on ? 0 : 1)
+                Circle().fill(K.green.opacity(0.35)).scaleEffect(on ? 7 : 1).opacity(on ? 0 : 1)
             )
             .onAppear { withAnimation(.easeOut(duration: 2.2).repeatForever(autoreverses: false)) { on = true } }
     }
@@ -460,7 +460,8 @@ private struct Wave: View {
 
 // MARK: Карточка подписки
 
-/// `.pcard`: значок, название и сервер, трафик, срок, «Обновить», ссылки панели; по нажатию — серверы.
+/// `.pcard`: значок, название и сервер, строка «трафик · срок»; «Обновить» и ссылки панели — в меню ⋯
+/// (обновить можно и потянув экран вниз); по нажатию — серверы.
 private struct ProfileCard: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.openURL) private var openURL
@@ -485,7 +486,10 @@ private struct ProfileCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             head
-            if isSub { traffic }
+            if isSub, let announce = conn.info?.announce, !announce.isEmpty {
+                Text(announce).font(.system(size: 12)).foregroundColor(K.dim).fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16).padding(.bottom, 16)
+            }
             if expanded { servers }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -505,9 +509,9 @@ private struct ProfileCard: View {
                 HStack(spacing: 8) {
                     FlagName(name: conn.name, size: 17).font(.system(size: 17, weight: .semibold)).foregroundColor(K.text)
                     if viewingLive && live {
-                        Text("Работает").font(.system(size: 11, weight: .semibold)).foregroundColor(K.accent)
+                        Text("Работает").font(.system(size: 11, weight: .semibold)).foregroundColor(K.green)
                             .padding(.horizontal, 8).frame(height: 20)
-                            .background(K.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .background(K.green.opacity(0.16), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                 }
                 HStack(spacing: 6) {
@@ -528,11 +532,18 @@ private struct ProfileCard: View {
                     }
                 }
                 .font(.system(size: 13))
+                if isSub, let line = meta {
+                    line.font(.system(size: 12)).monospacedDigit().lineLimit(1).padding(.top, 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 if isSub {
                     Button { Task { await refresh() } } label: { Label("Обновить подписку", image: "refresh") }
+                        .disabled(refreshing)
+                    ForEach(links, id: \.0) { l in
+                        Button { openURL(l.1) } label: { Label(l.0, systemImage: l.0 == "Поддержка" ? "bubble.left" : "arrow.up.right.square") }
+                    }
                 }
                 if isActive {
                     Button {
@@ -553,77 +564,37 @@ private struct ProfileCard: View {
         .onTapGesture { toggle() }
     }
 
-    @ViewBuilder
-    private var traffic: some View {
-        let info = conn.info
-        let used = info?.used ?? 0
-        let total = info?.total ?? 0
-        // Без лимита панель всё равно сообщает, сколько потрачено (total = 0) — показываем без полосы.
-        let unlimited = info != nil && total == 0 && used > 0
-        let links: [(String, URL)] = [("Поддержка", info?.supportUrl), ("Страница подписки", info?.pageUrl)].compactMap { (title: String, raw: String?) -> (String, URL)? in
+    /// Ссылки панели из подписки (support-url, profile-web-page-url).
+    private var links: [(String, URL)] {
+        [("Поддержка", conn.info?.supportUrl), ("Страница подписки", conn.info?.pageUrl)].compactMap { (title: String, raw: String?) -> (String, URL)? in
             guard let raw, let url = URL(string: raw) else { return nil }
             return (title, url)
         }
-        VStack(alignment: .leading, spacing: 0) {
-            if total > 0 {
-                trafficRow(Texts.traffic(used, total))
-                GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3).fill(K.elem)
-                        RoundedRectangle(cornerRadius: 3).fill(used / total > 0.9 ? K.orange : K.text)
-                            .frame(width: g.size.width * min(1, used / total))
-                    }
-                }
-                .frame(height: 5)
-                .padding(.top, 8)
-            } else if unlimited {
-                trafficRow("\(Texts.used(used)) · без лимита")
-            }
-            HStack {
-                expiry(info, hasTraffic: total > 0 || unlimited).font(.system(size: 12)).foregroundColor(K.dim)
-                Spacer(minLength: 8)
-                Button { Task { await refresh() } } label: {
-                    HStack(spacing: 6) {
-                        KIcon("refresh", size: 13).rotationEffect(.degrees(refreshing ? 360 : 0))
-                            .animation(refreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: refreshing)
-                        Text(refreshing ? "Обновляем…" : "Обновить")
-                    }
-                }
-                .kButton(.elem)
-                .disabled(refreshing)
-            }
-            .padding(.top, total > 0 || unlimited ? 12 : 0)
-            if let announce = info?.announce, !announce.isEmpty {
-                Text(announce).font(.system(size: 12)).foregroundColor(K.dim).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
-            }
-            if !links.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(links, id: \.0) { l in
-                        Button(l.0) { openURL(l.1) }.kButton(.elem)
-                    }
-                }
-                .padding(.top, 12)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
     }
 
-    private func trafficRow(_ value: String) -> some View {
-        HStack {
-            Text("Трафик").foregroundColor(K.dim)
-            Spacer()
-            Text(value).monospacedDigit().foregroundColor(K.text)
+    /// Одна строка под сервером: «35.0 ГБ · без лимита · бессрочно», «12.3 из 50 ГБ · до 12 ноября».
+    /// Оранжевая, когда подписка кончается: трафика меньше 10% или осталось 3 дня и меньше.
+    private var meta: Text? {
+        if refreshing { return Text("Обновляем подписку…").foregroundColor(K.dim) }
+        guard let info = conn.info else { return nil }
+        let used = info.used
+        let total = info.total ?? 0
+        var parts: [String] = []
+        if total > 0 {
+            parts.append(Texts.traffic(used, total))
+        } else if used > 0 {
+            parts.append("\(Texts.used(used)) · без лимита")
         }
-        .font(.system(size: 12))
-    }
-
-    private func expiry(_ info: SubInfo?, hasTraffic: Bool) -> Text {
-        if let expire = info?.expire {
+        var ending = total > 0 && used / total > 0.9
+        if let expire = info.expire {
             let days = Texts.daysLeft(expire)
-            return Text("Действует до ") + Text(Texts.date(expire)).foregroundColor(K.text) + Text(" · " + (days == 0 ? "истекает" : "\(days) дн."))
+            ending = ending || days <= 3
+            parts.append(days == 0 ? "истекает сегодня" : "до \(Texts.date(expire))")
+        } else if !parts.isEmpty {
+            parts.append("бессрочно")
         }
-        return Text(hasTraffic ? "Без срока" : "Срок и трафик панель не сообщает")
+        guard !parts.isEmpty else { return nil }
+        return Text(parts.joined(separator: " · ")).foregroundColor(ending ? K.orange : K.dim)
     }
 
     private var servers: some View {

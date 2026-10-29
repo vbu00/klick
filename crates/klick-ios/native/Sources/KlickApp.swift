@@ -172,9 +172,11 @@ struct TitleBar: View {
 struct ToastView: View {
     @EnvironmentObject var engine: Engine
     @Environment(\.klickGlass) private var glass
+    @AppStorage(Prefs.toasts) private var toasts = true
 
     var body: some View {
-        if let toast = engine.toast {
+        // Плашки можно выключить в настройках; ошибки показываются всегда — иначе кнопка молча не сработает.
+        if let toast = engine.toast, toasts || toast.tone == "bad" {
             HStack(spacing: 10) {
                 Circle().fill(color(toast.tone)).frame(width: 8, height: 8).padding(.leading, 6).padding(.trailing, 2)
                 VStack(alignment: .leading, spacing: 1) {

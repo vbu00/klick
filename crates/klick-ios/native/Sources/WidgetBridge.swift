@@ -2,9 +2,9 @@ import ActivityKit
 import Foundation
 import WidgetKit
 
-/// Приложение → виджеты: состояние для виджета и Пункта управления, Live Activity, пока VPN работает.
-/// Live Activity iOS разрешает начать только из открытого приложения: включили VPN из Пункта управления —
-/// она появится, когда kl!ck откроют.
+/// Приложение → виджеты: состояние для виджета и Пункта управления, Live Activity, пока со связью беда.
+/// Live Activity iOS разрешает начать только из открытого приложения, а в фоне kl!ck не работает:
+/// беду, случившуюся при свёрнутом приложении, остров покажет, когда kl!ck откроют.
 @MainActor
 enum WidgetBridge {
     private static var last: WidgetState?
@@ -20,15 +20,23 @@ enum WidgetBridge {
         if #available(iOS 16.2, *) { syncActivity(state) }
     }
 
+    /// Выключили в настройках — убрать остров сразу, не дожидаясь смены состояния.
+    static func endActivities() {
+        if #available(iOS 16.2, *) {
+            for a in Activity<KlickActivityAttributes>.activities { Task { await a.end(nil, dismissalPolicy: .immediate) } }
+        }
+    }
+
     @available(iOS 16.2, *)
     private static func syncActivity(_ state: WidgetState) {
-        let live = ["connected", "reconnecting", "server_down"].contains(state.vpn)
+        let trouble = ["reconnecting", "server_down"].contains(state.vpn)
         let current = Activity<KlickActivityAttributes>.activities
-        guard live, let since = state.since else {
+        guard trouble, Prefs.on(Prefs.liveActivity) else {
             for a in current { Task { await a.end(nil, dismissalPolicy: .immediate) } }
             return
         }
-        let content = ActivityContent(state: KlickActivityAttributes.ContentState(vpn: state.vpn, server: state.server, since: Date(timeIntervalSince1970: since)),
+        let since = state.since.map { Date(timeIntervalSince1970: $0) } ?? .now
+        let content = ActivityContent(state: KlickActivityAttributes.ContentState(vpn: state.vpn, server: state.server, since: since),
                                       staleDate: nil)
         if let a = current.first {
             Task { await a.update(content) }

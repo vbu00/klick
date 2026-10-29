@@ -128,20 +128,24 @@ struct StatusView: View {
 
 // MARK: Live Activity и Dynamic Island
 
+/// Остров занят, только пока со связью беда («переподключаюсь», «сервер не отвечает»): когда всё хорошо,
+/// хватает значка VPN в строке состояния. Таймера нет — его постоянный отсчёт отвлекал.
 struct KlickLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: KlickActivityAttributes.self) { context in
             // Экран блокировки.
             HStack(spacing: 12) {
-                Image(systemName: "power").font(.system(size: 18, weight: .semibold)).foregroundStyle(color(context.state.vpn))
+                Image(systemName: icon(context.state.vpn)).font(.system(size: 18, weight: .semibold)).foregroundStyle(.orange)
                     .frame(width: 40, height: 40).background(Circle().fill(.white.opacity(0.1)))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label(context.state.vpn)).font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
                     Text(context.state.server ?? context.attributes.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(context.state.since, style: .timer).font(.system(size: 22, weight: .medium)).monospacedDigit().foregroundStyle(.white)
-                    .multilineTextAlignment(.trailing).frame(maxWidth: 110, alignment: .trailing)
+                Button(intent: ToggleVPNIntent(value: false)) {
+                    Text("Отключить").font(.system(size: 13, weight: .semibold))
+                }
+                .tint(.red)
             }
             .padding(16)
             .activityBackgroundTint(Color(red: 0x1a / 255, green: 0x1a / 255, blue: 0x1d / 255).opacity(0.9))
@@ -149,12 +153,8 @@ struct KlickLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label { Text("kl!ck") } icon: { Image(systemName: "power").foregroundStyle(color(context.state.vpn)) }
+                    Label { Text("kl!ck") } icon: { Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange) }
                         .font(.system(size: 14, weight: .semibold))
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.since, style: .timer).monospacedDigit().font(.system(size: 14, weight: .medium))
-                        .multilineTextAlignment(.trailing).frame(maxWidth: 80, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
@@ -170,25 +170,26 @@ struct KlickLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Image(systemName: "power").foregroundStyle(color(context.state.vpn)).font(.system(size: 13, weight: .bold))
+                Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange).font(.system(size: 13, weight: .bold))
             } compactTrailing: {
-                Text(context.state.since, style: .timer).monospacedDigit().font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: 52)
+                Text(short(context.state.vpn)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
             } minimal: {
-                Image(systemName: "power").foregroundStyle(color(context.state.vpn)).font(.system(size: 12, weight: .bold))
+                Image(systemName: icon(context.state.vpn)).foregroundStyle(.orange).font(.system(size: 12, weight: .bold))
             }
-            .keylineTint(accent)
+            .keylineTint(.orange)
         }
     }
 
-    private func color(_ vpn: String) -> Color { vpn == "connected" ? accent : .orange }
+    private func icon(_ vpn: String) -> String {
+        vpn == "reconnecting" ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle.fill"
+    }
 
     private func label(_ vpn: String) -> String {
-        switch vpn {
-        case "reconnecting": return "переподключаюсь…"
-        case "server_down": return "сервер не отвечает"
-        default: return "подключено"
-        }
+        vpn == "reconnecting" ? "переподключаюсь…" : "сервер не отвечает"
+    }
+
+    private func short(_ vpn: String) -> String {
+        vpn == "reconnecting" ? "связь…" : "нет связи"
     }
 }
 

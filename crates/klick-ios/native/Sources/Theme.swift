@@ -86,6 +86,8 @@ enum K {
         Palette.base(t) == "light" || Palette.lum(Palette.accent(t)) < 0.45 ? .white : UIColor(hex: 0x0b0b0c)
     })
     static let red = Color(hex: 0xff6961)
+    /// Состояния — свои цвета при любой теме: «работает» и быстрый сервер зелёные, даже если тема розовая.
+    static let green = Color(hex: 0x30d158)
     static let orange = Color(hex: 0xffb340)
 
     private static func tok(_ name: String) -> Color {
@@ -109,7 +111,7 @@ enum K {
     /// Задержка: до 80 мс — акцент, до 160 — обычная, дальше — оранжевая, нет ответа — красная (format.ts).
     static func ping(_ delay: Int?) -> Color {
         guard let d = delay else { return red }
-        return d < 80 ? accent : d < 160 ? text : orange
+        return d < 80 ? green : d < 160 ? text : orange
     }
 }
 

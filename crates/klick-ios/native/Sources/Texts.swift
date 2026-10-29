@@ -18,7 +18,26 @@ enum Texts {
         case "speed.failed": return "Через сервер ничего не скачалось"
         case "servers.busy": return "Идёт проверка задержки — попробуйте через пару секунд"
         case "core.start_failed": return "Ядро VPN не запустилось"
-        default: return "Ошибка: \(code)"
+        case "core.crashed": return "Ядро падает при запуске"
+        case "sub.fetch_failed": return "Не удалось скачать подписку"
+        case "sub.http_status": return "Панель подписки ответила ошибкой — возможно, ссылка больше не действует"
+        case "sub.not_subscription": return "По ссылке открывается страница сайта, а не подписка"
+        case "sub.unknown_format", "input.unknown_format": return "Формат не распознан"
+        case "server.not_found": return "Такого сервера больше нет в подписке — обновите её"
+        case "conn.secret_missing": return "Ссылка подписки потерялась — добавьте её заново"
+        case "conn.file_missing": return "Файл подписки пропал — добавьте её заново"
+        case "storage.write_failed": return "Не удалось сохранить настройки"
+        case "latency.network_changed": return "Пока мерили задержку, сеть сменилась дважды — проверьте ещё раз"
+        case "probe.network_changed": return "Во время проверки поменялась сеть или VPN — запустите её заново"
+        case "probe.timeout": return "Проверка не уложилась в полторы минуты — попробуйте ещё раз"
+        case "service.timeout": return "kl!ck долго не отвечает — попробуйте ещё раз"
+        case "service.stopping": return "Движок kl!ck перезапускается — попробуйте ещё раз"
+        case "list.duplicate": return "Уже в списке"
+        case "list.bad_index", "list.not_found": return "Правило уже удалено"
+        case "input.bad_domain": return "Такого домена не бывает"
+        case "input.bad_ip": return "Нужен адрес или подсеть, например 149.154.160.0/20"
+        // Неизвестный код — не показываем его человеку как текст: смысла в нём нет.
+        default: return "Что-то пошло не так"
         }
     }
 

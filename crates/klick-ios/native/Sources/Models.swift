@@ -227,3 +227,12 @@ struct Toast: Identifiable, Equatable {
         self.init(text, tone: bad ? "bad" : "ok")
     }
 }
+
+/// Настройки только этого iPhone (не движка): что показывать поверх приложения и в Dynamic Island.
+enum Prefs {
+    static let liveActivity = "pref.liveActivity"
+    static let toasts = "pref.toasts"
+
+    /// Не трогали — включено.
+    static func on(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+}

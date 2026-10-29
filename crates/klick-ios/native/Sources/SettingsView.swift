@@ -35,6 +35,8 @@ private struct SettingsMain: View {
     @State private var about: About?
     @State private var logCount: Int?
     @State private var lang = false
+    @AppStorage(Prefs.liveActivity) private var liveActivity = true
+    @AppStorage(Prefs.toasts) private var toasts = true
     let onSub: (String) -> Void
 
     var body: some View {
@@ -47,6 +49,20 @@ private struct SettingsMain: View {
                     KDivider()
                     KRow(title: "Восстанавливать подключение", sub: "Система сама включит VPN после перезагрузки и при сбое", wrap: true) {
                         KToggle(isOn: Binding(get: { s.restoreOnLogon ?? false }, set: { v in Task { await engine.setPrefs(["restore_on_logon": v]) } }))
+                    }
+                }
+
+                KSectionHead("Уведомления")
+                KCardList {
+                    KRow(title: "Dynamic Island", sub: "Показывать, когда сервер не отвечает или kl!ck переподключается", wrap: true) {
+                        KToggle(isOn: Binding(get: { liveActivity }, set: { v in
+                            liveActivity = v
+                            if !v { WidgetBridge.endActivities() }
+                        }))
+                    }
+                    KDivider()
+                    KRow(title: "Плашки внизу экрана", sub: "«Связь восстановлена», «Подписка обновлена» и другие. Ошибки видно всегда", wrap: true) {
+                        KToggle(isOn: $toasts)
                     }
                 }
 
