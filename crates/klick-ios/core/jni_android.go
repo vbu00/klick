@@ -34,25 +34,25 @@ func javaError(env *C.JNIEnv, err error) C.jstring {
 }
 
 //export Java_app_klick_android_TunnelCore_start
-func Java_app_klick_android_TunnelCore_start(env *C.JNIEnv, _ C.jclass, home, cfg C.jstring, fd C.jint) C.jstring {
+func Java_app_klick_android_TunnelCore_start(env *C.JNIEnv, cls C.jclass, home, cfg C.jstring, fd C.jint) C.jstring {
 	return javaError(env, start(goString(env, home), goString(env, cfg), int(fd)))
 }
 
 //export Java_app_klick_android_TunnelCore_reload
-func Java_app_klick_android_TunnelCore_reload(env *C.JNIEnv, _ C.jclass) C.jstring {
+func Java_app_klick_android_TunnelCore_reload(env *C.JNIEnv, cls C.jclass) C.jstring {
 	mu.Lock()
 	defer mu.Unlock()
 	return javaError(env, apply(config))
 }
 
 //export Java_app_klick_android_TunnelCore_stop
-func Java_app_klick_android_TunnelCore_stop(_ *C.JNIEnv, _ C.jclass) {
+func Java_app_klick_android_TunnelCore_stop(env *C.JNIEnv, cls C.jclass) {
 	mu.Lock()
 	defer mu.Unlock()
 	stop()
 }
 
 //export Java_app_klick_android_TunnelCore_networkChanged
-func Java_app_klick_android_TunnelCore_networkChanged(_ *C.JNIEnv, _ C.jclass) {
+func Java_app_klick_android_TunnelCore_networkChanged(env *C.JNIEnv, cls C.jclass) {
 	klickcore_network_changed()
 }
