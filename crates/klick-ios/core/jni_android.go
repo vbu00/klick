@@ -16,7 +16,19 @@ jstring klick_jni_string(JNIEnv *env, const char *chars);
 */
 import "C"
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/metacubex/mihomo/hub/route"
+)
+
+// Ядро для Android собрано с тегом mihomo `cmfa` (как ClashMetaForAndroid): без него адаптер требует
+// читать /data/system/packages.xml — приложению это запрещено. Тот же тег включает «режим встраивания»,
+// где API не даёт перечитать конфиг (PUT /configs), а движок kl!ck этим пользуется, — выключаем обратно.
+// init пакета main идёт после init пакетов mihomo.
+func init() {
+	route.SetEmbedMode(false)
+}
 
 func goString(env *C.JNIEnv, s C.jstring) string {
 	chars := C.klick_jni_chars(env, s)

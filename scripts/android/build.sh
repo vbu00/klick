@@ -28,8 +28,10 @@ jni="$app/app/src/main/jniLibs"
 step "ядро mihomo (Go)"
 core="$root/crates/klick-ios/core"
 mihomo="$(cd "$core" && go list -m -f '{{.Version}}' github.com/metacubex/mihomo)"
-# Те же теги, что у iOS, но без with_low_memory: у службы Android нет предела в 50 МБ.
-tags="with_gvisor,no_tailscale,no_zerotier,no_easytier,no_fake_tcp"
+# Те же теги, что у iOS, но без with_low_memory (у службы Android нет предела в 50 МБ) и с cmfa — как у
+# ClashMetaForAndroid: без него адаптер читает список приложений системы, а приложению это запрещено
+# (подробнее — jni_android.go).
+tags="with_gvisor,no_tailscale,no_zerotier,no_easytier,no_fake_tcp,cmfa"
 for abi in $ABIS; do
     case "$abi" in
         arm64-v8a) goarch=arm64; cc="aarch64-linux-android$API-clang"; extra="" ;;
