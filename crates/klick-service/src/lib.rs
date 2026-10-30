@@ -39,42 +39,42 @@ pub mod win;
 pub use win as sys;
 
 // macOS (и Linux для разработки): launchd, networksetup, ядро-страж Kill Switch. Те же имена модулей, что у Windows.
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/killswitch.rs"]
 mod killswitch;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/neighbors.rs"]
 mod neighbors;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/netconf.rs"]
 mod netconf;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/netwatch.rs"]
 mod netwatch;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/pf.rs"]
 mod pf;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/programs.rs"]
 mod programs;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/launchd.rs"]
 pub mod svc;
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(mobile)))]
 #[path = "unix/sys.rs"]
 pub mod sys;
 
 // iOS: ни службы, ни прав администратора, ни чужих процессов. Прокси, DNS и pf системы не трогаются,
 // программ и соседей не видно — те же имена модулей, но без системных настроек (см. `ios`).
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 pub mod ios;
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 #[path = "unix/killswitch.rs"]
 mod killswitch;
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 #[path = "unix/netwatch.rs"]
 mod netwatch;
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 use ios::{neighbors, netconf, pf, programs, sys};
 
 use anyhow::Result;

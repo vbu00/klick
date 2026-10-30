@@ -15,6 +15,7 @@ fn main() {
         Some("windows") => Os::Windows,
         Some("macos") => Os::MacOs,
         Some("ios") => Os::Ios,
+        Some("android") => Os::Android,
         _ => Os::CURRENT,
     };
     let layout = CoreLayout {
@@ -22,7 +23,7 @@ fn main() {
         controller: match os {
             Os::Windows => r"\\.\pipe\klick-check".into(),
             Os::MacOs => "/tmp/klick-check.sock".into(),
-            Os::Ios => "127.0.0.1:27893".into(),
+            Os::Ios | Os::Android => "127.0.0.1:27893".into(),
         },
         secret: "check".into(),
         mixed_port: 27890,
@@ -55,7 +56,7 @@ fn main() {
             ]
         }
         // iOS: программ в правилах нет.
-        Os::Ios => vec![
+        Os::Ios | Os::Android => vec![
             Rule { target: Target::Service("telegram".into()), route: Route::Vpn, enabled: true },
             Rule { target: Target::Domain("claude.ai".into()), route: Route::Vpn, enabled: true },
             Rule { target: Target::Ip("1.2.3.0/24".into()), route: Route::Block, enabled: true },

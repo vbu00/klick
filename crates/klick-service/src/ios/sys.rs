@@ -1,4 +1,4 @@
-//! iOS: то немногое о системе, что нужно движку. Прав администратора и чужих процессов нет,
+//! iOS и Android: то немногое о системе, что нужно движку. Прав администратора и чужих процессов нет,
 //! папки приложения закрыты от других программ самой системой.
 
 use anyhow::{Context, Result};
@@ -53,12 +53,14 @@ pub fn machine_id() -> Option<Vec<u8>> {
 }
 
 /// Для заголовков подписки: («iOS», «18.1»).
+#[cfg(target_os = "ios")]
 pub fn os_short() -> (String, String) {
     ("iOS".into(), sysctl_string("kern.osproductversion").unwrap_or_default())
 }
 
 /// Модель — ей устройство и подписано в панели: «iPhone 17» (по коду `iPhone18,3`; незнакомая модель —
 /// сам код). Имя телефона iOS приложениям не отдаёт.
+#[cfg(target_os = "ios")]
 pub fn device_name() -> Option<String> {
     let code = std::env::var("SIMULATOR_MODEL_IDENTIFIER").ok().or_else(|| sysctl_string("hw.machine")).filter(|m| !m.is_empty())?;
     Some(klick_core::apple::model_label(&code))
@@ -75,6 +77,7 @@ pub fn tun_up() -> bool {
 }
 
 /// Время загрузки системы, секунды Unix.
+#[cfg(target_os = "ios")]
 pub fn boot_time() -> i64 {
     let Some(raw) = sysctl_raw("kern.boottime") else { return 0 };
     if raw.len() < std::mem::size_of::<libc::timeval>() {
@@ -84,6 +87,7 @@ pub fn boot_time() -> i64 {
     tv.tv_sec as i64
 }
 
+#[cfg(target_os = "ios")]
 fn sysctl_raw(name: &str) -> Option<Vec<u8>> {
     let cname = std::ffi::CString::new(name).ok()?;
     let mut len: libc::size_t = 0;
@@ -100,8 +104,49 @@ fn sysctl_raw(name: &str) -> Option<Vec<u8>> {
     }
 }
 
+#[cfg(target_os = "ios")]
 fn sysctl_string(name: &str) -> Option<String> {
     let raw = sysctl_raw(name)?;
     let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
     Some(String::from_utf8_lossy(&raw[..end]).into_owned())
+}
+
+/// Для заголовков подписки: («Android», «15»).
+#[cfg(target_os = "android")]
+pub fn os_short() -> (String, String) {
+    ("Android".into(), android_prop("ro.build.version.release").unwrap_or_default())
+}
+
+/// «Samsung SM-S921B», «Xiaomi 23078PND5G»: так устройство и подписано в панели.
+#[cfg(target_os = "android")]
+pub fn device_name() -> Option<String> {
+    let model = android_prop("ro.product.model").filter(|m| !m.is_empty())?;
+    let brand = android_prop("ro.product.manufacturer").unwrap_or_default();
+    if brand.is_empty() || model.to_lowercase().starts_with(&brand.to_lowercase()) {
+        return Some(model);
+    }
+    let mut chars = brand.chars();
+    let first = chars.next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    Some(format!("{first}{} {model}", chars.as_str()))
+}
+
+/// Время загрузки системы, секунды Unix: сейчас минус время с загрузки (вместе со сном).
+#[cfg(target_os = "android")]
+pub fn boot_time() -> i64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    now - ts.tv_sec as i64
+}
+
+/// Системное свойство Android (`getprop`).
+#[cfg(target_os = "android")]
+fn android_prop(name: &str) -> Option<String> {
+    extern "C" {
+        fn __system_property_get(name: *const libc::c_char, value: *mut libc::c_char) -> libc::c_int;
+    }
+    let cname = std::ffi::CString::new(name).ok()?;
+    let mut buf = [0 as libc::c_char; 92]; // PROP_VALUE_MAX
+    let n = unsafe { __system_property_get(cname.as_ptr(), buf.as_mut_ptr()) };
+    (n > 0).then(|| unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned())
 }

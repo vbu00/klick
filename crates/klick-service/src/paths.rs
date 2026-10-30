@@ -65,7 +65,7 @@ impl Paths {
     /// iOS: настройки, ключи и журнал — в контейнере приложения (`data`), домашняя папка ядра — в общей
     /// папке приложения и расширения VPN (`group`, App Group): там конфиг, серверы и наборы, которые читает
     /// ядро в расширении. Ядро — библиотека в приложении и в расширении, а не файл.
-    #[cfg(target_os = "ios")]
+    #[cfg(mobile)]
     pub fn ios(data: PathBuf, group: PathBuf, resources: PathBuf) -> Self {
         let core_home = group.join("core");
         Paths { providers: core_home.join("providers"), sets: core_home.join("sets"), core_home, core_exe: PathBuf::new(), ..Self::new(data, resources) }
@@ -190,7 +190,7 @@ impl Profile {
 
     /// iOS: входы управления ядер — порты на 127.0.0.1 с паролем: путь сокета в контейнере приложения
     /// длиннее 104 байт. Смешанного порта нет — весь трафик и так идёт через туннель.
-    #[cfg(target_os = "ios")]
+    #[cfg(mobile)]
     pub fn ios() -> Self {
         let port = || format!("127.0.0.1:{}", crate::sys::free_port().unwrap_or(47_890));
         Profile {

@@ -130,7 +130,7 @@ pub fn compile(input: &CompileInput) -> Value {
     cfg.insert("sniffer".into(), sniffer());
     // iOS: адаптер поднимает расширение VPN по дескриптору туннеля от системы, а не по конфигу —
     // поэтому и перечитывание конфига его не трогает.
-    if input.capture == Capture::Tun && layout.os != Os::Ios {
+    if input.capture == Capture::Tun && !layout.os.mobile() {
         cfg.insert("tun".into(), tun(layout));
     }
     Value::Object(cfg)
@@ -205,7 +205,7 @@ fn controller_key(os: Os) -> &'static str {
     match os {
         Os::Windows => "external-controller-pipe",
         Os::MacOs => "external-controller-unix",
-        Os::Ios => "external-controller",
+        Os::Ios | Os::Android => "external-controller",
     }
 }
 
@@ -245,7 +245,7 @@ fn base(layout: &CoreLayout, provider_path: &str) -> Map<String, Value> {
         "unified-delay": true,
         "tcp-concurrent": true,
         // iOS не говорит, чьё соединение: искать программу бесполезно.
-        "find-process-mode": if layout.os == Os::Ios { "off" } else { "always" },
+        "find-process-mode": if layout.os.mobile() { "off" } else { "always" },
         "geo-auto-update": false,
         "geodata-mode": false,
         controller_key(layout.os): layout.controller,
@@ -321,7 +321,7 @@ fn policy(route: Route) -> &'static str {
 pub fn folder_regex(os: Os, folder: &str) -> String {
     match os {
         Os::Windows => windows_folder_regex(folder),
-        Os::MacOs | Os::Ios => crate::macos::folder_regex(folder),
+        Os::MacOs | Os::Ios | Os::Android => crate::macos::folder_regex(folder),
     }
 }
 
@@ -645,7 +645,7 @@ fn proxy_server_dns(os: Os, server_dns: &[String]) -> Value {
     let common = ["tls://77.88.8.8:853", "https://1.1.1.1/dns-query", "77.88.8.8"];
     match os {
         // iOS: DNS системы расширению не виден (и пока VPN включён, он — адрес внутри туннеля).
-        Os::Windows | Os::Ios => json!(common),
+        Os::Windows | Os::Ios | Os::Android => json!(common),
         Os::MacOs => {
             let mut list: Vec<String> = if server_dns.is_empty() { vec!["system".into()] } else { server_dns.to_vec() };
             list.extend(common.iter().map(|u| u.to_string()));

@@ -10,6 +10,9 @@ pub enum Os {
     /// iOS: адаптер держит расширение VPN, а не ядро, и программ в правилах нет — система не говорит,
     /// чьё соединение.
     Ios,
+    /// Android: как iOS — адаптер держит VpnService приложения, а не ядро, и ядро не знает, чьё соединение
+    /// (без прав root `/proc/net` закрыт).
+    Android,
 }
 
 impl Os {
@@ -18,14 +21,21 @@ impl Os {
         Os::Windows
     } else if cfg!(target_os = "ios") {
         Os::Ios
+    } else if cfg!(target_os = "android") {
+        Os::Android
     } else {
         Os::MacOs
     };
 
+    /// Телефон: туннель держит система (расширение iOS, VpnService Android), в конфиге нет раздела `tun`.
+    pub fn mobile(self) -> bool {
+        matches!(self, Os::Ios | Os::Android)
+    }
+
     pub fn separator(self) -> char {
         match self {
             Os::Windows => '\\',
-            Os::MacOs | Os::Ios => '/',
+            Os::MacOs | Os::Ios | Os::Android => '/',
         }
     }
 

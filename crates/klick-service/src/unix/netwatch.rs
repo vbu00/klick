@@ -89,11 +89,13 @@ fn physical(interfaces: Vec<IfAddr>) -> Vec<(String, IpAddr)> {
         .filter(|i| !matches!(i.addr, IpAddr::V6(v6) if (v6.segments()[0] & 0xffc0) == 0xfe80))
         // iOS: у звонков по VoLTE и Wi-Fi свои интерфейсы ipsec — сеть это только Wi-Fi (en) и сотовая (pdp_ip).
         .filter(|i| !cfg!(target_os = "ios") || i.name.starts_with("en") || i.name.starts_with("pdp_ip"))
+        // Android: свой адаптер VPN — tun0, служебные dummy и p2p — не сеть.
+        .filter(|i| !cfg!(target_os = "android") || !["tun", "dummy", "p2p"].iter().any(|p| i.name.starts_with(p)))
         .map(|i| (i.name, i.addr))
         .collect();
     // iOS: сотовая сама меняет временные IPv6-адреса — это не смена сети, а каждый такой сигнал сбрасывал
     // замер задержки. Есть IPv4 — по нему и судим; сеть только с IPv6 — по IPv6.
-    if cfg!(target_os = "ios") && v.iter().any(|(_, a)| a.is_ipv4()) {
+    if cfg!(mobile) && v.iter().any(|(_, a)| a.is_ipv4()) {
         v.retain(|(_, a)| a.is_ipv4());
     }
     v.sort();

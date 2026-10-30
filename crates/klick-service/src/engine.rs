@@ -322,7 +322,7 @@ fn read_runtime(paths: &Paths) -> Option<Runtime> {
 /// VPN был включён, и Windows с тех пор не перезагружалась: значит, упала служба.
 /// iOS: туннель работает, а приложение только открыли — подключиться к нему.
 fn should_restore(paths: &Paths) -> bool {
-    if cfg!(target_os = "ios") {
+    if cfg!(mobile) {
         return sys::tun_up();
     }
     read_runtime(paths).is_some_and(|rt| rt.connected && (boot_time() - rt.boot).abs() < 120)
@@ -1476,7 +1476,7 @@ impl Engine {
         };
         // iOS: туннель уже работает (приложение открыли снова, VPN включили в Настройках) — те же вход
         // управления, пароль и порты: конфиг совпадёт с тем, что у ядра, и движок подключится к нему как есть.
-        #[cfg(target_os = "ios")]
+        #[cfg(mobile)]
         let layout = match crate::ios::applied_controller(&self.paths.core_home).filter(|_| sys::tun_up()) {
             Some((controller, secret, check_vpn_port, check_direct_port)) => CoreLayout { controller, secret, check_vpn_port, check_direct_port, ..layout },
             None => layout,
@@ -1925,7 +1925,7 @@ impl Engine {
             r.abort_tasks();
         }
         // iOS: VPN выключили в Настройках или его место занял другой VPN — наперекор человеку не включаем.
-        if cfg!(target_os = "ios") && code == Some(0) {
+        if cfg!(mobile) && code == Some(0) {
             self.guard = None;
             self.since = None;
             self.set_state(VpnState::Off, None);

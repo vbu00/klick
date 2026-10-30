@@ -18,7 +18,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ClientOptions;
 // Процесс ядра — только на Windows и macOS; на iOS ядро запускает приложение.
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(mobile))]
 use {
     std::collections::VecDeque,
     std::process::Stdio,
@@ -66,7 +66,7 @@ impl CoreApi {
         }
     }
 
-    #[cfg(all(unix, not(target_os = "ios")))]
+    #[cfg(all(unix, not(mobile)))]
     async fn open(&self) -> Result<Box<dyn CoreStream>> {
         #[cfg(test)]
         if let Some(address) = self.pipe.strip_prefix("tcp://") {
@@ -75,7 +75,7 @@ impl CoreApi {
         Ok(Box::new(tokio::net::UnixStream::connect(&self.pipe).await.context("сокет ядра недоступен")?))
     }
 
-    #[cfg(target_os = "ios")]
+    #[cfg(mobile)]
     async fn open(&self) -> Result<Box<dyn CoreStream>> {
         let address = self.pipe.strip_prefix("tcp://").unwrap_or(&self.pipe);
         Ok(Box::new(tokio::net::TcpStream::connect(address).await.context("вход управления ядра недоступен")?))
@@ -359,11 +359,11 @@ pub fn enc(s: &str) -> String {
     out
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 pub use crate::ios::CoreProcess;
 
 /// Работающий процесс ядра.
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(mobile))]
 pub struct CoreProcess {
     pub api: CoreApi,
     pub pid: Option<u32>,
@@ -377,7 +377,7 @@ pub struct CoreProcess {
     tail: Arc<Mutex<VecDeque<String>>>,
 }
 
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(mobile))]
 impl CoreProcess {
     /// Запускает ядро и ждёт, пока ответит API (до 10 с).
     /// `on_exit` вызывается, только если ядро завершилось само, а не по `stop`.
