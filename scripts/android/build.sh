@@ -69,6 +69,6 @@ out="$app/app/build/outputs/apk/release"
 cp "$out/app-universal-release.apk" "$root/dist/klick-android.apk"
 for pair in arm64-v8a:arm64 armeabi-v7a:armv7 x86_64:x86_64; do
     abi="${pair%%:*}"
-    [[ -f "$out/app-$abi-release.apk" ]] && cp "$out/app-$abi-release.apk" "$root/dist/klick-android-${pair##*:}.apk"
+    if [[ -f "$out/app-$abi-release.apk" ]]; then cp "$out/app-$abi-release.apk" "$root/dist/klick-android-${pair##*:}.apk"; fi
 done
 ls -la "$root"/dist/klick-android*.apk

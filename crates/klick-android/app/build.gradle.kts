@@ -20,8 +20,6 @@ android {
         targetSdk = 35
         versionCode = klickBuild
         versionName = klickVersion
-        // arm64 — почти все телефоны, armeabi-v7a — старые дешёвые, x86_64 — эмулятор в CI.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     // Подпись: ключ из CI (KLICK_KEYSTORE…), без него — отладочный ключ сборщика (поставить можно,
@@ -62,6 +60,7 @@ android {
     // база стран уже сжата, а распаковывать при первом запуске быстрее несжатое.
     androidResources { noCompress += listOf("mmdb") }
     // Отдельный APK под каждую архитектуру (втрое меньше: телефону нужна одна) и общий на всякий случай.
+    // arm64 — почти все телефоны, armeabi-v7a — старые дешёвые, x86_64 — эмулятор в CI.
     splits {
         abi {
             isEnable = true
