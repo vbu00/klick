@@ -69,7 +69,9 @@ android {
             isUniversalApk = true
         }
     }
-    packaging { jniLibs { useLegacyPackaging = false } }
+    // Библиотеки ядра и движка — 48 МБ: сжатые в APK втрое меньше, при установке Android распакует их сам.
+    // Так APK пролезает в Telegram (до 50 МБ у ботов) и быстрее качается.
+    packaging { jniLibs { useLegacyPackaging = true } }
 }
 
 dependencies {
