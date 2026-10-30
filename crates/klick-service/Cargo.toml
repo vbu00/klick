@@ -19,12 +19,20 @@ hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
-reqwest = { version = "0.12", features = ["gzip", "json"] }
+# TLS: системный (Windows SChannel, Security на macOS и iOS) — кроме Android: там системного для Rust нет,
+# а OpenSSL в приложении не собрать — rustls с корнями Mozilla.
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "charset", "http2", "macos-system-configuration"] }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 base64 = "0.22"
 # Проверка подписи обновлений (Ed25519).
 ring = "0.17"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
