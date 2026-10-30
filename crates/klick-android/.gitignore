@@ -1,0 +1,8 @@
+# Собирает scripts/android/build.sh: библиотеки ядра и движка, ресурсы из resources/.
+/app/src/main/jniLibs/
+/app/src/main/assets/klick-resources/
+/app/build/
+/build/
+/.gradle/
+/target/
+/local.properties

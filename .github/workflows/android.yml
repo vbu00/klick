@@ -1,0 +1,77 @@
+# Сборка kl!ck для Android: klick-android.apk (arm64, armeabi-v7a, x86_64) — ядро mihomo на Go, движок на
+# Rust, приложение на Kotlin/Compose (scripts/android/build.sh). Проверки: тесты обёртки ядра на Linux,
+# сборка всех архитектур. Подпись — ключом из секретов (KLICK_ANDROID_KEYSTORE…), без них — отладочным.
+name: Android
+
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', 'sandbox/**', 'tools/**', 'build.ps1', '.github/workflows/windows.yml', '.github/workflows/macos.yml', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: crates/klick-ios/core/go.mod
+          cache-dependency-path: crates/klick-ios/core/go.sum
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/klick-android
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked --version 3.5.4
+
+      - name: Тесты обёртки ядра (Linux)
+        working-directory: crates/klick-ios/core
+        run: go test ./...
+
+      - name: Ключ подписи
+        env:
+          KEYSTORE_B64: ${{ secrets.KLICK_ANDROID_KEYSTORE }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d >"$RUNNER_TEMP/klick.jks"
+            echo "KLICK_KEYSTORE=$RUNNER_TEMP/klick.jks" >>"$GITHUB_ENV"
+          else
+            echo "секрета KLICK_ANDROID_KEYSTORE нет — APK подписан отладочным ключом"
+          fi
+
+      - name: Сборка klick-android.apk
+        env:
+          KLICK_BUILD: ${{ github.run_number }}
+          KLICK_KEYSTORE_PASSWORD: ${{ secrets.KLICK_ANDROID_KEYSTORE_PASSWORD }}
+          KLICK_KEY_ALIAS: ${{ secrets.KLICK_ANDROID_KEY_ALIAS }}
+          KLICK_KEY_PASSWORD: ${{ secrets.KLICK_ANDROID_KEY_PASSWORD }}
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          scripts/android/build.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-android
+          path: dist/klick-android.apk
+          if-no-files-found: ignore

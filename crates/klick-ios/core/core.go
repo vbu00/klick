@@ -1,5 +1,6 @@
-// Ядро kl!ck для iOS: mihomo библиотекой. `build.sh` собирает его статической библиотекой
-// (`-buildmode=c-archive`) для приложения и для расширения VPN:
+// Ядро kl!ck для iOS и Android: mihomo библиотекой. `build.sh` собирает его статической библиотекой
+// (`-buildmode=c-archive`) для приложения и для расширения VPN, scripts/android/build-core.sh — общей
+// библиотекой Android (`-buildmode=c-shared`, вход для службы туннеля — jni_android.go):
 //
 //   - в расширении — ядро туннеля: конфиг от приложения и адаптер по дескриптору utun, который
 //     отдала система (свой адаптер на iOS создать нельзя);
@@ -64,7 +65,8 @@ func start(home, cfg string, tunFd int) error {
 	stop()
 	mc.SetConfig(cfg)
 	config = cfg
-	if tunFd >= 0 {
+	// Предел памяти — только у расширения iOS (50 МБ на процесс); у службы Android его нет.
+	if tunFd >= 0 && runtime.GOOS == "ios" {
 		limitMemory()
 	}
 	if err := apply(cfg); err != nil {

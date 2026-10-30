@@ -1,0 +1,29 @@
+[package]
+name = "klick-android"
+description = "kl!ck для Android: движок службы в приложении (родной интерфейс Kotlin/Compose), туннель — VpnService"
+# Та же версия, что у всего kl!ck (Cargo.toml в корне); scripts/android/build.sh сверяет.
+version = "0.5.4"
+edition = "2021"
+license = "MIT"
+
+# Своё рабочее пространство, как у crates/klick-ios и klick-native: собирается только под Android.
+[workspace]
+
+[lib]
+name = "klick_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+klick-core = { path = "../klick-core" }
+klick-proto = { path = "../klick-proto" }
+klick-service = { path = "../klick-service" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+libc = "0.2"
+jni = "0.21"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
