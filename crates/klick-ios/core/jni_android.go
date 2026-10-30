@@ -26,7 +26,7 @@ func goString(env *C.JNIEnv, s C.jstring) string {
 
 func javaError(env *C.JNIEnv, err error) C.jstring {
 	if err == nil {
-		return nil
+		return 0 // null: cgo держит ссылки JNI числом, а не указателем
 	}
 	text := C.CString(err.Error())
 	defer C.free(unsafe.Pointer(text))
