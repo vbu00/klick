@@ -1,5 +1,5 @@
 #!/bin/bash
-# kl!ck для Android: APK (arm64, armeabi-v7a, x86_64 для эмулятора) в dist/klick-android.apk.
+# kl!ck для Android: APK в dist/ — общий klick-android.apk и по архитектурам (arm64, armv7, x86_64 для эмулятора).
 #   1. ядро mihomo — Go библиотекой (`-buildmode=c-shared`, crates/klick-ios/core) для каждой архитектуры;
 #   2. движок — Rust (crates/klick-android, cargo-ndk);
 #   3. наборы, каталог сервисов и база стран — в assets;
@@ -64,5 +64,11 @@ cp "$root/resources/core/Country.mmdb" "$res/core/"
 step "приложение (Gradle)"
 (cd "$app" && gradle --no-daemon -q assembleRelease)
 mkdir -p "$root/dist"
-cp "$app/app/build/outputs/apk/release/app-release.apk" "$root/dist/klick-android.apk"
-ls -la "$root/dist/klick-android.apk"
+out="$app/app/build/outputs/apk/release"
+# Общий — klick-android.apk; под архитектуру — klick-android-arm64.apk и т. д. (почти все телефоны — arm64).
+cp "$out/app-universal-release.apk" "$root/dist/klick-android.apk"
+for pair in arm64-v8a:arm64 armeabi-v7a:armv7 x86_64:x86_64; do
+    abi="${pair%%:*}"
+    [[ -f "$out/app-$abi-release.apk" ]] && cp "$out/app-$abi-release.apk" "$root/dist/klick-android-${pair##*:}.apk"
+done
+ls -la "$root"/dist/klick-android*.apk

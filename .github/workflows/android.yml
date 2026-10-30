@@ -73,5 +73,5 @@ jobs:
         if: always()
         with:
           name: klick-android
-          path: dist/klick-android.apk
+          path: dist/klick-android*.apk
           if-no-files-found: ignore

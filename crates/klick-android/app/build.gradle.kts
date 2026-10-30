@@ -61,6 +61,15 @@ android {
     // Наборы правил, каталог сервисов и база стран (scripts/android/build.sh кладёт их в assets) —
     // база стран уже сжата, а распаковывать при первом запуске быстрее несжатое.
     androidResources { noCompress += listOf("mmdb") }
+    // Отдельный APK под каждую архитектуру (втрое меньше: телефону нужна одна) и общий на всякий случай.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
     packaging { jniLibs { useLegacyPackaging = false } }
 }
 
