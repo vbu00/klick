@@ -107,20 +107,19 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
 
         KSectionHead("Подключение")
         KCardList {
-            KRow("Если сервер недоступен", serverDownTexts.firstOrNull { it.first.first == m.onServerDown }?.first?.second, chevron = true) { onSub("down") }
+            KRow("Если сервер недоступен", serverDownTexts.firstOrNull { it.first.first == m.onServerDown }?.first?.second, chevron = true, onClick = { onSub("down") })
             KDivider()
-            KRow("Постоянный VPN", "Android сам включит kl!ck после перезагрузки, а «Блокировать без VPN» не выпустит трафик мимо", wrap = true, chevron = true) {
+            KRow("Постоянный VPN", "Android сам включит kl!ck после перезагрузки, а «Блокировать без VPN» не выпустит трафик мимо", wrap = true, chevron = true, onClick = {
                 ctx.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
-            }
+            })
             KDivider()
             KRow(
                 "Работа в фоне", if (unrestricted) "Без ограничений — Android не выключит VPN ради батареи" else "Android может выключить VPN ради батареи — разрешите работу в фоне",
                 wrap = true, chevron = !unrestricted,
-            ) {
-                if (!unrestricted) runCatching {
-                    ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
-                }
-            }
+                onClick = if (unrestricted) null else ({
+                    runCatching { ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))) }
+                }),
+            )
         }
 
         KSectionHead("Уведомления")
@@ -136,7 +135,7 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
 
         KSectionHead("Оформление")
         KCardList {
-            KRow("Тема", themeSummary, chevron = true) { onSub("theme") }
+            KRow("Тема", themeSummary, chevron = true, onClick = { onSub("theme") })
             KDivider()
             KRow("Серверы по странам", "Сначала страны, внутри — их серверы", wrap = true) {
                 KToggle(m.serversByCountry) { m.setPrefs(JSONObject().put("servers_by_country", it)) }
@@ -152,7 +151,7 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
 
         KSectionHead("Диагностика")
         KCardList {
-            KRow("Журнал", logCount?.let { Texts.plural(it, "запись", "записи", "записей") } ?: "Записи службы", chevron = true) { onSub("log") }
+            KRow("Журнал", logCount?.let { Texts.plural(it, "запись", "записи", "записей") } ?: "Записи службы", chevron = true, onClick = { onSub("log") })
             KDivider()
             KRow("Скопировать отчёт", "Версии, режим и журнал — без ссылок и адресов сайтов", wrap = true, onClick = {
                 scope.launch {
@@ -170,7 +169,7 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
         }
 
         KCardList(top = 22.dp) {
-            KRow("О приложении", "Версия ${version ?: "…"}", chevron = true) { onSub("about") }
+            KRow("О приложении", "Версия ${version ?: "…"}", chevron = true, onClick = { onSub("about") })
         }
     }
 }
@@ -346,10 +345,10 @@ private fun AboutScreen(m: KlickModel, onBack: () -> Unit) {
         KCardList {
             authors.forEachIndexed { i, (name, role, url) ->
                 if (i > 0) KDivider()
-                KRow(name, role, chevron = true) { open(url) }
+                KRow(name, role, chevron = true, onClick = { open(url) })
             }
         }
-        KCardList(top = 22.dp) { KRow("Исходный код", "github.com/vbu00/klick", chevron = true) { open("https://github.com/vbu00/klick") } }
+        KCardList(top = 22.dp) { KRow("Исходный код", "github.com/vbu00/klick", chevron = true, onClick = { open("https://github.com/vbu00/klick") }) }
         Spacer(Modifier.width(1.dp))
     }
 }
