@@ -690,6 +690,11 @@ fn dns(s: &Settings, catalog: &Catalog, os: Os, server_dns: &[String], user: Opt
         "+.msftconnecttest.com", "+.msftncsi.com",
         "time.windows.com", "time.nist.gov", "+.pool.ntp.org", "+.time.edu.cn",
         "+.stun.*.*", "+.stun.*.*.*", "stun.l.google.com",
+        // Игры Supercell не подключаются к игровому серверу с адресом из 198.18.0.0/16 (защита от
+        // подмены DNS) и висят на «Подключение к серверу». Им — настоящий адрес; соединение по нему
+        // всё равно идёт через VPN, а имя ядро восстанавливает по своему кэшу DNS для правил.
+        "+.supercell.com", "+.brawlstarsgame.com", "+.clashofclans.com", "+.clashroyaleapp.com",
+        "+.haydaygame.com", "+.boombeachgame.com", "+.squadbustersgame.com",
     ];
     if os != Os::Windows {
         // Проверка «есть ли интернет» и страницы входа в сетях Wi-Fi, время системы.
