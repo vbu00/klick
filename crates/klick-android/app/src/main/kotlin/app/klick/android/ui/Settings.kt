@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,8 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.klick.android.Appearance
 import app.klick.android.KlickModel
+import app.klick.android.Oem
 import app.klick.android.Texts
 import app.klick.android.Toast
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -99,8 +102,15 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
             else -> name
         }
     }
+    // Разрешения меняют на системных экранах — перечитываем, когда окно вернулось.
+    var resumes by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) {
+        resumes++
+        onPauseOrDispose {}
+    }
     val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val unrestricted = pm.isIgnoringBatteryOptimizations(ctx.packageName)
+    val unrestricted = remember(resumes) { pm.isIgnoringBatteryOptimizations(ctx.packageName) }
+    val oem = remember { Oem.hint(ctx) }
 
     KScreen {
         KTitle("Настройки")
@@ -120,6 +130,12 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
                     runCatching { ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))) }
                 }),
             )
+            if (oem != null) {
+                KDivider()
+                KRow(oem.title, oem.text, wrap = true, chevron = true, onClick = {
+                    runCatching { ctx.startActivity(oem.intent) }.onFailure { m.toast = Toast("Экран прошивки не открылся", tone = "bad") }
+                })
+            }
         }
 
         KSectionHead("Уведомления")

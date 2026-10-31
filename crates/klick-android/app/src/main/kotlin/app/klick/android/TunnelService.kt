@@ -20,10 +20,10 @@ import android.util.Log
  * пока VPN включён, с окном и без. Адаптер открывает Android, ядро mihomo (`TunnelCore`) читает его по
  * дескриптору, конфиг — `group/core/config.yaml`, который пишет движок в процессе приложения.
  *
- * Адреса — как у mihomo по умолчанию и у iOS: адаптер `198.18.0.1/30` и `fdfe:dcba:9876::1/126`, DNS —
- * `198.18.0.2` (ядро ловит запросы на любом адресе), подменные адреса сайтов `198.18.0.0/16` идут в
- * туннель. Сам kl!ck — мимо туннеля (`addDisallowedApplication`): иначе соединения ядра к серверам VPN
- * вернулись бы в тот же туннель.
+ * Адреса — как у mihomo по умолчанию и у iOS: адаптер `198.18.0.1/30`, DNS — `198.18.0.2` (ядро ловит
+ * запросы на любом адресе), подменные адреса сайтов `198.18.0.0/16` идут в туннель. Сам kl!ck — мимо
+ * туннеля (`addDisallowedApplication`): иначе соединения ядра к серверам VPN вернулись бы в тот же
+ * туннель. Мимо туннеля и приложения, которые человек выбрал в «Приложения мимо VPN» ([BypassApps]).
  *
  * Движку о себе служба сообщает рассылкой [ACTION_STATE] внутри приложения: подключилась, перечитала
  * конфиг, не поднялась, остановилась (и выключил ли её человек).
@@ -47,6 +47,7 @@ class TunnelService : VpnService() {
         when (intent?.action) {
             ACTION_INFO -> if (!running) stopSelf()
             ACTION_RELOAD -> reload()
+            ACTION_APPS -> reapplyApps()
             ACTION_STOP -> stopTunnel(byUser = false)
             ACTION_STOP_BY_USER -> stopTunnel(byUser = true)
             // ACTION_START, а ещё «Постоянный VPN» и плитка: система запускает службу с SERVICE_INTERFACE.
@@ -65,26 +66,7 @@ class TunnelService : VpnService() {
             fail("нет конфига: откройте kl!ck и подключитесь оттуда")
             return
         }
-        val pfd = try {
-            Builder()
-                .setSession("kl!ck")
-                .setMtu(9000)
-                // Только IPv4: DNS ядра не отдаёт AAAA, IPv6 в туннеле приложениям только мешает
-                // (ищут адреса, которых нет). Без IPv6-адреса Android сам блокирует IPv6 для всех
-                // приложений под VPN — мимо туннеля он не уйдёт.
-                .addAddress("198.18.0.1", 30)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer("198.18.0.2")
-                .addDisallowedApplication(packageName)
-                .apply { if (Build.VERSION.SDK_INT >= 29) setMetered(false) }
-                .establish()
-        } catch (e: Exception) {
-            fail("адаптер VPN: ${e.message}")
-            return
-        } ?: run {
-            fail("Android не дал включить VPN: разрешите kl!ck в настройках VPN")
-            return
-        }
+        val pfd = openAdapter() ?: return
         tun = pfd
         // Дескриптор переходит ядру: закрывает его ядро, когда остановится.
         val err = TunnelCore.start(Dirs.core(this).path, config.path, pfd.detachFd())
@@ -96,6 +78,60 @@ class TunnelService : VpnService() {
         running = true
         watchNetwork()
         report("up")
+    }
+
+    /** Адаптер VPN; не открылся — служба сообщила ошибку и остановилась, ответ null. */
+    private fun openAdapter(): ParcelFileDescriptor? {
+        return try {
+            Builder()
+                .setSession("kl!ck")
+                .setMtu(9000)
+                // Только IPv4: DNS ядра не отдаёт AAAA, IPv6 в туннеле приложениям только мешает
+                // (ищут адреса, которых нет). Без IPv6-адреса Android сам блокирует IPv6 для всех
+                // приложений под VPN — мимо туннеля он не уйдёт.
+                .addAddress("198.18.0.1", 30)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer("198.18.0.2")
+                .addDisallowedApplication(packageName)
+                .apply {
+                    // Удалённое с телефона приложение Android не найдёт — пропускаем, а не роняем VPN.
+                    BypassApps.load(this@TunnelService).forEach { runCatching { addDisallowedApplication(it) } }
+                    if (Build.VERSION.SDK_INT >= 29) setMetered(false)
+                }
+                .establish()
+        } catch (e: Exception) {
+            fail("адаптер VPN: ${e.message}")
+            null
+        } ?: run {
+            fail("Android не дал включить VPN: разрешите kl!ck в настройках VPN")
+            null
+        }
+    }
+
+    /**
+     * Список «мимо VPN» поменялся при включённом VPN: Android меняет его только с новым адаптером. Новый
+     * открываем раньше, чем закрыть старый, — сеть VPN не пропадает, приложения не видят обрыва.
+     */
+    private fun reapplyApps() {
+        if (!running) {
+            // Запущена ради команды и сразу показала уведомление — без туннеля ей незачем жить.
+            stopSelf()
+            return
+        }
+        val pfd = openAdapter() ?: run {
+            shutdown()
+            return
+        }
+        TunnelCore.stop()
+        tun = pfd
+        val err = TunnelCore.start(Dirs.core(this).path, Dirs.tunnelConfig(this).path, pfd.detachFd())
+        if (err != null) {
+            running = false
+            tun = null
+            fail(err)
+            return
+        }
+        report("reloaded")
     }
 
     private fun reload() {
@@ -211,6 +247,8 @@ class TunnelService : VpnService() {
         const val ACTION_STOP = "app.klick.android.STOP"
         const val ACTION_STOP_BY_USER = "app.klick.android.STOP_BY_USER"
         const val ACTION_STATE = "app.klick.android.TUNNEL_STATE"
+        /** Окно → служба: список «мимо VPN» поменялся. */
+        const val ACTION_APPS = "app.klick.android.APPS"
         /** Движок → служба: сервер и состояние для уведомления. */
         const val ACTION_INFO = "app.klick.android.INFO"
 

@@ -108,6 +108,7 @@ fun ConnectionScreen(m: KlickModel) {
         "list" -> MyList(m, onBack = { sub = null }, onAdd = { adding = true })
         "live" -> LiveScreen(m, sites) { sub = null }
         "failures" -> FailuresScreen(m, fails) { sub = null }
+        "apps" -> AppsScreen(m) { sub = null }
         else -> ConnectionMain(m, sites, conns, fails, onSub = { sub = it }, onAdd = { adding = true })
     }
     if (adding) AddRuleSheet(m) { adding = false }
@@ -141,6 +142,9 @@ private fun ConnectionMain(m: KlickModel, sites: List<SiteRow>, conns: List<Live
         CxHead("Мой список", wide = true)
         ListCard(m, routing, list) { onSub("list") }
         CardButton("Добавить", KIcons.plus, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp), onClick = onAdd)
+
+        CxHead("Приложения", wide = true)
+        AppsCard { onSub("apps") }
 
         CxHead("Сейчас в сети", wide = true)
         Box(Modifier.clickable { onSub("live") }) { LiveSummary(sites, m.isRunning) }
