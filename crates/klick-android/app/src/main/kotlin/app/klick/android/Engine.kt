@@ -59,7 +59,7 @@ object Engine {
         nativeCall(request.toString(), id)
         val result = reply.await()
         // Журнал окна в logcat (метка klick-ui): команда и итог, без содержимого — в нём бывают ссылки подписок.
-        result.onSuccess { Log.i(TAG, "$cmd → ${it.length} байт: ${it.take(120).replace(Regex("https?://\S+"), "<ссылка>")}") }
+        result.onSuccess { Log.i(TAG, "$cmd → ${it.length} байт: ${it.take(120).replace(Regex("https?://\\S+"), "<ссылка>")}") }
             .onFailure { Log.w(TAG, "$cmd → ${(it as? EngineError)?.code ?: it.message}") }
         return result.getOrThrow()
     }
