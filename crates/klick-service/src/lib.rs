@@ -88,11 +88,43 @@ use tracing_subscriber::{filter::LevelFilter, Layer};
 /// `/Library/Application Support/klick/logs/service.log`), короткий, без адресов сайтов.
 pub fn init_file_log(paths: &Paths) -> Result<()> {
     let file = RotatingLog::open(paths.logs.join("service.log"))?;
-    let _ = tracing_subscriber::registry()
+    let registry = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::sync::Mutex::new(file)).with_filter(LevelFilter::INFO))
-        .with(logring::RingLayer.with_filter(LevelFilter::INFO))
-        .try_init();
+        .with(logring::RingLayer.with_filter(LevelFilter::INFO));
+    // Android: файл журнала — в закрытой папке приложения, а logcat видно через adb.
+    #[cfg(target_os = "android")]
+    let registry = registry.with(tracing_subscriber::fmt::layer().with_ansi(false).without_time().with_writer(|| logcat::Logcat).with_filter(LevelFilter::INFO));
+    let _ = registry.try_init();
     Ok(())
+}
+
+/// Строки журнала — в logcat Android с меткой `klick`.
+#[cfg(target_os = "android")]
+mod logcat {
+    use std::ffi::{c_char, c_int, CString};
+
+    #[link(name = "log")]
+    extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+
+    pub struct Logcat;
+
+    impl std::io::Write for Logcat {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            for line in String::from_utf8_lossy(buf).lines().filter(|l| !l.trim().is_empty()) {
+                if let Ok(text) = CString::new(line) {
+                    // 4 — ANDROID_LOG_INFO.
+                    unsafe { __android_log_write(4, c"klick".as_ptr(), text.as_ptr()) };
+                }
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 }
 
 /// Журнал, который не растёт без меры: дорос до 10 МБ — становится `service.log.1` (прежний удаляется).

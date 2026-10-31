@@ -47,7 +47,13 @@ class KlickModel : ViewModel() {
 
     private suspend fun loadServers() {
         if (active == null) return servers.clear()
-        runCatching { applyServers(JSONArray(Engine.call("servers"))) }
+        try {
+            applyServers(JSONArray(Engine.call("servers")))
+        } catch (e: EngineError) {
+            message = "Серверы: ${Texts.error(e.code)} (${e.code})"
+        } catch (e: Exception) {
+            message = "Серверы: ${e.message}"
+        }
     }
 
     private suspend fun onEvent(ev: JSONObject) {
