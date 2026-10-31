@@ -75,3 +75,12 @@ jobs:
           name: klick-android
           path: dist/klick-android*.apk
           if-no-files-found: ignore
+
+      # Отдельно — для телефона: arm64 скачивается за секунды, а не весь архив.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-android-arm64
+          path: dist/klick-android-arm64.apk
+          if-no-files-found: ignore
+          compression-level: 0
