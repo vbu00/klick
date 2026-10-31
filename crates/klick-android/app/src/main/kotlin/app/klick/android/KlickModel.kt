@@ -26,6 +26,30 @@ data class Srv(val name: String, val kind: String, val delay: Int?, val selected
 data class Appearance(val theme: String = "system", val base: String = "graphite", val accent: String = "#30d158", val glass: Boolean = false)
 data class StateView(val vpn: String, val routing: String?, val server: String?, val since: Double?, val error: String?, val attempt: List<Int>, val connectionId: String?)
 data class SpeedView(val server: String?, val down: Double?, val up: Double?)
+data class Target(val kind: String, val value: String)
+data class Rule(val target: Target, val route: String?, val enabled: Boolean)
+data class Service(val id: String, val name: String, val domains: List<String>, val cidrs: List<String>)
+data class LiveConn(val host: String, val route: String, val upload: Double, val download: Double)
+data class Failure(val host: String, val route: String, val error: String, val at: Double)
+data class IpColumn(
+    val ipv4: String?, val ipv6: String?, val country: String?, val countryCode: String?, val city: String?, val provider: String?,
+    val reverseDns: String?, val vpnDetected: Boolean?, val error: String?,
+)
+data class IpReport(val viaVpn: IpColumn?, val direct: IpColumn?, val ipv6Leak: Boolean?, val dnsProtected: Boolean?, val checkedAt: Double)
+
+private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else List(length()) { optString(it) }
+private fun JSONObject.bool(key: String): Boolean? = if (isNull(key)) null else optBoolean(key)
+
+private fun parseRules(a: JSONArray?): List<Rule> = if (a == null) emptyList() else List(a.length()) { i ->
+    val r = a.getJSONObject(i)
+    val t = r.optJSONObject("target") ?: JSONObject()
+    Rule(Target(t.optString("kind"), t.optString("value")), r.str("route"), r.optBoolean("enabled", true))
+}
+
+private fun ipColumn(o: JSONObject?): IpColumn? = o?.let {
+    IpColumn(it.str("ipv4"), it.str("ipv6"), it.str("country"), it.str("country_code"), it.str("city"), it.str("provider"),
+        it.str("reverse_dns"), it.bool("vpn_detected"), it.str("error"))
+}
 data class Toast(val title: String, val sub: String? = null, val tone: String = "ok", val id: String = UUID.randomUUID().toString())
 
 /** Скорость за последние 60 секунд: байт/с сейчас, история в Мбит/с, сколько всего. */
@@ -58,6 +82,19 @@ class KlickModel : ViewModel() {
     var routing by mutableStateOf("selected")
     var serversByCountry by mutableStateOf(false)
     var appearance by mutableStateOf(Appearance())
+    var onServerDown by mutableStateOf("reconnect")
+    var restoreOnLogon by mutableStateOf(false)
+    var autoUpdate by mutableStateOf(true)
+    /** Мой список: в «VPN для всего» — что идёт напрямую, в «VPN для выбранного» — что через VPN. */
+    var listAllVpn by mutableStateOf<List<Rule>>(emptyList())
+    var listSelected by mutableStateOf<List<Rule>>(emptyList())
+    var blockedPreset by mutableStateOf(true)
+    var ruDomains by mutableStateOf(false)
+    var ruIps by mutableStateOf(false)
+    /** Каталог сервисов: грузится один раз. */
+    var catalog by mutableStateOf<List<Service>>(emptyList())
+
+    val list get() = if (routing == "all_vpn") listAllVpn else listSelected
     /** Серверы по подпискам: свою можно смотреть, не переключаясь на неё. */
     val servers = mutableStateMapOf<String, List<Srv>>()
     /** Подписки, где задержку уже мерили: тогда пустая задержка — «нет ответа», а не «ещё не мерили». */
@@ -149,6 +186,18 @@ class KlickModel : ViewModel() {
         activeId = s.str("active_connection")
         routing = s.str("routing") ?: routing
         serversByCountry = s.optBoolean("servers_by_country", false)
+        onServerDown = s.str("on_server_down") ?: "reconnect"
+        restoreOnLogon = s.optBoolean("restore_on_logon", false)
+        autoUpdate = s.optBoolean("auto_update", true)
+        s.optJSONObject("lists")?.let {
+            listAllVpn = parseRules(it.optJSONArray("all_vpn"))
+            listSelected = parseRules(it.optJSONArray("selected"))
+        }
+        blockedPreset = s.optBoolean("blocked_preset", true)
+        s.optJSONObject("russia_direct")?.let {
+            ruDomains = it.optBoolean("domains")
+            ruIps = it.optBoolean("ips")
+        }
         s.optJSONObject("appearance")?.let { a ->
             appearance = Appearance(a.str("theme") ?: "system", a.str("base") ?: "graphite", a.str("accent") ?: "#30d158", a.optBoolean("glass"))
         }
@@ -287,6 +336,117 @@ class KlickModel : ViewModel() {
         }
         reload()
     }
+
+    /** Настройки движка: `{"on_server_down": "fastest"}` и т. п.; ответ — свежие настройки. */
+    fun setPrefs(prefs: JSONObject) = launch {
+        applySettings(JSONObject(Engine.call("set_preferences", JSONObject().put("prefs", prefs))))
+    }
+
+    /** Тема — в движке, как у веб-версии; применяется сразу, не дожидаясь ответа. */
+    fun setAppearance(a: Appearance) {
+        appearance = a
+        setPrefs(JSONObject().put("appearance", JSONObject().put("theme", a.theme).put("base", a.base).put("accent", a.accent).put("glass", a.glass)))
+    }
+
+    fun setRouting(routing: String) = launch {
+        Engine.call("set_routing", JSONObject().put("routing", routing))
+        reloadSettings()
+    }
+
+    /** «О приложении»: версия kl!ck и ядра. */
+    suspend fun about(): Pair<String?, String?> = runCatching {
+        val a = JSONObject(Engine.call("about"))
+        a.str("version") to a.str("core_version")
+    }.getOrDefault(null to null)
+
+    // ── Соединение: мой список, каталог, сейчас в сети ───────
+
+    suspend fun loadCatalog() {
+        if (catalog.isNotEmpty()) return
+        runCatching {
+            val a = JSONObject(Engine.call("catalog")).optJSONArray("services") ?: JSONArray()
+            catalog = List(a.length()) { i ->
+                val s = a.getJSONObject(i)
+                Service(s.optString("id"), s.optString("name"), s.optJSONArray("domains").strings(), s.optJSONArray("cidrs").strings())
+            }
+        }
+    }
+
+    suspend fun connections(): List<LiveConn>? = runCatching {
+        val a = JSONArray(Engine.call("connections"))
+        List(a.length()) { i -> a.getJSONObject(i).let { LiveConn(it.optString("host"), it.optString("route"), it.optDouble("upload", 0.0), it.optDouble("download", 0.0)) } }
+    }.getOrNull()
+
+    suspend fun failures(): List<Failure>? = runCatching {
+        val a = JSONArray(Engine.call("failures"))
+        List(a.length()) { i -> a.getJSONObject(i).let { Failure(it.optString("host"), it.optString("route"), it.optString("error"), it.optDouble("at", 0.0)) } }
+    }.getOrNull()
+
+    suspend fun ipCheck(): IpReport? = try {
+        val r = JSONObject(Engine.call("ip_check"))
+        IpReport(ipColumn(r.optJSONObject("via_vpn")), ipColumn(r.optJSONObject("direct")), r.bool("ipv6_leak"), r.bool("dns_protected"), r.optDouble("checked_at", 0.0))
+    } catch (e: Exception) {
+        show(e)
+        null
+    }
+
+    private fun ruleJson(t: Target, route: String) = JSONObject().put("target", JSONObject().put("kind", t.kind).put("value", t.value)).put("route", route).put("enabled", true)
+
+    /** Добавить правила в список положения; сколько добавилось. */
+    suspend fun addRules(position: String, rules: List<Pair<Target, String>>): Int {
+        var added = 0
+        var first: Exception? = null
+        for ((t, route) in rules) {
+            try {
+                Engine.call("list_add", JSONObject().put("position", position).put("rule", ruleJson(t, route)))
+                added++
+            } catch (e: Exception) {
+                if (first == null) first = e
+            }
+        }
+        first?.let(::show)
+        reloadSettings()
+        return added
+    }
+
+    fun removeRule(position: String, index: Int) = launch {
+        Engine.call("list_remove", JSONObject().put("position", position).put("index", index))
+        toast = Toast("Правило удалено", tone = "dim")
+        reloadSettings()
+    }
+
+    fun setRuleEnabled(position: String, index: Int, enabled: Boolean) = launch {
+        Engine.call("list_set_enabled", JSONObject().put("position", position).put("index", index).put("enabled", enabled))
+        reloadSettings()
+    }
+
+    /** Один тумблер «через VPN»: правило для цели в мой список текущего положения (live.ts: planToggle). */
+    fun routeTarget(target: Target, vpn: Boolean, label: String) = launch {
+        val position = routing
+        val l = list
+        val route = if (vpn) "vpn" else "direct"
+        val index = l.indexOfFirst { it.target.kind == target.kind && it.target.value.equals(target.value, ignoreCase = true) }
+        if (index >= 0) {
+            val r = l[index]
+            if (r.route == route && r.enabled) return@launch
+            if (r.route != route) Engine.call("list_set_route", JSONObject().put("position", position).put("index", index).put("route", route))
+            if (!r.enabled) Engine.call("list_set_enabled", JSONObject().put("position", position).put("index", index).put("enabled", true))
+        } else {
+            Engine.call("list_add", JSONObject().put("position", position).put("rule", ruleJson(target, route)))
+        }
+        toast = Toast("$label → ${if (vpn) "через VPN" else "напрямую"}", "Правило в «${if (position == "selected") "Через VPN" else "Напрямую"} · мой список»")
+        reloadSettings()
+    }
+
+    data class LogLine(val at: Double, val level: String, val text: String)
+
+    suspend fun log(): List<LogLine> = runCatching {
+        val a = JSONArray(Engine.call("log"))
+        List(a.length()) { i -> a.getJSONObject(i).let { LogLine(it.optDouble("at", 0.0), it.optString("level"), it.optString("text")) } }
+    }.getOrDefault(emptyList())
+
+    /** Текст для поддержки: версии, режим и журнал — без ссылок и адресов сайтов. */
+    suspend fun report(): String? = runCatching { Engine.call("report").let { if (it.startsWith("\"")) JSONArray("[$it]").getString(0) else it } }.getOrNull()
 
     fun remove(id: String) = launch {
         try {

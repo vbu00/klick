@@ -101,7 +101,7 @@ fun KText(
         style = TextStyle(
             fontSize = size, fontWeight = weight, letterSpacing = tracking, lineHeight = lineHeight,
             fontFeatureSettings = if (mono) "tnum" else null,
-            textAlign = if (center) androidx.compose.ui.text.style.TextAlign.Center else null,
+            textAlign = if (center) androidx.compose.ui.text.style.TextAlign.Center else androidx.compose.ui.text.style.TextAlign.Unspecified,
         ),
     )
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -55,6 +57,9 @@ fun Root(m: KlickModel, incoming: String?, onIncomingUsed: () -> Unit, onPower: 
     // Ссылка из «Поделиться» или klick://add — на «Добавить».
     LaunchedEffect(incoming) { if (incoming != null) tab = TAB_ADD }
 
+    // Вибрация выключена в настройках — молчат все нажатия.
+    val haptics = if (UiPrefs.hapticsOn) LocalHapticFeedback.current else NoHaptics
+    CompositionLocalProvider(LocalHapticFeedback provides haptics) {
     Box(Modifier.fillMaxSize().background(K.win)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
             TitleBar(m)
@@ -76,6 +81,11 @@ fun Root(m: KlickModel, incoming: String?, onIncomingUsed: () -> Unit, onPower: 
         }
         BottomBar(m, tab) { tab = it }
     }
+    }
+}
+
+private object NoHaptics : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
 }
 
 /** `.titlebar`: значок состояния (клавиша kl!ck в цвете состояния) и «kl!ck», 44, линия снизу. */
@@ -141,7 +151,8 @@ private fun TabBar(tab: Int, onTab: (Int) -> Unit) {
 /** `.toast`: светлая плашка на тёмной теме (фон — цвет текста), точка цвета события, заголовок и подпись. */
 @Composable
 private fun ToastView(m: KlickModel) {
-    val toast = m.toast
+    // Плашки можно выключить в настройках; ошибки видно всегда — иначе кнопка молча не сработает.
+    val toast = m.toast?.takeIf { UiPrefs.toastsOn || it.tone == "bad" }
     LaunchedEffect(toast?.id) {
         if (toast != null) {
             delay(3500)
@@ -161,32 +172,5 @@ private fun ToastView(m: KlickModel) {
                 if (!t.sub.isNullOrEmpty()) KText(t.sub, size = 12.sp, color = K.win.copy(alpha = 0.65f), lines = 1)
             }
         }
-    }
-}
-
-/** «Соединение» — переносится следующим шагом (iOS β: ConnectionScreen.swift). */
-@Composable
-fun ConnectionScreen(m: KlickModel) {
-    KScreen {
-        KTitle("Соединение", xl = true)
-        KSectionHead("Куда направлять")
-        KCardList {
-            KRow("VPN для выбранного", "Через VPN — заблокированное и ваш список, остальное напрямую") { KRadio(m.routing == "selected") }
-            KDivider()
-            KRow("VPN для всего", "Весь трафик через VPN, кроме исключений") { KRadio(m.routing == "all_vpn") }
-        }
-        KText("Списки, правила и «Сейчас в сети» — в следующей сборке.", size = 12.sp, color = K.dim2, modifier = Modifier.padding(top = 12.dp))
-    }
-}
-
-/** «Настройки» — переносятся следующим шагом (iOS β: SettingsView.swift). */
-@Composable
-fun SettingsScreen(m: KlickModel) {
-    KScreen {
-        KTitle("Настройки")
-        KSectionHead("Оформление")
-        KCardList { KRow("Тема", Palette.bases.firstOrNull { it.first == m.appearance.base }?.second ?: "Системная", chevron = true) }
-        KText("Остальные настройки — в следующей сборке.", size = 12.sp, color = K.dim2, modifier = Modifier.padding(top = 12.dp))
-        Spacer(Modifier.height(1.dp))
     }
 }

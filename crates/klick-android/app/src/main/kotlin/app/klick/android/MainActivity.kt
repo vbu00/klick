@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import app.klick.android.ui.KlickTheme
 import app.klick.android.ui.Palette
 import app.klick.android.ui.Root
+import app.klick.android.ui.UiPrefs
 
 class MainActivity : ComponentActivity() {
     private val model: KlickModel by viewModels()
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        UiPrefs.init(this)
         incoming = linkFrom(intent)
         setContent {
             val dark = isSystemInDarkTheme()
