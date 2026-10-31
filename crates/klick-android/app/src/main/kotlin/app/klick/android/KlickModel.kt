@@ -42,6 +42,11 @@ class KlickModel : ViewModel() {
     private suspend fun reload() {
         runCatching { applyState(JSONObject(Engine.call("status"))) }
         runCatching { applySettings(JSONObject(Engine.call("settings"))) }
+        // Подписки есть, а выбранной нет (первая добавленная): выбрать первую — иначе серверов не видно.
+        if (active == null && connections.isNotEmpty()) {
+            runCatching { Engine.call("select_connection", JSONObject().put("id", connections.first().id)) }
+            runCatching { applySettings(JSONObject(Engine.call("settings"))) }
+        }
         loadServers()
     }
 
@@ -70,12 +75,12 @@ class KlickModel : ViewModel() {
 
     private fun applyState(st: JSONObject) {
         vpn = st.optString("vpn", "off")
-        server = st.optString("server").ifEmpty { null }
+        server = st.str("server")
         since = st.optDouble("since", 0.0)
     }
 
     private fun applySettings(s: JSONObject) {
-        active = s.optString("activeConnection").ifEmpty { null }
+        active = s.str("activeConnection")
         val list = s.optJSONArray("connections") ?: JSONArray()
         connections.clear()
         for (i in 0 until list.length()) {
@@ -147,3 +152,6 @@ class KlickModel : ViewModel() {
         }
     }
 }
+
+/** Строка из JSON: нет ключа, `null` или пусто — null (`optString` отдал бы текст «null»). */
+fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).ifEmpty { null }
