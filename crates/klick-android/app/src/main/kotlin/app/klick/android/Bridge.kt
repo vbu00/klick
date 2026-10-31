@@ -35,6 +35,7 @@ object Bridge {
                     "up" -> Engine.nativeTunnelChanged(true, false)
                     "down" -> Engine.nativeTunnelChanged(false, intent.getBooleanExtra("byUser", false))
                 }
+                if (state == "up" || state == "down") KlickTile.update(context)
             }
         }
         ContextCompat.registerReceiver(app, receiver, IntentFilter(TunnelService.ACTION_STATE), ContextCompat.RECEIVER_NOT_EXPORTED)

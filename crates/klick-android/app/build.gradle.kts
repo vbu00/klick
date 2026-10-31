@@ -87,4 +87,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // QR-код подписки: ZXing — без сервисов Google (их нет на Huawei и части китайских прошивок).
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

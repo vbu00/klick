@@ -1,6 +1,10 @@
 package app.klick.android
 
 import android.app.Application
+import android.content.Intent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import android.os.Build
 import android.util.Log
 import java.io.File
@@ -27,6 +31,26 @@ class KlickApp : Application() {
             } else {
                 Engine.nativeSubscribe()
                 ready = true
+                watchState()
+            }
+        }
+    }
+
+    /** Состояние движка → уведомление службы туннеля: сервер и «подключено» / «сервер не отвечает». */
+    private fun watchState() {
+        CoroutineScope(Dispatchers.Main).launch {
+            var last: Pair<String?, String>? = null
+            Engine.events.collect { ev ->
+                if (ev.optString("ev") != "state") return@collect
+                val st = ev.optJSONObject("state") ?: return@collect
+                val vpn = st.optString("vpn")
+                if (vpn !in setOf("connected", "reconnecting", "server_down")) return@collect
+                val server = if (st.isNull("server")) null else st.optString("server")
+                if (last == server to vpn) return@collect
+                last = server to vpn
+                runCatching {
+                    startForegroundService(Intent(this@KlickApp, TunnelService::class.java).setAction(TunnelService.ACTION_INFO).putExtra("server", server).putExtra("vpn", vpn))
+                }
             }
         }
     }

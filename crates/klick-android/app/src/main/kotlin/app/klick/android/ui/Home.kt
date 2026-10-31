@@ -440,6 +440,8 @@ private fun ProfileCard(
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     val isSub = conn.kind == "subscription"
+    // «Серверы по странам»: если ни одной страны не узнали, делить нечего — обычный список.
+    val byCountry = m.serversByCountry && list.any { Countries.parse(it.name, it.kind).code != null }
     var menu by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
@@ -467,7 +469,15 @@ private fun ProfileCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KText(current?.name ?: conn.selectedServer ?: if (isSub) "Подписка" else "Одиночная конфигурация", size = 13.sp, color = K.dim, lines = 1, modifier = Modifier.weight(1f, fill = false))
+                    val parsed = if (byCountry) current?.let { Countries.parse(it.name, it.kind) } else null
+                    val code = parsed?.code
+                    if (code != null && current != null) {
+                        // По странам: флаг и «Беларусь · Hysteria2» вместо «🇧🇾 BY · HY2».
+                        FlagView(code, 16)
+                        KText("${Countries.name(code)} · ${parsed.title.ifEmpty { Texts.protocol(current.kind) }}", size = 13.sp, color = K.dim, lines = 1, modifier = Modifier.weight(1f, fill = false))
+                    } else {
+                        KText(current?.name ?: conn.selectedServer ?: if (isSub) "Подписка" else "Одиночная конфигурация", size = 13.sp, color = K.dim, lines = 1, modifier = Modifier.weight(1f, fill = false))
+                    }
                     // Задержку показываем, только когда её измерили: «нет ответа» до проверки было бы неправдой.
                     if (pinging || current?.delay != null) {
                         Box(Modifier.size(3.dp).background(K.dim2, CircleShape))
@@ -514,7 +524,7 @@ private fun ProfileCard(
             KText(conn.info!!.announce!!, size = 12.sp, color = K.dim, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp))
         }
         AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Servers(m, conn, isActive, list, current, pinging, onPickOther)
+            Servers(m, conn, isActive, list, current, pinging, byCountry, onPickOther)
         }
     }
 
@@ -559,12 +569,13 @@ private fun meta(conn: Conn, refreshing: Boolean): Pair<String, Boolean>? {
 }
 
 @Composable
-private fun Servers(m: KlickModel, conn: Conn, isActive: Boolean, list: List<Srv>, current: Srv?, pinging: Boolean, onPickOther: (String) -> Unit) {
+private fun Servers(m: KlickModel, conn: Conn, isActive: Boolean, list: List<Srv>, current: Srv?, pinging: Boolean, byCountry: Boolean, onPickOther: (String) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(K.line))
         Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 8.dp)) {
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                KCaps("Серверы · ${list.size}", Modifier.weight(1f))
+                val countries = if (byCountry) list.mapNotNull { Countries.parse(it.name, it.kind).code }.toSet().size else 0
+                KCaps("Серверы · ${list.size}" + if (byCountry) " · " + Texts.plural(countries, "страна", "страны", "стран") else "", Modifier.weight(1f))
                 if (isActive) ElemButton(if (pinging) "Проверяем…" else "Проверить задержку", enabled = !pinging) { m.testLatency() }
             }
             if (!isActive && list.isNotEmpty()) {
@@ -576,7 +587,13 @@ private fun Servers(m: KlickModel, conn: Conn, isActive: Boolean, list: List<Srv
                     size = 12.sp, color = K.dim, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
                 )
             }
-            list.forEach { s -> ServerRow(m, s, on = s.name == current?.name, isActive, pinging, onPickOther) }
+            if (byCountry) {
+                ServerCountries(list, current, pinging, tested = m.tested[conn.id] == true) { name ->
+                    if (isActive) m.selectServer(name) else onPickOther(name)
+                }
+            } else {
+                list.forEach { s -> ServerRow(m, s, on = s.name == current?.name, isActive, pinging, onPickOther) }
+            }
         }
     }
 }

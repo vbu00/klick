@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.sp
 import app.klick.android.KlickModel
 import app.klick.android.Texts
 import app.klick.android.Toast
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
 
 /** «Добавить подключение» — как ui/src/screens/Add.tsx и iOS β: по ссылке и из файла. */
@@ -101,11 +103,25 @@ fun AddScreen(m: KlickModel, incoming: String?, onIncomingUsed: () -> Unit, onTa
         }
     }
 
+    // QR-код со страницы подписки: ссылка встаёт в поле, добавляет её человек сам.
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { r ->
+        val text = r.contents?.trim()
+        if (!text.isNullOrEmpty()) {
+            link = Texts.fromDeepLink(text)
+            name = ""
+        }
+    }
+
     KScreen {
         KTitle("Добавить подключение")
         Box(Modifier.padding(top = 18.dp)) { KSeg(mode, listOf("link" to "По ссылке", "file" to "Из файла")) { mode = it } }
         if (mode == "link") {
-            ByLink(link, { link = it }, name, { name = it }, d, busy, canAdd, onAdd = ::addLink)
+            ByLink(link, { link = it }, name, { name = it }, d, busy, canAdd, onAdd = ::addLink) {
+                scanner.launch(
+                    ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Наведите на QR-код подписки")
+                        .setBeepEnabled(false).setOrientationLocked(false),
+                )
+            }
         } else {
             FromFile(busy) { picker.launch(arrayOf("*/*")) }
         }
@@ -115,10 +131,14 @@ fun AddScreen(m: KlickModel, incoming: String?, onIncomingUsed: () -> Unit, onTa
 @Composable
 private fun ByLink(
     link: String, onLink: (String) -> Unit, name: String, onName: (String) -> Unit, d: Texts.Detect, busy: Boolean, canAdd: Boolean, onAdd: () -> Unit,
+    onScan: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
-    CardButton("Вставить из буфера", KIcons.copy, enabled = !busy, modifier = Modifier.padding(top = 12.dp)) {
-        clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { onLink(Texts.fromDeepLink(it)) }
+    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CardButton("Сканировать QR", KIcons.qr, enabled = !busy, modifier = Modifier.weight(1f), onClick = onScan)
+        CardButton("Вставить", KIcons.copy, enabled = !busy, modifier = Modifier.weight(1f)) {
+            clipboard.getText()?.text?.trim()?.takeIf { it.isNotEmpty() }?.let { onLink(Texts.fromDeepLink(it)) }
+        }
     }
 
     val border = when (d.kind) {

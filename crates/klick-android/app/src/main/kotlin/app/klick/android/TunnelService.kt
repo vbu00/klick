@@ -33,11 +33,19 @@ class TunnelService : VpnService() {
     private var running = false
     private var stoppedByCommand = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var server: String? = null
+    private var vpn = "connecting"
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Android 8+: служба, запущенная startForegroundService, обязана показать уведомление за 5 секунд.
+        if (intent?.action == ACTION_INFO) {
+            // Сервер и состояние для уведомления — от движка в процессе приложения.
+            server = intent.getStringExtra("server")
+            vpn = intent.getStringExtra("vpn") ?: vpn
+        }
         goForeground()
         when (intent?.action) {
+            ACTION_INFO -> if (!running) stopSelf()
             ACTION_RELOAD -> reload()
             ACTION_STOP -> stopTunnel(byUser = false)
             ACTION_STOP_BY_USER -> stopTunnel(byUser = true)
@@ -171,8 +179,17 @@ class TunnelService : VpnService() {
         val off = PendingIntent.getService(this, 1, Intent(this, TunnelService::class.java).setAction(ACTION_STOP_BY_USER), PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_klick)
-            .setContentTitle("kl!ck")
-            .setContentText("VPN включён")
+            .setContentTitle(
+                when (vpn) {
+                    "connected" -> "kl!ck · подключено"
+                    "reconnecting" -> "kl!ck · переподключаюсь…"
+                    "server_down" -> "kl!ck · сервер не отвечает"
+                    else -> "kl!ck · подключаюсь…"
+                },
+            )
+            .setContentText(server ?: "VPN включён")
+            .setColor(if (vpn == "connected") 0xff30d158.toInt() else 0xffffb340.toInt())
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat_klick), "Отключить", off).build())
@@ -193,6 +210,8 @@ class TunnelService : VpnService() {
         const val ACTION_STOP = "app.klick.android.STOP"
         const val ACTION_STOP_BY_USER = "app.klick.android.STOP_BY_USER"
         const val ACTION_STATE = "app.klick.android.TUNNEL_STATE"
+        /** Движок → служба: сервер и состояние для уведомления. */
+        const val ACTION_INFO = "app.klick.android.INFO"
 
         fun send(ctx: Context, action: String) {
             ctx.startForegroundService(Intent(ctx, TunnelService::class.java).setAction(action))
