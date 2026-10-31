@@ -1,5 +1,6 @@
 package app.klick.android
 
+import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -44,6 +45,7 @@ object Engine {
 
     @JvmStatic
     fun onEvent(json: String) {
+        Log.i(TAG, "событие ${json.take(160)}")
         runCatching { JSONObject(json) }.onSuccess { _events.tryEmit(it) }
     }
 
@@ -55,6 +57,12 @@ object Engine {
         val reply = CompletableDeferred<Result<String>>()
         pending[id] = reply
         nativeCall(request.toString(), id)
-        return reply.await().getOrThrow()
+        val result = reply.await()
+        // Журнал окна в logcat (метка klick-ui): команда и итог, без содержимого — в нём бывают ссылки подписок.
+        result.onSuccess { Log.i(TAG, "$cmd → ${it.length} байт: ${it.take(120).replace(Regex("https?://\S+"), "<ссылка>")}") }
+            .onFailure { Log.w(TAG, "$cmd → ${(it as? EngineError)?.code ?: it.message}") }
+        return result.getOrThrow()
     }
+
+    private const val TAG = "klick-ui"
 }
