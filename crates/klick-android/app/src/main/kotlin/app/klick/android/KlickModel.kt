@@ -80,7 +80,8 @@ class KlickModel : ViewModel() {
     }
 
     private fun applySettings(s: JSONObject) {
-        active = s.str("activeConnection")
+        // Поля движка — snake_case (klick-proto), как их и видит Swift с convertFromSnakeCase.
+        active = s.str("active_connection")
         val list = s.optJSONArray("connections") ?: JSONArray()
         connections.clear()
         for (i in 0 until list.length()) {
@@ -88,7 +89,7 @@ class KlickModel : ViewModel() {
             val info = c.optJSONObject("info")
             connections += Conn(
                 id = c.getString("id"), name = c.optString("name"), kind = c.optString("kind"),
-                used = info?.optDouble("used")?.takeIf { !it.isNaN() },
+                used = info?.let { it.optDouble("upload", 0.0) + it.optDouble("download", 0.0) },
                 total = info?.optDouble("total")?.takeIf { !it.isNaN() && it > 0 },
                 expire = info?.optDouble("expire")?.takeIf { !it.isNaN() && it > 0 },
             )
