@@ -69,10 +69,11 @@ class TunnelService : VpnService() {
             Builder()
                 .setSession("kl!ck")
                 .setMtu(9000)
+                // Только IPv4: DNS ядра не отдаёт AAAA, а с IPv6 в туннеле игры (Brawl Stars) ищут
+                // адрес сервера по IPv6, получают пустой ответ и висят. Без IPv6-адреса Android сам
+                // блокирует IPv6 для всех приложений под VPN — мимо туннеля он не уйдёт.
                 .addAddress("198.18.0.1", 30)
-                .addAddress("fdfe:dcba:9876::1", 126)
                 .addRoute("0.0.0.0", 0)
-                .addRoute("::", 0)
                 .addDnsServer("198.18.0.2")
                 .addDisallowedApplication(packageName)
                 .apply { if (Build.VERSION.SDK_INT >= 29) setMetered(false) }
