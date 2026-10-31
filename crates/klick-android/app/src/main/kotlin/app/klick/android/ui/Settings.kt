@@ -45,7 +45,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import app.klick.android.Appearance
+import app.klick.android.BuildConfig
+import app.klick.android.R
 import app.klick.android.KlickModel
 import app.klick.android.Oem
 import app.klick.android.Texts
@@ -91,7 +95,7 @@ private fun SettingsMain(m: KlickModel, onSub: (String) -> Unit) {
     var toasts by remember { mutableStateOf(UiPrefs.toasts(ctx)) }
     var haptics by remember { mutableStateOf(UiPrefs.haptics(ctx)) }
     LaunchedEffect(Unit) {
-        m.about().let { (v, c) -> version = v; core = c }
+        m.about().let { (v, c) -> version = v; core = c ?: BuildConfig.MIHOMO_VERSION }
         logCount = m.log().size
     }
     val a = m.appearance
@@ -338,7 +342,7 @@ private fun AboutScreen(m: KlickModel, onBack: () -> Unit) {
     val ctx = LocalContext.current
     var version by remember { mutableStateOf<String?>(null) }
     var core by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { m.about().let { (v, c) -> version = v; core = c } }
+    LaunchedEffect(Unit) { m.about().let { (v, c) -> version = v; core = c ?: BuildConfig.MIHOMO_VERSION } }
     val authors = listOf(
         Triple("vbu00", "Разработка", "https://github.com/vbu00"),
         Triple("Dmitriy Medvedev", "Дизайн интерфейса и логотип", "https://github.com/aleuuu"),
@@ -348,7 +352,7 @@ private fun AboutScreen(m: KlickModel, onBack: () -> Unit) {
     KScreen {
         BackButton("Настройки", onBack)
         Column(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(72.dp).clip(RoundedCornerShape(K.r(20))).kCard(), contentAlignment = Alignment.Center) { KIcon(KIcons.power, 32.dp, K.accent) }
+            Image(painterResource(R.drawable.k_status_default), null, Modifier.size(72.dp).clip(RoundedCornerShape(K.r(20))))
             KText("kl!ck", size = 22.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
             KText("Версия ${version ?: "…"} · Android", size = 12.sp, color = K.dim, modifier = Modifier.padding(top = 4.dp))
         }

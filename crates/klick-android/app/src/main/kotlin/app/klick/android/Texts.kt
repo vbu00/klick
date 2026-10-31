@@ -17,7 +17,7 @@ object Texts {
         "sub.unknown_format", "input.unknown_format" -> "Формат не распознан"
         "input.bad_source", "input.empty" -> "Ссылка не подходит"
         "servers.busy" -> "Идёт проверка задержки — попробуйте через пару секунд"
-        "core.start_failed" -> "VPN не включился"
+        "core.start_failed" -> "Туннель не поднялся — нажмите кнопку, чтобы попробовать снова"
         "core.crashed" -> "Ядро падает при запуске"
         "server.not_found" -> "Такого сервера больше нет в подписке — обновите её"
         "conn.secret_missing" -> "Ссылка подписки потерялась — добавьте её заново"

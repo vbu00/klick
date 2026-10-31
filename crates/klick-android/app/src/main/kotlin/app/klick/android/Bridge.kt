@@ -1,6 +1,7 @@
 package app.klick.android
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -69,10 +70,16 @@ object Bridge {
     @JvmStatic
     fun tunnelStop(): String? = command(TunnelService.ACTION_STOP, setOf("down"), 10)
 
-    /** Работает ли VPN kl!ck: в системе есть сеть VPN, и разрешение VPN — у kl!ck. */
+    /**
+     * Работает ли VPN kl!ck: разрешение VPN у kl!ck, жив процесс туннеля и в системе есть сеть VPN. Процесс —
+     * обязательно: после обновления или «Остановить» Android ещё какое-то время показывает сеть VPN, хотя
+     * туннеля уже нет, и движок ждал бы ядро, которое никто не запустит.
+     */
     @JvmStatic
     fun tunnelConnected(): Boolean {
         if (VpnService.prepare(app) != null) return false
+        val am = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        if (am.runningAppProcesses.orEmpty().none { it.processName == "${app.packageName}:tunnel" }) return false
         val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         @Suppress("DEPRECATION")
         return cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true } &&

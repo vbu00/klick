@@ -8,6 +8,9 @@ plugins {
 val klickVersion: String = rootDir.resolve("../../Cargo.toml").readLines()
     .first { it.startsWith("version = ") }.substringAfter('"').substringBefore('"')
 val klickBuild: Int = System.getenv("KLICK_BUILD")?.toIntOrNull() ?: 1
+// Версия встроенного ядра — из go.mod обёртки (движок на Android её не узнаёт: ядро не отдельная программа).
+val mihomoVersion: String = rootDir.resolve("../klick-ios/core/go.mod").readLines()
+    .firstOrNull { it.trim().startsWith("github.com/metacubex/mihomo ") }?.trim()?.substringAfter(' ')?.removePrefix("v") ?: "?"
 
 android {
     namespace = "app.klick.android"
@@ -20,6 +23,7 @@ android {
         targetSdk = 35
         versionCode = klickBuild
         versionName = klickVersion
+        buildConfigField("String", "MIHOMO_VERSION", "\"$mihomoVersion\"")
     }
 
     // Подпись: ключ из CI (KLICK_KEYSTORE…), без него — отладочный ключ сборщика (поставить можно,

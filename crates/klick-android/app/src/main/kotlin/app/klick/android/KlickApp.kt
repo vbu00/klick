@@ -17,7 +17,12 @@ import kotlin.concurrent.thread
 class KlickApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        if (processName().endsWith(":tunnel")) return
+        if (processName().endsWith(":tunnel")) {
+            // Свежий процесс туннеля — ядра в нём ещё нет: отметка «конфиг применён» осталась от убитого
+            // процесса (обновление, нехватка памяти), и движок принял бы её за работающее ядро.
+            Dirs.core(this).resolve("config.applied").delete()
+            return
+        }
         Bridge.init(this)
         // Не на главном потоке: распаковка ресурсов и запуск движка (а он ждёт ответов Android).
         thread(name = "klick-start") {
