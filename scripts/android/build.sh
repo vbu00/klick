@@ -63,6 +63,9 @@ cp -R "$root/resources/sets" "$res/"
 cp "$root/resources/catalog.json" "$res/"
 cp "$root/resources/core/Country.mmdb" "$res/core/"
 
+step "значки веб-версии"
+python3 "$root/scripts/android/icons.py" "$root/ui/src/assets" "$app/app/src/main/res/drawable"
+
 step "приложение (Gradle)"
 (cd "$app" && gradle --no-daemon -q assembleRelease)
 mkdir -p "$root/dist"

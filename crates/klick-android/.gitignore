@@ -6,3 +6,4 @@
 /.gradle/
 /target/
 /local.properties
+/app/src/main/res/drawable/k_*.xml
