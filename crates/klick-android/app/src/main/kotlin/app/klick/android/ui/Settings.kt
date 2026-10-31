@@ -235,14 +235,14 @@ private fun ThemeScreen(m: KlickModel, onBack: () -> Unit) {
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             themeNames.chunked(2).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { (k, label) -> ThemeCard(k, label, a, Modifier.weight(1f)) { m.setAppearance(a.copy(theme = k)) } }
+                    row.forEach { (k, label) -> ThemeCard(k, label, a, Modifier.weight(1f)) { m.applyAppearance(a.copy(theme = k)) } }
                 }
             }
         }
         KText(desc[a.theme].orEmpty(), size = 12.sp, color = K.dim, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp))
         if (a.theme == "custom") {
             KSectionHead("Основа")
-            Box(Modifier.padding(top = 10.dp)) { KSeg(a.base, Palette.bases) { m.setAppearance(a.copy(base = it)) } }
+            Box(Modifier.padding(top = 10.dp)) { KSeg(a.base, Palette.bases) { m.applyAppearance(a.copy(base = it)) } }
             KSectionHead("Акцент")
             Row(
                 Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(K.r(20))).kCard().padding(horizontal = 16.dp, vertical = 14.dp),
@@ -252,7 +252,7 @@ private fun ThemeScreen(m: KlickModel, onBack: () -> Unit) {
                     val on = a.accent.lowercase() == Palette.hex(c)
                     Box(
                         Modifier.size(40.dp).background(if (on) rgb(c) else Color.Transparent, CircleShape).padding(2.dp).background(K.card, CircleShape).padding(2.dp)
-                            .background(rgb(c), CircleShape).press { m.setAppearance(a.copy(accent = Palette.hex(c))) },
+                            .background(rgb(c), CircleShape).press { m.applyAppearance(a.copy(accent = Palette.hex(c))) },
                     )
                 }
             }

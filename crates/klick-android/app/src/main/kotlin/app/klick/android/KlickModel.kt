@@ -343,7 +343,7 @@ class KlickModel : ViewModel() {
     }
 
     /** Тема — в движке, как у веб-версии; применяется сразу, не дожидаясь ответа. */
-    fun setAppearance(a: Appearance) {
+    fun applyAppearance(a: Appearance) {
         appearance = a
         setPrefs(JSONObject().put("appearance", JSONObject().put("theme", a.theme).put("base", a.base).put("accent", a.accent).put("glass", a.glass)))
     }
