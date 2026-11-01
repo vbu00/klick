@@ -34,7 +34,7 @@ jobs:
       - name: Сборка и снимки
         env:
           KLICK_BUILD: ${{ github.run_number }}
-        run: scripts/macos/build-native.sh --shots
+        run: bash scripts/macos/build-native.sh --shots
 
       - uses: actions/upload-artifact@v4
         if: always()
