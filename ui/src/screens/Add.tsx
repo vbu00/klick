@@ -1,6 +1,7 @@
 // «Добавить подключение» — как в макете: по ссылке или из файла.
 
 import { useEffect, useRef, useState } from 'react';
+import { Back } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import type { Tab } from '../components/Chrome';
 import { isIos } from '../lib/platform';
@@ -20,6 +21,25 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   const d = detect(link);
+  /** Ссылка в буфере обмена — предложить её вместо кнопки «вставить из буфера». */
+  const [clip, setClip] = useState<string | null>(null);
+  const clipD = clip ? detect(clip) : null;
+
+  // Открыли экран или вернулись в окно: что в буфере? Подходящую ссылку показываем карточкой сверху.
+  useEffect(() => {
+    const read = () =>
+      void store.transport
+        .clipboardText()
+        .then((t) => {
+          const text = t.trim();
+          const k = detect(text).kind;
+          setClip(text && (k === 'sub' || k === 'link') ? text : null);
+        })
+        .catch(() => setClip(null));
+    read();
+    window.addEventListener('focus', read);
+    return () => window.removeEventListener('focus', read);
+  }, [store.transport]);
   const canAdd = (d.kind === 'sub' || d.kind === 'link' || d.kind === 'text') && !busy;
 
   // Ссылка klick://add: подписка уже вставлена, добавляет её человек своей кнопкой.
@@ -103,6 +123,7 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
 
   return (
     <div className="screen">
+      <Back label="Главная" onClick={() => onTab('home')} />
       <div className="screen-title">Добавить подключение</div>
       <div className="seg" style={{ marginTop: 18 }}>
         <button className={tab === 'link' ? 'on' : ''} onClick={() => setTab('link')}>
@@ -120,6 +141,24 @@ export function Add({ onTab }: { onTab: (t: Tab) => void }) {
               <Icon name="qr" size={18} />
               Сканировать QR-код
             </button>
+          ) : null}
+          {clip && clipD && clip !== link.trim() ? (
+            <div className="b-clip">
+              <span className="dot8" style={{ background: clipD.color }} />
+              <span className="b-clip-text">
+                <b>В буфере — {clipD.kind === 'sub' ? 'подписка' : 'сервер'}</b>
+                <span>{clipD.text || clip}</span>
+              </span>
+              <button
+                className="btn-elem strong"
+                onClick={() => {
+                  setLink(clip);
+                  setName('');
+                }}
+              >
+                Вставить
+              </button>
+            </div>
           ) : null}
           <textarea
             className={`link-input ${d.kind === 'bad' ? 'bad' : d.kind === 'empty' ? '' : 'ok'}`}

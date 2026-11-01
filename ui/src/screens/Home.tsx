@@ -1,4 +1,5 @@
-// Главная: как в макете — статус, кнопка, чип режима, подключения с серверами, скорость.
+// Главная по прототипу Димы: скорость и «+» сверху, статус, кнопка, режим, подписки, карточка с серверами.
+// Скорость подробно — листом по нажатию на плашку.
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ProbeMark } from '../components/Controls';
@@ -36,11 +37,11 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   const store = useStore();
   const { state, settings, servers, pinging, isRunning, pending, neighbors, browserProxy } = store;
   const [viewId, setViewId] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const [switchTo, setSwitchTo] = useState<string | null>(null);
   /** Сервер, выбранный в другой подписке под VPN: поставить его после переключения. */
   const [switchServer, setSwitchServer] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [speedOpen, setSpeedOpen] = useState(false);
   const [browserHelp, setBrowserHelp] = useState(false);
   const { nav, consumeNav } = store;
 
@@ -51,15 +52,27 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
     if (nav.target.startsWith('conn:')) {
       const id = nav.target.slice('conn:'.length);
       setViewId(id);
-      setExpanded(false);
       const st = store.settings;
       if (store.state?.vpn === 'off' && st && st.active_connection !== id && st.connections.some((c) => c.id === id)) void store.selectConnection(id);
-    } else if (nav.target === 'servers') setExpanded(true);
+    } else if (nav.target === 'servers') document.querySelector('.b-srvs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     else if (nav.target === 'neighbors') setHelpOpen(true);
     else if (nav.target === 'browser_proxy') setBrowserHelp(true);
     else if (nav.target !== 'card') return;
     consumeNav();
   }, [nav, consumeNav]);
+
+  // Серверы видны всегда: чужую подписку подгружаем, в активной один раз меряем задержку.
+  const viewKey = viewId ?? settings?.active_connection ?? null;
+  useEffect(() => {
+    if (!viewKey || !settings) return;
+    if (viewKey !== settings.active_connection) {
+      if (!servers[viewKey]) void store.viewServers(viewKey);
+      return;
+    }
+    const l = servers[viewKey] ?? [];
+    if (l.length > 1 && l.every((s) => s.delay == null) && !store.tested[viewKey]) void store.testLatency();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewKey, settings?.active_connection, servers[viewKey ?? '']?.length]);
 
   if (!state || !settings) return null;
   const conns = settings.connections;
@@ -118,10 +131,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   };
 
   // Нажатие на подписку только показывает её: активной она станет, когда в ней включат VPN или выберут сервер.
-  const pickConnection = (c: Connection) => {
-    setExpanded(false);
-    setViewId(c.id);
-  };
+  const pickConnection = (c: Connection) => setViewId(c.id);
 
   // Сервер в подписке, которая сейчас не активна: это и есть переключение на неё. Под VPN — с вопросом.
   const pickOtherServer = async (name: string) => {
@@ -133,15 +143,18 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
     if (await store.selectConnection(view.id)) await store.selectServer(name);
   };
 
-  const toggleExpand = () => {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && isActiveView && list.length > 1 && list.every((s) => s.delay == null)) void store.testLatency();
-    if (next && !isActiveView && !servers[view.id]) void store.viewServers(view.id);
-  };
 
   return (
-    <div className="screen">
+    <div className="screen b-home">
+      <div className="b-top">
+        <SpeedPill onOpen={() => setSpeedOpen(true)} />
+        <button className="b-round" aria-label="Добавить подключение" title="Добавить подключение" onClick={() => onTab('add')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+
       <div className="home-status">
         <div className={`status-label ${statusTone}`}>{statusLabel}</div>
         <div className="timer">
@@ -167,7 +180,7 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
       <div className="chip-row">
         <button className="mode-chip" onClick={() => onTab('connection')}>
           <span className="dot7" style={{ background: dot }} />
-          {isIos ? routingName[state.routing] : `${modeName[state.mode]} · ${routingName[state.routing]}`}
+          {routingName[state.routing]}
         </button>
       </div>
 
@@ -180,13 +193,13 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
           </div>
         </div>
       ) : vpn === 'server_down' ? (
-        <button className="banner" onClick={() => setExpanded(true)} style={{ cursor: 'pointer' }}>
+        <div className="banner">
           <span className="dot7" />
           <div>
             Сервер не отвечает
-            <small>Проверяю раз в минуту. Можно выбрать другой сервер</small>
+            <small>Проверяю раз в минуту. Можно выбрать другой сервер ниже</small>
           </div>
-        </button>
+        </div>
       ) : vpn === 'error' ? (
         <div className="banner bad">
           <span className="dot7" />
@@ -226,25 +239,18 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
         </div>
       ) : null}
 
-      <ProfileCard
+      <SubCard
         conn={view}
-        style={{ marginTop: conns.length > 1 ? 10 : 34 }}
+        style={{ marginTop: conns.length > 1 ? 12 : 30 }}
         viewingLive={viewingLive}
-        live={vpn === 'connected'}
         isActive={isActiveView}
         list={list}
         current={current}
-        expanded={expanded}
         pinging={pinging && isActiveView}
-        onToggle={toggleExpand}
-        onExpand={() => {
-          setExpanded(true);
-          if (!isActiveView && !servers[view.id]) void store.viewServers(view.id);
-        }}
         onPickOther={(name) => void pickOtherServer(name)}
       />
 
-      <Speed />
+      {speedOpen ? <SpeedSheet onClose={() => setSpeedOpen(false)} /> : null}
 
       {switchTo ? (
         <Sheet
@@ -333,19 +339,39 @@ export function Home({ onTab }: { onTab: (t: Tab) => void }) {
   );
 }
 
-function ProfileCard(props: {
+/** Скорость в Мбит/с одним числом: «48.2 Мб/с», «512 Кб/с». */
+function rate(bytesPerSec: number): string {
+  const mbit = (bytesPerSec * 8) / 1e6;
+  if (mbit < 1) return `${Math.round(mbit * 1000)} Кб/с`;
+  return `${mbit < 100 ? mbit.toFixed(1) : Math.round(mbit)} Мб/с`;
+}
+
+/** Объём как в прототипе: «64,8 ГБ», «512 МБ». */
+function gb(bytes: number): string {
+  // Двоичные, как у панелей подписок и в остальном kl!ck: 200 ГБ лимита — это 200 · 2³⁰ байт.
+  if (bytes < 2 ** 30) return `${Math.round(bytes / 2 ** 20)} МБ`;
+  const v = bytes / 2 ** 30;
+  return `${(v < 100 ? v.toFixed(1) : Math.round(v).toString()).replace('.', ',')} ГБ`;
+}
+
+/** Пульс: линия кардиограммы, при наведении пробегает по себе. */
+function Pulse() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path className="ecg" d="M2 12h4.2l2.3-5.5 4.6 11 2.4-5.5H22" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" pathLength={100} />
+    </svg>
+  );
+}
+
+/** Карточка подписки: флаг текущего сервера, название, действия; срок и остаток; серверы видны всегда. */
+function SubCard(props: {
   conn: Connection;
   style: CSSProperties;
   viewingLive: boolean;
-  /** VPN работает без сбоев: показываем «Работает». */
-  live: boolean;
   isActive: boolean;
   list: ServerView[];
   current: ServerView | undefined;
-  expanded: boolean;
   pinging: boolean;
-  onToggle: () => void;
-  onExpand: () => void;
   /** Выбрать сервер в подписке, которая сейчас не активна. */
   onPickOther: (name: string) => void;
 }) {
@@ -362,19 +388,24 @@ function ProfileCard(props: {
   const pct = info && info.total > 0 ? Math.min(100, (used / info.total) * 100) : 0;
   // Без лимита панель всё равно сообщает, сколько потрачено (total = 0) — показываем без полосы.
   const unlimited = !!info && info.total === 0 && used > 0;
-  // Объявление и ссылки панели; ссылки служба уже проверила (только https).
+  const days = info?.expire ? daysLeft(info.expire) : null;
   const announce = info?.announce;
+  // Ссылки панели; служба уже проверила (только https).
   const links = [
     { label: 'Поддержка', url: info?.support_url },
     { label: 'Страница подписки', url: info?.page_url },
   ].filter((l): l is { label: string; url: string } => !!l.url);
-  // Задержку в строке показываем, только когда её измерили: null до проверки не значит «нет ответа».
-  const ping = pinging ? '…' : current && current.delay != null ? pingText(current.delay) : '';
-  // «Серверы по странам»: если ни одной страны не узнали, по странам делить нечего — обычный список.
+  // «Серверы по странам»: если ни одной страны не узнали, делить нечего — обычный список.
   const countries = new Set(list.map((s) => parseServer(s.name, s.kind).code).filter(Boolean)).size;
   const byCountry = !!store.settings?.servers_by_country && countries > 0;
-  // По странам и в шапке карточки: флаг и «Беларусь · Hysteria2» вместо «🇧🇾 BY · HY2» (эмодзи Windows не рисует).
-  const curP = byCountry && current ? parseServer(current.name, current.kind) : null;
+  const curP = current ? parseServer(current.name, current.kind) : null;
+  // Задержку в шапке показываем, только когда её измерили: null до проверки не значит «нет ответа».
+  const ping = pinging ? '…' : current && current.delay != null ? pingText(current.delay) : '';
+  const subtitle = current
+    ? curP?.code
+      ? `${countryName(curP.code)} · ${curP.title || protocolName(current.kind)}`
+      : current.name
+    : conn.selected_server ?? (isSub ? 'Подписка' : 'Одиночная конфигурация');
 
   const refresh = async () => {
     setRefreshing(true);
@@ -389,204 +420,135 @@ function ProfileCard(props: {
 
   return (
     <div className="card-wrap" style={props.style}>
-      <div className="pcard">
+      <div className="b-card">
         <div
-          className="pcard-head"
-          onClick={props.onToggle}
+          className="b-head"
           onContextMenu={(e) => {
             e.preventDefault();
             setMenuOpen(true);
           }}
         >
-          <div className="pcard-icon">
-            <Icon name={isSub ? 'globe' : 'rules'} size={24} />
-          </div>
-          <div className="pcard-body">
-            <div className="pcard-title-row">
-              <div className="pcard-title">
+          <span className="b-flag">{curP?.code ? <Flag code={curP.code} /> : <Icon name={isSub ? 'globe' : 'rules'} size={22} />}</span>
+          <span className="b-head-text">
+            <span className="b-title">
+              <span className="b-title-name">
                 <FlagName name={conn.name} />
-              </div>
-              {props.viewingLive && props.live ? <span className="badge-live">Работает</span> : null}
-            </div>
-            <div className="pcard-sub">
-              {curP?.code ? <Flag code={curP.code} /> : null}
-              <span className="name">
-                {current && curP?.code ? `${countryName(curP.code)} · ${curP.title || protocolName(current.kind)}` : current?.name ?? conn.selected_server ?? (isSub ? 'Подписка' : 'Одиночная конфигурация')}
               </span>
-              {/* Сервер не работает в этой сети — отметка важнее задержки, а места в строке мало. */}
+            </span>
+            <span className="b-sub">
+              <span className="b-sub-name">{subtitle}</span>
               {!pinging && probeMark(current?.probe) ? (
                 <ProbeMark probe={current?.probe} />
               ) : ping ? (
-                <>
-                  <span className="sep" />
-                  <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
-                    {ping}
-                  </span>
-                </>
+                <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(current?.delay) }}>
+                  {ping}
+                </span>
               ) : null}
-            </div>
-          </div>
-          <button
-            className={menuOpen ? 'menu-btn open' : 'menu-btn'}
-            aria-label="Действия"
-            title="Действия"
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen(!menuOpen);
-            }}
-          >
-            <Icon name="dots" size={20} />
-          </button>
+            </span>
+          </span>
+          <span className="b-acts">
+            {props.isActive && list.length ? (
+              <button className={pinging ? 'b-act pl busy' : 'b-act pl'} aria-label="Проверить задержку" title="Проверить задержку" disabled={pinging} onClick={() => void store.testLatency()}>
+                <Pulse />
+              </button>
+            ) : null}
+            {isSub ? (
+              <button className="b-act rf" aria-label="Обновить подписку" title="Обновить подписку" disabled={refreshing} onClick={() => void refresh()}>
+                <Icon name="refresh" size={16} className={refreshing ? 'spin' : undefined} />
+              </button>
+            ) : null}
+            <button className={menuOpen ? 'b-act open' : 'b-act'} aria-label="Ещё" title="Ещё" onClick={() => setMenuOpen(!menuOpen)}>
+              <Icon name="dots" size={18} />
+            </button>
+          </span>
         </div>
 
         {isSub ? (
-          <div className="traffic">
+          <div className="b-meta">
+            <div className="b-kv">
+              <span>{info?.expire ? `Действует до ${fmtDate(info.expire)}` : info && (info.total > 0 || unlimited) ? 'Без срока' : 'Срок и трафик панель не сообщает'}</span>
+              {days != null ? <b className={days <= 3 ? 'warn' : undefined}>{days === 0 ? 'истекает сегодня' : plural(days, ['день', 'дня', 'дней'])}</b> : null}
+            </div>
             {info && info.total > 0 ? (
               <>
-                <div className="traffic-row">
-                  <span>Трафик</span>
-                  <b>{fmtTraffic(used, info.total)}</b>
+                <div className="b-kv">
+                  <span>
+                    Осталось <b>{gb(Math.max(0, info.total - used))}</b>
+                  </span>
+                  <span>из {gb(info.total)}</span>
                 </div>
-                <div className="bar">
-                  <i style={{ width: `${pct}%`, background: pct > 90 ? 'var(--orange)' : 'var(--text)' }} />
+                <div className="b-bar">
+                  <i style={{ width: `${100 - pct}%`, background: pct > 90 ? 'var(--orange)' : 'var(--accent)' }} />
                 </div>
               </>
             ) : unlimited ? (
-              <div className="traffic-row">
-                <span>Трафик</span>
-                <b>{fmtUsed(used)} · без лимита</b>
+              <div className="b-kv">
+                <span>
+                  Потрачено <b>{gb(used)}</b>
+                </span>
+                <span>без лимита</span>
               </div>
             ) : null}
-            <div className="expiry" style={info && (info.total > 0 || unlimited) ? undefined : { marginTop: 0 }}>
-              <span>
-                {info?.expire ? (
-                  <>
-                    Действует до <b>{fmtDate(info.expire)}</b> · {daysLeft(info.expire) === 0 ? 'истекает' : `${daysLeft(info.expire)} дн.`}
-                  </>
-                ) : info && (info.total > 0 || unlimited) ? (
-                  'Без срока'
-                ) : (
-                  'Срок и трафик панель не сообщает'
-                )}
-              </span>
-              <button className="btn-elem" onClick={refresh} disabled={refreshing}>
-                <Icon name="refresh" size={13} className={refreshing ? 'spin' : undefined} />
-                {refreshing ? 'Обновляем…' : 'Обновить'}
-              </button>
-            </div>
-            {announce ? (
-              <div className="expiry" style={{ marginTop: 8 }}>
-                <span style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{announce}</span>
-              </div>
-            ) : null}
-            {links.length ? (
-              <div className="expiry" style={{ justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
-                {links.map((l) => (
-                  <button key={l.label} className="btn-elem" onClick={() => void store.transport.openUrl(l.url)}>
-                    {l.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            {announce ? <div className="b-announce">{announce}</div> : null}
           </div>
         ) : null}
 
-        {props.expanded ? (
-          <div className="servers">
-            {isSub || list.length > 1 || !props.isActive ? (
-              <>
-                <div className="servers-head">
-                  <div className="caps">
-                    Серверы · {list.length}
-                    {byCountry ? ` · ${plural(countries, ['страна', 'страны', 'стран'])}` : ''}
-                  </div>
-                  {props.isActive ? (
-                    <button className="btn-elem" onClick={() => void store.testLatency()} disabled={pinging}>
-                      {pinging ? 'Проверяем…' : 'Проверить задержку'}
-                    </button>
-                  ) : null}
-                </div>
-                {!props.isActive && list.length ? <div className="srv-note">Выберите сервер — kl!ck перейдёт на это подключение.</div> : null}
-                {list.length === 0 ? (
-                  <div className="srv-empty">{props.isActive || store.servers[conn.id] ? 'Серверов пока нет. Обновите подписку — список придёт от панели.' : 'Загружаю список серверов…'}</div>
-                ) : null}
-                {byCountry ? (
-                  <ServerCountries list={list} current={current} pinging={pinging} tested={!!store.tested[conn.id]} onPick={pick} />
-                ) : list.map((s) => (
-                  <button key={s.name} className={s.name === current?.name ? 'srv on' : 'srv'} onClick={() => (props.isActive ? s.name !== current?.name : true) && pick(s.name)}>
-                    <span className="radio">
-                      <i />
+        <div className="b-srvs">
+          {!props.isActive && list.length ? <div className="b-note">Выберите сервер — kl!ck перейдёт на это подключение.</div> : null}
+          {list.length === 0 ? (
+            <div className="b-note">{props.isActive || store.servers[conn.id] ? 'Серверов пока нет. Обновите подписку — список придёт от панели.' : 'Загружаю список серверов…'}</div>
+          ) : byCountry ? (
+            <ServerCountries list={list} current={current} pinging={pinging} tested={!!store.tested[conn.id]} onPick={pick} />
+          ) : (
+            list.map((s) => {
+              const on = s.name === current?.name;
+              return (
+                <button key={s.name} className={on ? 'b-srv on' : 'b-srv'} onClick={() => (props.isActive ? !on : true) && pick(s.name)}>
+                  <span className="b-radio">
+                    <i />
+                  </span>
+                  <span className="b-srv-text">
+                    <span className="b-srv-name">
+                      <FlagName name={s.name} />
                     </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="srv-name" style={{ display: 'block' }}>
-                        {s.name}
-                      </span>
-                      <span className="srv-proto" style={{ display: 'block' }}>
-                        {protocolName(s.kind)}
-                      </span>
+                    <span className="b-srv-proto">
+                      {protocolName(s.kind)}
+                      {s.speed != null ? ` · ${fmtMbps(s.speed)}` : ''}
                     </span>
-                    <ProbeMark probe={s.probe} />
-                    {s.speed != null ? <span className="srv-speed num">{fmtMbps(s.speed)}</span> : null}
-                    {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
-                    {!pinging && s.delay == null && probeMark(s.probe) ? null : (
-                      <span className="num" style={{ color: pinging ? 'var(--dim)' : pingColor(s.delay) }}>
-                        {pinging ? '…' : pingText(s.delay)}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </>
-            ) : (
-              <div className="kv">
-                <div>
-                  <span>Протокол</span>
-                  <span>{current ? protocolName(current.kind) : '—'}</span>
-                </div>
-                <div>
-                  <span>Сервер</span>
-                  <span>{current?.name ?? '—'}</span>
-                </div>
-                <div>
-                  <span>Задержка</span>
-                  <span style={{ color: pingColor(current?.delay) }}>{pinging ? '…' : pingText(current?.delay)}</span>
-                </div>
-                <button className="btn-elem" style={{ height: 34, borderRadius: 10, justifyContent: 'center' }} onClick={() => void store.testLatency()} disabled={pinging}>
-                  {pinging ? 'Проверяем…' : 'Проверить задержку'}
+                  </span>
+                  <ProbeMark probe={s.probe} />
+                  {/* Отметка проверки точнее «нет ответа» — тогда показываем только её. */}
+                  {!pinging && s.delay == null && probeMark(s.probe) ? null : pinging ? (
+                    <span className="skel" />
+                  ) : (
+                    <span className="num b-ping" style={{ color: pingColor(s.delay) }}>
+                      {pingText(s.delay)}
+                    </span>
+                  )}
                 </button>
-              </div>
-            )}
-          </div>
-        ) : null}
+              );
+            })
+          )}
+        </div>
       </div>
 
       {menuOpen ? (
         <>
           <div className="menu-shade" onClick={closeMenu} onContextMenu={(e) => (e.preventDefault(), closeMenu())} />
           <div className="menu" role="menu">
-            {isSub ? (
+            {links.map((l) => (
               <button
+                key={l.label}
                 onClick={() => {
                   closeMenu();
-                  void refresh();
+                  void store.transport.openUrl(l.url);
                 }}
               >
-                <Icon name="refresh" />
-                <span>Обновить подписку</span>
+                <Icon name="globe" />
+                <span>{l.label}</span>
               </button>
-            ) : null}
-            {props.isActive ? (
-              <button
-                onClick={() => {
-                  closeMenu();
-                  props.onExpand();
-                  void store.testLatency();
-                }}
-              >
-                <Icon name="server" />
-                <span>Проверить задержку</span>
-              </button>
-            ) : null}
-            <hr />
+            ))}
+            {links.length ? <hr /> : null}
             <button
               className={armed ? 'danger armed' : 'danger'}
               onClick={() => {
@@ -609,13 +571,32 @@ function ProfileCard(props: {
   );
 }
 
-/** Плитки скорости и график: единственное на главной, что меняется раз в секунду от трафика. */
-function Speed() {
+/** Плашка скорости над кнопкой: единственное на главной, что меняется раз в секунду от трафика. */
+function SpeedPill({ onOpen }: { onOpen: () => void }) {
+  const traffic = useTraffic();
+  return (
+    <button className="b-speed" onClick={onOpen} title="Скорость" aria-label="Скорость">
+      <span>
+        <Icon name="download" size={16} />
+        <b className="num">{rate(traffic.down)}</b>
+      </span>
+      <i />
+      <span>
+        <Icon name="upload" size={16} />
+        <b className="num">{rate(traffic.up)}</b>
+      </span>
+    </button>
+  );
+}
+
+/** Лист «Скорость»: сейчас, всего за сеанс, график минуты и замер через сервер. */
+function SpeedSheet({ onClose }: { onClose: () => void }) {
   const traffic = useTraffic();
   const store = useStore();
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<SpeedView | null>(null);
   const connected = store.state?.vpn === 'connected' && !store.pending;
+  const server = store.state?.server;
 
   const test = async () => {
     setTesting(true);
@@ -629,49 +610,56 @@ function Speed() {
   };
 
   return (
-    <>
-      {connected || result ? (
-        <div className="speedtest">
-          <div className="speedtest-text">
-            {testing ? (
-              <span>Меряю скорость через сервер… до полуминуты</span>
-            ) : result ? (
-              <>
-                <b>
-                  ↓ {result.down != null ? fmtMbps(result.down) : '—'} · ↑ {result.up != null ? fmtMbps(result.up) : '—'}
-                </b>
-                {result.server ? <span>{result.server}</span> : null}
-              </>
-            ) : (
-              <span>Сколько реально даёт сервер</span>
-            )}
-          </div>
-          <button className="btn-elem" onClick={() => void test()} disabled={testing || !connected}>
-            <Icon name="refresh" size={13} className={testing ? 'spin' : undefined} />
-            {testing ? 'Меряю…' : result ? 'Ещё раз' : 'Проверить скорость'}
-          </button>
+    <Sheet onClose={onClose}>
+      <h3>Скорость</h3>
+      <p className="b-sheet-sub">
+        {server ? `${server} · ` : ''}
+        {connected ? (
+          <>
+            сеанс <Elapsed since={store.state?.since ?? null} format={fmtTimer} />
+          </>
+        ) : (
+          'VPN выключен'
+        )}
+      </p>
+      <div className="b-tiles">
+        <div className="b-tile">
+          <span>
+            <Icon name="download" size={16} /> Чтение
+          </span>
+          <b className="num">{rate(traffic.down)}</b>
+          <small>всего {gb(traffic.downSum)}</small>
         </div>
-      ) : null}
-      <div className="tiles">
-        <div className="tile">
-          <div className="tile-head">
-            Чтение
-            <Icon name="download" size={22} />
-          </div>
-          <div className="tile-val">{fmtRate(traffic.down)}</div>
-          <div className="tile-sub">всего {fmtBytes(traffic.downSum)}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-head">
-            Загрузка
-            <Icon name="upload" size={22} />
-          </div>
-          <div className="tile-val">{fmtRate(traffic.up)}</div>
-          <div className="tile-sub">всего {fmtBytes(traffic.upSum)}</div>
+        <div className="b-tile">
+          <span>
+            <Icon name="upload" size={16} /> Загрузка
+          </span>
+          <b className="num">{rate(traffic.up)}</b>
+          <small>всего {gb(traffic.upSum)}</small>
         </div>
       </div>
       <SpeedGraph down={traffic.downHist} up={traffic.upHist} />
-    </>
+      <div className="b-test">
+        <div className="b-test-text">
+          {testing ? (
+            <span>Меряю скорость через сервер… до полуминуты</span>
+          ) : result ? (
+            <>
+              <b>
+                ↓ {result.down != null ? fmtMbps(result.down) : '—'} · ↑ {result.up != null ? fmtMbps(result.up) : '—'}
+              </b>
+              {result.server ? <span>{result.server}</span> : null}
+            </>
+          ) : (
+            <span>{connected ? 'Сколько реально даёт сервер' : 'Замер — когда VPN включён'}</span>
+          )}
+        </div>
+        <button className="btn-elem" onClick={() => void test()} disabled={testing || !connected}>
+          <Icon name="refresh" size={13} className={testing ? 'spin' : undefined} />
+          {testing ? 'Меряю…' : result ? 'Ещё раз' : 'Проверить'}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -704,7 +692,7 @@ function SpeedGraph({ down, up }: { down: number[]; up: number[] }) {
       </svg>
       <div className="graph-foot">
         <span>−60 с</span>
-        <span>Пик: {fmtRate((peak * 1e6) / 8)}</span>
+        <span>Пик: {rate((peak * 1e6) / 8)}</span>
         <span>сейчас</span>
       </div>
     </div>

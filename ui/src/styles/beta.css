@@ -1,0 +1,748 @@
+/* Бета: дизайн по прототипу Димы (светлые карточки, плавающая панель, скругления «суперэллипс»).
+   Цвета — те же переменные темы; файл подключается последним и переопределяет вид прежних классов. */
+
+/* Скругления как у Apple: где браузер умеет «суперэллипс» — он, иначе обычный радиус. */
+.b-card,
+.card-list,
+.cx-card,
+.b-choice,
+.sheet {
+  border-radius: 24px;
+}
+@supports (corner-shape: superellipse(1.4)) {
+  .b-card,
+  .card-list,
+  .cx-card,
+  .b-choice {
+    border-radius: 30px;
+    corner-shape: superellipse(1.4);
+  }
+}
+
+/* ── Окно ─────────────────────────────────────────────── */
+.titlebar {
+  border-bottom: 0;
+  background: transparent;
+  height: 40px;
+}
+.titlebar .logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+.content {
+  padding: 0 14px 100px;
+}
+
+/* Плавающая панель из трёх кнопок */
+.nav-fade {
+  background: linear-gradient(to bottom, transparent, var(--win) 70%);
+}
+.nav-inner {
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line), 0 10px 30px color-mix(in srgb, var(--shadow) 55%, transparent);
+}
+.nav-btn {
+  width: 50px;
+  height: 42px;
+  border-radius: 999px;
+  color: var(--dim);
+}
+.nav-btn.on {
+  background: var(--elem);
+  color: var(--text);
+}
+
+/* ── Главная ──────────────────────────────────────────── */
+.b-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.b-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 14px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.15s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.2s ease;
+}
+.b-speed:hover {
+  box-shadow: inset 0 0 0 0.5px var(--line), 0 4px 14px color-mix(in srgb, var(--shadow) 25%, transparent);
+}
+.b-speed:active {
+  transform: scale(0.97);
+}
+.b-speed > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.b-speed > span .ico {
+  color: var(--dim);
+}
+.b-speed b {
+  font-weight: 500;
+  min-width: 58px;
+  text-align: left;
+}
+.b-speed > i {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+}
+.b-round {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.2s ease;
+}
+.b-round:hover {
+  background: var(--cardHover);
+}
+.b-round:active {
+  transform: scale(0.94);
+}
+
+.b-home .home-status {
+  margin-top: 16px;
+}
+.b-home .status-label {
+  font-size: 14px;
+}
+.b-home .timer {
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+.b-home .power-wrap {
+  margin-top: 16px;
+}
+/* Выключенная кнопка — белая с тенью, как в прототипе; включённая — цвета акцента. */
+.power-core {
+  border: 0;
+  box-shadow: inset 0 0 0 0.5px var(--line), 0 6px 20px color-mix(in srgb, var(--shadow) 30%, transparent);
+}
+.power-core.live {
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.power-core.other,
+.power-core.busy,
+.power-core.warn,
+.power-core.bad {
+  box-shadow: inset 0 0 0 1.5px currentColor, 0 6px 20px color-mix(in srgb, var(--shadow) 25%, transparent);
+}
+
+.mode-chip {
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.mode-chip:hover {
+  background: var(--cardHover);
+}
+
+.pchips {
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 26px;
+  overflow: visible;
+}
+.pchip {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  color: var(--dim);
+  font-size: 13px;
+}
+.pchip.on {
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+.banner {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--orange) 10%, var(--card));
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+
+/* Карточка подписки */
+.b-card {
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  padding: 14px 10px 8px;
+}
+.b-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px 12px;
+}
+.b-flag {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--elem);
+  color: var(--dim);
+}
+.b-flag .flag {
+  width: 42px;
+  height: 42px;
+  font-size: 13px;
+}
+.b-head-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.b-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.b-title-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.b-sub-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-sub .num::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--dim2);
+}
+.b-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.b-act {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  padding: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.b-act:hover,
+.b-act.open {
+  background: var(--hover);
+}
+.b-act:disabled {
+  cursor: default;
+}
+.b-act svg,
+.b-act .ico {
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.b-act.rf:hover .ico {
+  transform: rotate(70deg);
+}
+.b-act:active svg,
+.b-act:active .ico {
+  transform: scale(0.82);
+  transition-duration: 0.12s;
+}
+/* Пульс: при наведении линия пробегает заново; пока меряем — бежит по кругу. */
+.b-act.pl .ecg {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+}
+.b-act.pl:hover .ecg {
+  animation: trace 0.75s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.b-act.pl.busy .ecg {
+  animation: trace 1.1s linear infinite;
+  color: var(--accent);
+}
+@keyframes trace {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+.b-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 6px 12px;
+}
+.b-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.b-kv b {
+  font-weight: 500;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.b-kv b.warn {
+  color: var(--orange);
+}
+.b-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--elem);
+  overflow: hidden;
+}
+.b-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transform-origin: left;
+  animation: growbar 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes growbar {
+  from { transform: scaleX(0); }
+  to { transform: none; }
+}
+.b-announce {
+  font-size: 12.5px;
+  color: var(--text3);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.b-srvs {
+  border-top: 0.5px solid var(--line);
+  padding-top: 6px;
+  margin: 0 -2px;
+}
+.b-note {
+  padding: 10px 10px 6px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.b-srv {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.b-srv:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.b-srv.on {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.b-radio {
+  flex: none;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--ring);
+  transition: box-shadow 0.25s ease;
+}
+.b-radio i {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.b-srv.on .b-radio {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.b-srv.on .b-radio i {
+  transform: scale(1);
+}
+.b-srv-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.b-srv-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-srv-proto {
+  font-size: 12px;
+  color: var(--dim);
+}
+.b-ping {
+  flex: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+.skel {
+  flex: none;
+  display: inline-block;
+  width: 42px;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--elem) 0%, color-mix(in srgb, var(--elem) 35%, var(--card)) 50%, var(--elem) 100%);
+  background-size: 200% 100%;
+  animation: skel 1.1s linear infinite;
+}
+@keyframes skel {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+/* Лист «Скорость» */
+.b-sheet-sub {
+  margin: 2px 0 14px;
+  color: var(--dim);
+  font-size: 13px;
+}
+.b-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.b-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.b-tile > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.b-tile b {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+}
+.b-tile small {
+  font-size: 12px;
+  color: var(--dim);
+}
+.sheet .graph {
+  margin-top: 8px;
+}
+.b-test {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.b-test-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--dim);
+}
+.b-test-text b {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ── Листы, меню, уведомления ─────────────────────────── */
+.sheet {
+  background: var(--win);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.menu {
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--shadow) 55%, transparent), inset 0 0 0 0.5px var(--line);
+}
+.toast {
+  border-radius: 18px;
+}
+
+/* ── Списки настроек и «Маршрутов» ────────────────────── */
+.screen-title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.sec-head .caps,
+.b-cap {
+  font-size: 12.5px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.card-list,
+.cx-card {
+  background: var(--card);
+  border: 0;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  overflow: hidden;
+}
+.row {
+  min-height: 56px;
+}
+.back {
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+
+/* Выбор «что пускать через VPN»: две карточки с кружком */
+.b-cap {
+  display: block;
+  margin: 22px 4px 8px;
+}
+.b-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.b-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: box-shadow 0.25s ease, transform 0.14s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.b-choice:active {
+  transform: scale(0.985);
+}
+.b-choice.on {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.b-choice.on .b-radio {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.b-choice.on .b-radio i {
+  transform: scale(1);
+}
+.b-choice-text {
+  flex: 1;
+  min-width: 0;
+}
+.b-choice-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.b-choice-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--dim);
+  line-height: 1.35;
+}
+.b-foot {
+  margin: 8px 6px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--dim2);
+}
+.b-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.b-cap-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 22px 4px 8px;
+}
+.b-cap-row .b-cap {
+  margin: 0;
+}
+
+/* Метки маршрута у программ: VPN / Напрямую / Частично */
+.b-tag {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.b-tag.vpn {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.b-tag.direct {
+  background: var(--elem);
+  color: var(--dim);
+}
+.b-tag.mixed {
+  background: color-mix(in srgb, var(--orange) 14%, transparent);
+  color: var(--orange);
+}
+.b-app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.b-app-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.b-app-text b {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-app-text span {
+  font-size: 12px;
+  color: var(--dim);
+}
+.b-live-top {
+  padding: 14px 14px 6px;
+}
+.b-live-top b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.b-live-top span {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.row-val {
+  flex: none;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+/* «Добавить»: ссылка из буфера — карточкой с кнопкой, а не отдельной кнопкой «вставить» */
+.b-clip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 35%, var(--line));
+  animation: expandin 0.25s ease;
+}
+.b-clip-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.b-clip-text b {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.b-clip-text span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-input,
+.name-input {
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}

@@ -14,6 +14,7 @@ import './styles/settings.css';
 import './styles/tray.css';
 import './styles/ios.css';
 import './styles/glass.css';
+import './styles/beta.css';
 
 // Сразу последняя тема, пока служба не прислала настройки.
 applyCachedTheme();

@@ -39,10 +39,7 @@ export function TitleBar() {
   const drag = isIos ? {} : { 'data-tauri-drag-region': true };
   return (
     <header className="titlebar" {...drag}>
-      <img className="logo" src={icon} alt="" draggable={false} {...drag} />
-      <span className="app-name" {...drag}>
-        kl!ck
-      </span>
+      <img className="logo" src={icon} alt="kl!ck" draggable={false} {...drag} />
       <div className="drag" {...drag} />
       {isMac || isIos ? null : (
         <>
@@ -58,10 +55,10 @@ export function TitleBar() {
   );
 }
 
+// «Добавить» — кнопкой «+» на главной, в панели три раздела.
 const TABS: [Tab, IconName, string][] = [
   ['home', 'home', 'Главная'],
-  ['connection', 'rules', 'Соединение'],
-  ['add', 'plus', 'Добавить'],
+  ['connection', 'rules', 'Маршруты'],
   ['settings', 'settings', 'Настройки'],
 ];
 
@@ -72,7 +69,7 @@ export function BottomNav({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void })
       <nav className="nav" aria-label="Разделы">
         <div className="nav-inner">
           {TABS.map(([key, icon, title]) => (
-            <button key={key} className={key === tab ? 'nav-btn on' : 'nav-btn'} aria-label={title} title={title} aria-current={key === tab ? 'page' : undefined} onClick={() => onTab(key)}>
+            <button key={key} className={key === tab || (tab === 'add' && key === 'home') ? 'nav-btn on' : 'nav-btn'} aria-label={title} title={title} aria-current={key === tab ? 'page' : undefined} onClick={() => onTab(key)}>
               <Icon name={icon} size={24} />
             </button>
           ))}

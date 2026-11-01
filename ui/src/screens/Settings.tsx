@@ -1,13 +1,15 @@
-// «Настройки»: группы из макета; «Режим подключения» переехал на «Соединение».
-// Подэкраны: Kill Switch, «Если сервер недоступен», тема, журнал, «О приложении».
+// «Настройки» (бета): «Способ подключения» вернулся сюда из «Маршрутов», «Диагностика» — подэкраном.
+// Подэкраны: Kill Switch, «Если сервер недоступен», тема, журнал, диагностика, «О приложении».
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { Sheet } from '../components/Chrome';
 import { Back, Row, SectionHead, Seg, Tile, Toggle } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { KsInfo } from '../components/KsInfo';
+import { ModeInfo } from '../components/ModeInfo';
 import { ProgramList } from '../components/ProgramList';
-import { errorText, exitName, serverDown } from '../lib/i18n';
+import { errorText, exitName, modeName, serverDown } from '../lib/i18n';
+import { Diagnostics } from './Connection';
 import { isIos, isMac, OS_NAME, TRAY_NAME } from '../lib/platform';
 import { plural, programTitle, shortPath } from '../lib/rules';
 import { useStore, useVisible } from '../lib/store';
@@ -17,7 +19,7 @@ import type { AboutView, Appearance, ErrorInfo, ExitAction, KsProgramView, LogLi
 /** «Запускать с Windows»; на Mac — как называет это сама система. */
 const autostartTitle = isMac ? 'Открывать при входе в систему' : 'Запускать с Windows';
 
-type Sub = null | 'ks' | 'down' | 'theme' | 'log' | 'about';
+type Sub = null | 'ks' | 'down' | 'theme' | 'log' | 'about' | 'diag';
 
 const REPO = 'https://github.com/vbu00/klick';
 
@@ -80,6 +82,7 @@ export function Settings() {
       {sub === 'theme' ? <ThemeScreen onBack={back} /> : null}
       {sub === 'log' ? <LogScreen onBack={back} /> : null}
       {sub === 'about' ? <AboutScreen onBack={back} /> : null}
+      {sub === 'diag' ? <Diagnostics back="Настройки" onBack={back} /> : null}
     </div>
   );
 }
@@ -94,6 +97,7 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
   const [logCount, setLogCount] = useState<number | null>(null);
   const [lang, setLang] = useState(false);
   const [exitSheet, setExitSheet] = useState(false);
+  const [modeSheet, setModeSheet] = useState(false);
 
   // «Запуск с Windows» хранит Windows, а не служба: перечитываем, когда окно снова в фокусе,
   // — его могли переключить в окне трея.
@@ -167,6 +171,16 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       <SectionHead title="Подключение" />
       <div className="card-list">
+        {/* iOS: только туннель, выбирать нечего. */}
+        {isIos ? null : (
+          <Row
+            title="Способ подключения"
+            sub={settings.mode === 'tun' ? 'Весь трафик компьютера' : 'Браузеры и программы с системным прокси'}
+            right={<span className="row-val">{modeName[settings.mode]}</span>}
+            onClick={() => setModeSheet(true)}
+            chevron
+          />
+        )}
         {/* iOS не говорит, какое приложение открыло соединение: Kill Switch по программам невозможен. */}
         {isIos ? null : <Row title="Kill Switch" sub={ks.enabled ? `Вкл · ${plural(ksOn, ['приложение', 'приложения', 'приложений'])}` : 'Выкл'} onClick={() => onSub('ks')} chevron />}
         <Row title="Если сервер недоступен" sub={serverDown[settings.on_server_down].title} onClick={() => onSub('down')} chevron />
@@ -231,6 +245,7 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       <SectionHead title="Диагностика" />
       <div className="card-list">
+        <Row title="Проверка серверов и утечек" sub="Что работает в этой сети и как вас видят сайты" onClick={() => onSub('diag')} chevron />
         <Row title="Журнал" sub={logCount == null ? 'Записи службы' : plural(logCount, ['запись', 'записи', 'записей'])} onClick={() => onSub('log')} chevron />
         <Row wrap title="Скопировать отчёт" sub="Версии, режим и журнал — без ссылок и адресов сайтов" onClick={() => void report()} right={<Icon name="copy" size={16} className="row-chev" />} />
         <Row title="Ядро Mihomo" sub={about?.core_version ?? 'узнаю версию…'} right={<span className="status-dot" style={{ background: about?.core_version ? 'var(--accent)' : 'var(--dim)' }} />} />
@@ -242,6 +257,17 @@ function Main({ onSub }: { onSub: (s: Sub) => void }) {
 
       {lang ? <LanguageSheet onClose={() => setLang(false)} /> : null}
       {exitSheet ? <ExitChoiceSheet onClose={() => setExitSheet(false)} /> : null}
+      {modeSheet ? (
+        <ModeInfo
+          initial={settings.mode}
+          current={settings.mode}
+          onClose={() => setModeSheet(false)}
+          onPick={(m) => {
+            setModeSheet(false);
+            void store.setMode(m);
+          }}
+        />
+      ) : null}
     </>
   );
 }

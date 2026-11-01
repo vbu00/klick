@@ -1,15 +1,13 @@
-// «Соединение» по макету v4: режим, «Куда направлять» с готовыми наборами, «Мой список» карточкой,
-// «Сейчас в сети» сводкой; ниже — живая схема, «Проверка серверов» и «Как вас видят сайты».
-// Подэкраны: «Мой список», «Сейчас в сети», «Не открывается?». Везде один тумблер — «через VPN»:
-// в списке он включает и выключает правило, в «Сейчас в сети» сам пишет правило в мой список.
+// «Маршруты» (бета): что пускать через VPN — двумя карточками, российское напрямую — одним тумблером,
+// мой список, «Сейчас» с программами и метками VPN / Напрямую / Частично, «Что-то не открывается?».
+// Подэкраны: «Мой список», «Сейчас в сети», «Не открывается?», «Диагностика» (проверка серверов и
+// «Как вас видят сайты»). Способ подключения (TUN / прокси) — в настройках.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AddRule } from '../components/AddRule';
-import { Back, Seg, Tile, Toggle } from '../components/Controls';
+import { Back, Row, Seg, Tile, Toggle } from '../components/Controls';
 import { Icon } from '../components/Icon';
 import { IpCard } from '../components/IpCard';
-import { LiveSchema } from '../components/LiveSchema';
-import { ModeInfo } from '../components/ModeInfo';
 import { ProbeCard } from '../components/ProbeCard';
 import { failureReason, routeName, routingTitle } from '../lib/i18n';
 import { groupLive, positionVerb, programTarget, siteRule, siteTarget, type AppRow, type SiteRow } from '../lib/live';
@@ -19,7 +17,7 @@ import { useStore, useVisible } from '../lib/store';
 import type { Transport } from '../lib/transport';
 import type { ConnView, FailureView, Mode, Routing, Rule, Service, Target } from '../lib/types';
 
-type Sub = null | 'list' | 'live' | 'failures';
+type Sub = null | 'list' | 'live' | 'failures' | 'diag';
 
 /** Соединения и неудачи раз в 2 секунды, пока открыта вкладка, работает VPN и окно видно. Спрятанное
  *  в трей окно службу не опрашивает; показали — сразу свежие данные. */
@@ -65,7 +63,6 @@ export function Connection() {
   const { state, settings, catalog, transport, isRunning, programNames } = store;
   const [sub, setSub] = useState<Sub>(null);
   const [adding, setAdding] = useState(false);
-  const [modeInfo, setModeInfo] = useState<Mode | null>(null);
   const { conns, fails } = useLive(isRunning, transport);
 
   useEffect(() => {
@@ -80,54 +77,52 @@ export function Connection() {
 
   return (
     <div className="screen">
-      {sub === null ? (
-        <Main routing={routing} list={list} apps={apps} fails={fails} conns={conns} onSub={setSub} onAdd={() => setAdding(true)} onModeInfo={() => setModeInfo(settings.mode)} />
-      ) : null}
+      {sub === null ? <Main routing={routing} list={list} apps={apps} fails={fails} onSub={setSub} /> : null}
       {sub === 'list' ? <MyList routing={routing} list={list} onBack={() => setSub(null)} onAdd={() => setAdding(true)} /> : null}
       {sub === 'live' ? <Live apps={apps} onBack={() => setSub(null)} /> : null}
-      {sub === 'failures' ? <Failures fails={fails} list={list} onBack={() => setSub(null)} /> : null}
+      {sub === 'failures' ? <Failures fails={fails} list={list} onBack={() => setSub('diag')} /> : null}
+      {sub === 'diag' ? <Diagnostics back="Маршруты" onBack={() => setSub(null)} fails={fails} onFailures={() => setSub('failures')} /> : null}
 
       {adding ? <AddRule position={routing} onClose={() => setAdding(false)} /> : null}
-      {modeInfo ? (
-        <ModeInfo
-          initial={modeInfo}
-          current={settings.mode}
-          onClose={() => setModeInfo(null)}
-          onPick={(m) => {
-            setModeInfo(null);
-            void store.setMode(m);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
 
-function Main({
-  routing,
-  list,
-  apps,
-  fails,
-  conns,
-  onSub,
-  onAdd,
-  onModeInfo,
-}: {
-  routing: Routing;
-  list: Rule[];
-  apps: AppRow[];
-  fails: FailureView[];
-  conns: ConnView[];
-  onSub: (s: Sub) => void;
-  onAdd: () => void;
-  onModeInfo: () => void;
-}) {
+/** «Диагностика»: недавние неудачи, проверка серверов в этой сети и «Как вас видят сайты». */
+export function Diagnostics({ back, onBack, fails, onFailures }: { back: string; onBack: () => void; fails?: FailureView[]; onFailures?: () => void }) {
+  return (
+    <>
+      <Back label={back} onClick={onBack} />
+      <div className="sub-title">Диагностика</div>
+      <div className="sub-lead">Что мешает открыть сайт: сервер, блокировка в этой сети или утечка мимо VPN.</div>
+      {fails && onFailures ? (
+        <div className="card-list mt14">
+          <Row
+            title="Не открывается сейчас"
+            sub={fails.length ? 'Недавние неудачные соединения — можно пустить через VPN или мимо' : 'Неудачных соединений не было'}
+            right={fails.length ? <span className="cx-count warn">{fails.length}</span> : undefined}
+            onClick={onFailures}
+            chevron
+          />
+        </div>
+      ) : null}
+      <ProbeCard />
+      <IpCard />
+    </>
+  );
+}
+
+function Main({ routing, list, apps, fails, onSub }: { routing: Routing; list: Rule[]; apps: AppRow[]; fails: FailureView[]; onSub: (s: Sub) => void }) {
   const store = useStore();
-  const { state, settings, catalog, isRunning, programNames } = store;
-  if (!state || !settings) return null;
-  const mode = settings.mode;
+  const { settings, catalog, isRunning, programNames } = store;
+  if (!settings) return null;
   const russia = settings.russia_direct;
-  const verb = positionVerb(routing);
+  const ruOn = russia.domains || russia.ips;
+  // Один тумблер на оба набора: сайты .ru/.рф и российские адреса.
+  const setRu = async (v: boolean) => {
+    await store.setRussia('ru_domains', v);
+    await store.setRussia('ru_ips', v);
+  };
 
   const count = (kinds: Target['kind'][]) => list.filter((r) => kinds.includes(r.target.kind)).length;
   const parts = [
@@ -135,115 +130,75 @@ function Main({
     [isIos ? 0 : count(['program']), ['программа', 'программы', 'программ']],
     [count(['domain', 'ip']), ['сайт', 'сайта', 'сайтов']],
   ] as const;
-  const summary = parts.filter(([n]) => n > 0).map(([n, forms]) => plural(n, [...forms] as [string, string, string]));
-  const enabled = list.filter((r) => r.enabled !== false).length;
+  const summary = parts.filter(([n]) => n > 0).map(([n, forms]) => plural(n, [...forms] as [string, string, string])).join(', ');
+  const listRow = (title: string, empty: string) => (
+    <Row title={title} sub={list.length ? summary : empty} onClick={() => onSub('list')} chevron left={list.length ? <Tile label={ruleTitle(list[0], catalog, programNames)} size={30} /> : undefined} />
+  );
 
   return (
     <>
-      <div className="screen-title xl">Соединение</div>
+      <div className="screen-title xl">Маршруты</div>
 
-      {/* iOS: только VPN, режима «Системный прокси» нет. */}
-      {isIos ? null : (
+      <span className="b-cap">Что пускать через VPN</span>
+      <div className="b-choices">
+        <Choice on={routing === 'all_vpn'} title="Всё, кроме исключений" sub="Российские сайты и ваши исключения — напрямую" onClick={() => void store.setRouting('all_vpn')} />
+        <Choice on={routing === 'selected'} title="Только выбранное" sub="Заблокированное в РФ и то, что добавите сами" onClick={() => void store.setRouting('selected')} />
+      </div>
+
+      {routing === 'all_vpn' ? (
         <>
-          <div className="cx-head">
-            <span>Режим</span>
-            <button className="info-btn" aria-label="Как это работает" title="Как это работает" onClick={onModeInfo}>
-              <Icon name="info" size={16} />
-            </button>
+          <span className="b-cap">Напрямую, без VPN</span>
+          <div className="card-list">
+            <Row wrap title="Российские сайты и сервисы" sub="Госуслуги, банки, маркетплейсы, VK — без VPN" right={<Toggle label="Российские сайты и сервисы" on={ruOn} onChange={(v) => void setRu(v)} />} />
+            {listRow('Мои исключения', isIos ? 'Сайты и сервисы мимо VPN' : 'Сайты, сервисы и программы мимо VPN')}
           </div>
-          <Seg
-            className="cx-seg"
-            value={mode}
-            options={[
-              ['tun', 'VPN (TUN)'],
-              ['sys_proxy', 'Системный прокси'],
-            ]}
-            onChange={(m) => void store.setMode(m)}
-          />
-          <div className="cx-desc">
-            {mode === 'tun' ? 'Все программы, включая игры и UDP.' : 'Браузеры и программы, которые используют системный прокси.'}
-            {isRunning ? ' Смена режима переподключит VPN на пару секунд.' : ''}
-            {mode === 'sys_proxy' && settings?.kill_switch.enabled && settings.kill_switch.programs.some((p) => p.enabled)
-              ? ' Программы из Kill Switch, которые не используют прокси, останутся без сети — для них нужен VPN (TUN).'
-              : ''}
+        </>
+      ) : (
+        <>
+          <span className="b-cap">Через VPN</span>
+          <div className="card-list">
+            <Row wrap title="Заблокированное в РФ" sub="Готовый набор, обновляется сам" right={<Toggle label="Заблокированное в РФ" on={settings.blocked_preset !== false} onChange={(v) => void store.setPrefs({ blocked_preset: v })} />} />
+            {listRow('Мой список', isIos ? 'Добавьте сервис или сайт' : 'Добавьте сервис, программу или сайт')}
           </div>
         </>
       )}
+      <div className="b-foot">Локальная сеть — роутер, принтер, NAS — всегда идёт напрямую.</div>
 
-      <div className="cx-head">
-        <span>Куда направлять</span>
-      </div>
-      <Seg
-        className="cx-seg"
-        value={routing}
-        options={[
-          ['all_vpn', routingTitle.all_vpn],
-          ['selected', routingTitle.selected],
-        ]}
-        onChange={(r) => void store.setRouting(r)}
-      />
-      <div className="cx-card mt8">
-        {routing === 'selected' ? (
-          <Preset title="Заблокированное в РФ — через VPN" desc="Готовый набор, обновляется сам. Остальное — напрямую." on={settings.blocked_preset !== false} onChange={(v) => void store.setPrefs({ blocked_preset: v })} />
-        ) : (
-          <>
-            <Preset title=".ru и .рф напрямую" desc="Госуслуги, банки, Яндекс — без VPN" on={russia.domains} onChange={(v) => void store.setRussia('ru_domains', v)} />
-            <Preset title="Российские IP напрямую" desc="По базе стран — кроме заблокированного в РФ: оно всё равно через VPN" on={russia.ips} onChange={(v) => void store.setRussia('ru_ips', v)} />
-            <Preset title="Локальная сеть — напрямую" desc="Роутер, принтер, игры по локалке" />
-          </>
-        )}
-      </div>
-
-      <div className="cx-head wide">
-        <span>Мой список</span>
-      </div>
-      <button className="cx-card cx-list" onClick={() => onSub('list')}>
-        <span className="grow">
-          <span className="cx-list-title">{verb} · мой список</span>
-          <span className="cx-list-sum">{list.length ? summary.join(' · ') : (isIos ? 'Пока пусто — добавьте сервис или сайт' : 'Пока пусто — добавьте сервис, программу или сайт')}</span>
-          {list.length ? (
-            <span className="cx-stack">
-              {list.slice(0, 6).map((r, i) => (
-                <span key={i} className={r.enabled === false ? 'cx-stack-tile off' : 'cx-stack-tile'}>
-                  <Tile label={ruleTitle(r, catalog, programNames)} size={28} />
-                </span>
-              ))}
-              <span className="cx-stack-note">
-                включено {enabled} из {list.length}
-              </span>
-            </span>
-          ) : null}
-        </span>
-        <Icon name="chevron" size={14} className="cx-chev" />
-      </button>
-      <button className="cx-add" onClick={onAdd}>
-        <Icon name="plus" size={16} />
-        Добавить
-      </button>
-
-      <div className="cx-head wide">
-        <span>Сейчас в сети</span>
+      <div className="b-cap-row">
+        <span className="b-cap">Сейчас</span>
+        {isRunning ? (
+          <button className="b-link" onClick={() => onSub('live')}>
+            {isIos ? 'Все сайты' : 'Все программы'}
+          </button>
+        ) : null}
       </div>
       <LiveSummary apps={apps} running={isRunning} onOpen={() => onSub('live')} />
-      {fails.length ? (
-        <button className="cx-card cx-fails" onClick={() => onSub('failures')}>
-          <span className="grow">
-            <span className="cx-list-title sm">Не открывается?</span>
-            <span className="cx-list-sum">Недавние неудачные соединения</span>
-          </span>
-          <span className="cx-count warn">{fails.length}</span>
-          <Icon name="chevron" size={14} className="cx-chev" />
-        </button>
-      ) : null}
 
-      <div className="cx-head wide">
-        <span>Схема · сейчас</span>
+      <div className="card-list mt12">
+        <Row
+          title="Что-то не открывается?"
+          sub="Диагностика: серверы, блокировки, утечки"
+          right={fails.length ? <span className="cx-count warn">{fails.length}</span> : undefined}
+          onClick={() => onSub('diag')}
+          chevron
+        />
       </div>
-      <LiveSchema running={isRunning} mode={mode} server={state.server} conns={conns} catalog={catalog} />
-
-      <ProbeCard />
-      <IpCard />
     </>
+  );
+}
+
+/** Карточка выбора с кружком: «Всё, кроме исключений» / «Только выбранное». */
+function Choice({ on, title, sub, onClick }: { on: boolean; title: string; sub: string; onClick: () => void }) {
+  return (
+    <button className={on ? 'b-choice on' : 'b-choice'} role="radio" aria-checked={on} onClick={onClick}>
+      <span className="b-radio">
+        <i />
+      </span>
+      <span className="b-choice-text">
+        <span className="b-choice-title">{title}</span>
+        <span className="b-choice-sub">{sub}</span>
+      </span>
+    </button>
   );
 }
 
@@ -302,9 +257,7 @@ function LiveSummary({ apps, running, onOpen }: { apps: AppRow[]; running: boole
               {a.conns} соед. · {(a.bytes / 1e6).toFixed(1).replace('.', ',')} МБ
             </span>
           </span>
-          <span className="cx-mini">
-            <i style={{ width: `${a.conns ? (a.vpnConns / a.conns) * 100 : 0}%` }} />
-          </span>
+          {a.vpnConns === a.conns ? <span className="b-tag vpn">VPN</span> : a.vpnConns === 0 ? <span className="b-tag direct">Напрямую</span> : <span className="b-tag mixed">Частично</span>}
         </span>
       ))}
     </button>
@@ -333,7 +286,7 @@ function MyList({ routing, list, onBack, onAdd }: { routing: Routing; list: Rule
 
   return (
     <>
-      <Back label="Соединение" onClick={onBack} />
+      <Back label="Маршруты" onClick={onBack} />
       <div className="sub-title">{verb} · мой список</div>
       <div className="sub-lead">
         Положение «{routingTitle[routing]}». Включено {enabled} из {list.length}. Выключенное правило не работает, но остаётся в списке.
@@ -428,7 +381,7 @@ function Live({ apps, onBack }: { apps: AppRow[]; onBack: () => void }) {
 
   return (
     <>
-      <Back label="Соединение" onClick={onBack} />
+      <Back label="Маршруты" onClick={onBack} />
       <div className="cx-live-head">
         <div className="sub-title">Сейчас в сети</div>
         <button className={paused ? 'cx-pill' : 'cx-pill live'} onClick={() => setPaused(!paused)} disabled={!isRunning}>
@@ -549,7 +502,7 @@ function Failures({ fails, list, onBack }: { fails: FailureView[]; list: Rule[];
   };
   return (
     <>
-      <Back label="Соединение" onClick={onBack} />
+      <Back label="Диагностика" onClick={onBack} />
       <div className="sub-title">Не открывается?</div>
       <div className="sub-lead">Недавние неудачные соединения. Если сайт не открывается напрямую, пустите его через VPN — и наоборот.</div>
       {fails.length === 0 ? (
