@@ -17,3 +17,6 @@ resources/core/mihomo
 resources/core/Country.mmdb
 crates/klick-ui/binaries/
 __pycache__/
+crates/klick-mac/build/
+crates/klick-mac/klick-mac.xcodeproj/
+crates/klick-mac/Info.plist

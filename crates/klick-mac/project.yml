@@ -1,0 +1,49 @@
+# kl!ck β для Mac — родное окно на SwiftUI с Liquid Glass (macOS 26; на старых — системное размытие).
+# Только интерфейс: VPN держит служба kl!ck (klick-service, ставится обычным kl!ck.pkg), окно говорит с ней
+# через Unix-сокет /var/run/klick.sock — те же команды и события, что у веб-окна (crates/klick-proto).
+# Модели, тексты и страны — общие с iOS β (../klick-ios/native/Sources). Проект собирает xcodegen
+# (scripts/macos/build-native.sh).
+name: klick-mac
+options:
+  bundleIdPrefix: app.klick
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    MARKETING_VERSION: ${KLICK_VERSION}
+    CURRENT_PROJECT_VERSION: ${KLICK_BUILD}
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEAD_CODE_STRIPPING: YES
+    # Подпись — своя для этой машины (ad-hoc): бета не из App Store, первый запуск — правой кнопкой → «Открыть».
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+targets:
+  KlickMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: ../klick-ios/native/Sources/Models.swift
+      - path: ../klick-ios/native/Sources/Texts.swift
+      - path: ../klick-ios/native/Sources/Countries.swift
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: kl!ck β
+        CFBundleName: kl!ck β
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: kl!ck — vbu00, дизайн — Dmitriy Medvedev
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_NAME: kl!ck β
+        PRODUCT_MODULE_NAME: KlickMac
+        PRODUCT_BUNDLE_IDENTIFIER: app.klick.mac.native
+        # Сокет службы — в /var/run: песочница App Store его не пустила бы.
+        ENABLE_APP_SANDBOX: NO

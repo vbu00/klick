@@ -1,0 +1,46 @@
+# kl!ck β для Mac — родное окно на SwiftUI с Liquid Glass (crates/klick-mac). Собирается на macOS 26: там
+# же снимки окна на тестовых данных — со стеклом, как его рисует система. Итог — klick-mac-beta.zip (ad-hoc
+# подпись) и снимки; выпуска нет, это бета рядом с обычным kl!ck.pkg.
+name: macOS β
+
+on:
+  push:
+    paths: ['crates/klick-mac/**', 'crates/klick-ios/native/Sources/Models.swift', 'crates/klick-ios/native/Sources/Texts.swift',
+            'crates/klick-ios/native/Sources/Countries.swift', 'scripts/macos/build-native.sh', '.github/workflows/macos-native.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode 26 и xcodegen
+        run: |
+          x="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)"
+          [ -n "$x" ] && sudo xcode-select -s "$x"
+          brew install xcodegen
+          xcodebuild -version
+          sw_vers
+
+      - name: Сборка и снимки
+        env:
+          KLICK_BUILD: ${{ github.run_number }}
+        run: scripts/macos/build-native.sh --shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: klick-mac-beta
+          path: |
+            dist/klick-mac-beta.zip
+            dist/mac-beta-*.png
+          if-no-files-found: ignore
