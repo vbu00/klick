@@ -248,6 +248,9 @@ struct PowerButton: View {
                 Image(systemName: "power").font(.system(size: 32, weight: .medium))
                     .foregroundStyle(core == .live ? Color.white : color)
                     .frame(width: 92, height: 92)
+                    // Включена — залита акцентом, стекло поверх даёт блик и объём (одного оттенка стекла на
+                    // светлом фоне не видно).
+                    .background { if core == .live { Circle().fill(K.accent) } }
             }
             .buttonStyle(PressStyle())
             .glass(Circle(), tint: core == .live ? K.accent : nil, interactive: true)
