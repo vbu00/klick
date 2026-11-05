@@ -16,13 +16,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Имя файла, страница превью, что нажать перед снимком (aria-label или текст кнопки), какой блок снять.
 const SHOTS = [
-  ['home-dark', '/?s=connected', [], '.window'],
-  ['home-light', '/?s=connected&theme=light', [], '.window'],
-  ['connection-dark', '/?s=connected', ['Соединение'], '.window'],
-  ['add-light', '/?s=connected&theme=light', ['Добавить'], '.window'],
-  ['settings-dark', '/?s=connected', ['Настройки'], '.window'],
-  ['killswitch-light', '/?s=connected&theme=light', ['Настройки', 'Kill Switch'], '.window'],
-  ['tray-dark', '/?view=tray&s=connected', [], '.tray'],
+  ['home-dark', '/?s=connected&theme=dark', [], '.bm-root'],
+  ['home-light', '/?s=connected', [], '.bm-root'],
+  ['connection-dark', '/?s=connected&theme=dark', ['Маршруты'], '.bm-root'],
+  ['add-light', '/?s=connected', ['Добавить подписку'], '.bm-root'],
+  ['settings-dark', '/?s=connected&theme=dark', ['Настройки'], '.bm-root'],
+  ['killswitch-light', '/?s=connected', ['Настройки', 'Kill Switch'], '.bm-root'],
+  ['tray-dark', '/?view=tray&s=connected&theme=dark', [], '.tray'],
   ['tray-light', '/?view=tray&s=connected&theme=light', [], '.tray'],
 ];
 

@@ -24,42 +24,50 @@ import type {
   UpdateView,
 } from './types';
 
-export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors' | 'browser';
+export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'expired' | 'traffic' | 'neighbors' | 'browser';
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function seed(): { connections: Connection[]; servers: Record<string, ServerView[]> } {
+  // Те же данные, что в макете: так превью удобно сверять с ним.
   const sub: Connection = {
-    id: 'alex',
-    name: 'Remnawave · Alex',
+    id: 'p1',
+    name: 'Моя подписка',
     kind: 'subscription',
-    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400 },
+    info: { upload: 2.1 * GB, download: 33.1 * GB, total: 100 * GB, expire: nowS() + 24 * 86400 + 3600 },
     updated_at: nowS() - 3600,
     update_interval_hours: 12,
-    selected_server: 'Нидерланды · Amsterdam',
+    selected_server: 'Финляндия · Helsinki',
+    web_page: 'https://panel.example.com/',
+    support_url: 'https://t.me/example_support',
   };
-  const link: Connection = {
-    id: 'grpc',
-    name: 'grpc',
-    kind: 'link',
-    info: null,
-    updated_at: nowS(),
-    update_interval_hours: null,
-    selected_server: 'grpc',
+  const work: Connection = {
+    id: 'p2',
+    name: 'Рабочая',
+    kind: 'subscription',
+    info: { upload: 1.6 * GB, download: 42 * GB, total: 50 * GB, expire: nowS() + 2 * 86400 + 3600 },
+    updated_at: nowS() - 7200,
+    update_interval_hours: 12,
+    selected_server: 'Нидерланды · Rotterdam',
   };
+  const link: Connection = { id: 'p3', name: 'grpc', kind: 'link', info: null, updated_at: nowS(), update_interval_hours: null, selected_server: '🇳🇱 Нидерланды · 203.0.113.81' };
   return {
-    connections: [sub, link],
+    connections: [sub, work, link],
     servers: {
-      alex: [
-        { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: true },
+      p1: [
+        { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: true },
+        { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: false },
         { name: 'Германия · Frankfurt', kind: 'vless', delay: 61, selected: false },
-        { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: false },
         { name: 'США · New York', kind: 'trojan', delay: 142, selected: false },
-        { name: 'Турция · Istanbul', kind: 'vless', delay: null, selected: false },
+        { name: 'Германия · Berlin', kind: 'hysteria2', delay: null, selected: false },
       ],
-      grpc: [{ name: 'grpc', kind: 'vless', delay: 57, selected: true }],
+      p2: [
+        { name: 'Нидерланды · Rotterdam', kind: 'vless', delay: 52, selected: true },
+        { name: 'Финляндия · Espoo', kind: 'hysteria2', delay: 44, selected: false },
+      ],
+      p3: [{ name: '🇳🇱 Нидерланды · 203.0.113.81', kind: 'vless', delay: 73, selected: true }],
     },
   };
 }
@@ -67,20 +75,22 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
 const USER = 'C:\\Users\\user\\AppData';
 
 function seedLists(): Record<Routing, Rule[]> {
+  // Как в макете.
   return {
     selected: [
-      { target: { kind: 'service', value: 'claude' }, route: 'vpn' },
       { target: { kind: 'service', value: 'youtube' }, route: 'vpn' },
-      { target: { kind: 'program', value: `${USER}\\Local\\Discord` }, route: 'vpn' },
-      { target: { kind: 'program', value: `${USER}\\Local\\Roblox` }, route: 'vpn' },
+      { target: { kind: 'service', value: 'telegram' }, route: 'vpn' },
+      { target: { kind: 'service', value: 'discord' }, route: 'vpn' },
+      { target: { kind: 'service', value: 'instagram' }, route: 'vpn', enabled: false },
+      { target: { kind: 'service', value: 'chatgpt' }, route: 'vpn' },
       { target: { kind: 'domain', value: 'notion.so' }, route: 'vpn' },
-      { target: { kind: 'ip', value: '149.154.160.0/20' }, route: 'vpn' },
-      { target: { kind: 'domain', value: 'ads.example.com' }, route: 'block' },
+      { target: { kind: 'domain', value: 'medium.com' }, route: 'vpn' },
     ],
     all_vpn: [
+      { target: { kind: 'domain', value: 'gosuslugi.ru' }, route: 'direct' },
+      { target: { kind: 'domain', value: 'sberbank.ru' }, route: 'direct' },
+      { target: { kind: 'domain', value: 'ozon.ru' }, route: 'direct' },
       { target: { kind: 'program', value: 'C:\\Program Files (x86)\\Steam' }, route: 'direct' },
-      { target: { kind: 'domain', value: 'sber.ru' }, route: 'direct' },
-      { target: { kind: 'domain', value: 'kinopoisk.ru' }, route: 'vpn' },
     ],
   };
 }
@@ -192,10 +202,10 @@ class MockService {
     const empty = sc === 'empty';
     this.settings = {
       mode: sc === 'browser' ? 'sys_proxy' : 'tun',
-      routing: 'selected',
+      routing: 'all_vpn',
       lists: seedLists(),
       connections: empty ? [] : connections,
-      active_connection: empty ? null : 'alex',
+      active_connection: empty ? null : 'p1',
       kill_switch: {
         enabled: true,
         programs: [
@@ -213,7 +223,7 @@ class MockService {
       auto_update: true,
       notify: true,
       // `?theme=light` — посмотреть превью в светлой теме.
-      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158' },
+      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'custom', base: 'light', accent: '#30d158' },
       on_exit: 'ask',
       language: 'ru',
     };
@@ -228,13 +238,19 @@ class MockService {
       [-120, 'error', 'ядро: соединение через VPN не удалось (адрес скрыт)'],
     ].map(([d, level, text]) => ({ at: Date.now() + (d as number) * 1000, level: level as LogLine['level'], text: text as string }));
     const vpn: StateView['vpn'] = (
-      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected', browser: 'connected' } as const
+      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', expired: 'off', traffic: 'off', neighbors: 'connected', browser: 'connected' } as const
     )[sc];
     const running = vpn === 'connected' || vpn === 'reconnecting' || vpn === 'server_down';
+    const first = this.settings.connections[0];
+    if (sc === 'expired' && first?.info) first.info.expire = nowS() - 9 * 86400;
+    if (sc === 'traffic' && first?.info) first.info.download = first.info.total - first.info.upload;
+    if (sc === 'down') this.servers.p1.forEach((x) => (x.selected = x.name === 'Германия · Berlin'));
+    if (sc === 'down' && first) first.selected_server = 'Германия · Berlin';
+    this.sources = { p1: 'https://panel.example.com/sub/a1b2c3d4e5f6', p2: 'https://vpn.company.example/sub/77', p3: 'vless://uuid@203.0.113.81:443#grpc' };
     this.st = {
       vpn,
       mode: sc === 'browser' ? 'sys_proxy' : 'tun',
-      routing: 'selected',
+      routing: 'all_vpn',
       kill_switch: true,
       connection: this.view(),
       server: this.active()?.selected_server ?? null,
@@ -376,6 +392,20 @@ class MockService {
         c.updated_at = nowS();
         this.emitState();
         return { id: c.id, name: c.name, info: c.info };
+      }
+      case 'rename_connection': {
+        const c = this.settings.connections.find((x) => x.id === args.id);
+        if (!c) return fail('conn.not_found');
+        c.name = String(args.name).trim().slice(0, 64) || c.name;
+        this.emitState();
+        return this.settings;
+      }
+      case 'connection_link':
+        return this.sources[args.id] ?? fail('conn.not_found');
+      case 'delay': {
+        if (!this.running()) return { delay: null };
+        const s = (this.servers[this.settings.active_connection ?? ''] ?? []).find((x) => x.selected);
+        return { delay: s?.delay != null ? Math.max(18, Math.round(s.delay * (0.85 + Math.random() * 0.3) + (Math.random() < 0.1 ? 30 : 0))) : null };
       }
       case 'remove_connection': {
         const wasActive = this.settings.active_connection === args.id;

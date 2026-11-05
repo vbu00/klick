@@ -14,6 +14,8 @@ pub struct Fetched {
     pub info: Option<SubInfo>,
     pub title: Option<String>,
     pub interval_hours: Option<u32>,
+    pub web_page: Option<String>,
+    pub support_url: Option<String>,
     pub content: Content,
 }
 
@@ -42,9 +44,21 @@ pub async fn fetch(url: &str, via_port: Option<u16>) -> Result<Fetched, ErrorInf
     let title = header("profile-title")
         .and_then(|h| sub::parse_title(&h))
         .or_else(|| header("content-disposition").and_then(|h| sub::filename_from_disposition(&h)));
+    let web_page = header("profile-web-page-url").and_then(|h| web_link(&h));
+    let support_url = header("support-url").and_then(|h| web_link(&h));
     let body = res.text().await.map_err(|_| ErrorInfo::new("sub.fetch_failed"))?;
     let content = check(&body)?;
-    Ok(Fetched { body, info, title, interval_hours, content })
+    Ok(Fetched { body, info, title, interval_hours, web_page, support_url, content })
+}
+
+/// Ссылка на страницу провайдера из заголовка: только http(s), без пробелов, не длиннее 2048 символов.
+/// Окно откроет её в браузере, поэтому другие схемы не пропускаем.
+pub fn web_link(value: &str) -> Option<String> {
+    let v = value.trim();
+    let lower = v.to_ascii_lowercase();
+    let ok = (lower.starts_with("https://") || lower.starts_with("http://")) && v.len() <= 2048 && !v.chars().any(|c| c.is_whitespace() || c.is_control());
+    let host = v.split_once("://").map(|(_, r)| r.split(['/', '?', '#']).next().unwrap_or("")).unwrap_or("");
+    (ok && !host.is_empty() && !host.contains('@')).then(|| v.to_string())
 }
 
 /// Что внутри: подходит ли это ядру.
@@ -63,4 +77,20 @@ fn without_url(e: &reqwest::Error) -> String {
         text = text.replace(url.as_str(), "<подписка>");
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::web_link;
+
+    #[test]
+    fn web_link_only_http() {
+        assert_eq!(web_link(" https://panel.example.com/u/1 ").as_deref(), Some("https://panel.example.com/u/1"));
+        assert_eq!(web_link("https://t.me/support").as_deref(), Some("https://t.me/support"));
+        assert_eq!(web_link("javascript:alert(1)"), None);
+        assert_eq!(web_link("tg://resolve?domain=x"), None);
+        assert_eq!(web_link("https://user:pass@example.com/"), None);
+        assert_eq!(web_link("https:// example.com"), None);
+        assert_eq!(web_link("https://"), None);
+    }
 }

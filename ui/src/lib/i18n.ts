@@ -146,6 +146,12 @@ export function errorText(code: string, params?: Params): string {
       return 'Уже добавлено';
     case 'conn.not_found':
       return 'Подключение не найдено';
+    case 'conn.no_link':
+      return 'У файла нет ссылки';
+    case 'conn.secret_missing':
+      return 'Ссылка этого подключения потерялась — добавьте его заново';
+    case 'input.empty_name':
+      return 'Введите название';
     case 'service.stopping':
     case 'service.unreachable':
       return 'Служба kl!ck не отвечает';

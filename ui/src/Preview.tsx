@@ -4,12 +4,14 @@ import { useState, type ReactNode } from 'react';
 import type { Scenario } from './lib/mock';
 
 const SCENARIOS: [Scenario, string][] = [
-  ['empty', 'Нет подключений'],
-  ['off', 'Выключен'],
   ['connected', 'Подключён'],
-  ['reconnecting', 'Переподключение'],
+  ['off', 'Выключен'],
   ['down', 'Сервер не отвечает'],
-  ['error', 'Ошибка'],
+  ['reconnecting', 'Обрыв связи'],
+  ['expired', 'Подписка истекла'],
+  ['traffic', 'Трафик кончился'],
+  ['empty', 'Нет подписок'],
+  ['error', 'VPN не включился'],
   ['neighbors', 'Мешает zapret'],
   ['browser', 'Мешает расширение браузера'],
 ];

@@ -237,6 +237,12 @@ pub struct Connection {
     pub update_interval_hours: Option<u32>,
     #[serde(default)]
     pub selected_server: Option<String>,
+    /// Страница подписки у провайдера: заголовок `profile-web-page-url`, если панель его даёт.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_page: Option<String>,
+    /// Поддержка провайдера: заголовок `support-url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

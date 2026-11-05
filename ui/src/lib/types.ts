@@ -43,6 +43,10 @@ export interface Connection {
   updated_at: number | null;
   update_interval_hours: number | null;
   selected_server: string | null;
+  /** Страница подписки у провайдера (заголовок `profile-web-page-url`), если панель её даёт. */
+  web_page?: string | null;
+  /** Поддержка провайдера (заголовок `support-url`), если панель её даёт. */
+  support_url?: string | null;
 }
 
 export type Target =

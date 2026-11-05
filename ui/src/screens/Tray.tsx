@@ -4,6 +4,7 @@
 // Окно подгоняет высоту под содержимое и прячется, когда щёлкнули мимо.
 
 import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+
 import mark from '../assets/mark.png';
 import markFace from '../assets/mark-face.png';
 import { Sheet, Toasts } from '../components/Chrome';
@@ -16,7 +17,17 @@ import { plural } from '../lib/rules';
 import { useStore } from '../lib/store';
 import type { Transport } from '../lib/transport';
 import type { AboutView, Connection, ConnView, ExitAction, ServerView, VpnState } from '../lib/types';
-import { useNow } from './Home';
+
+/** Текущее время раз в секунду, пока `active`. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+  return now;
+}
 
 const STATUS: Record<VpnState, [string, string]> = {
   off: ['Отключено', 'var(--dim)'],

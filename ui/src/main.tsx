@@ -11,6 +11,7 @@ import './styles/connection.css';
 import './styles/cx.css';
 import './styles/settings.css';
 import './styles/tray.css';
+import './styles/bm.css';
 
 // Сразу последняя тема, пока служба не прислала настройки.
 applyCachedTheme();

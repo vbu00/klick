@@ -150,8 +150,11 @@ export interface Store extends S {
   testLatency(): Promise<void>;
   refresh(id: string): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Переименовать подключение: название видно только в kl!ck. */
+  rename(id: string, name: string): Promise<void>;
   addLink(source: string, name?: string): Promise<boolean>;
-  importFile(file: File): Promise<boolean>;
+  /** `name` — название вместо имени файла. */
+  importFile(file: File, name?: string): Promise<boolean>;
   setMode(mode: Mode): Promise<void>;
   setRouting(routing: Routing): Promise<void>;
   setRussia(key: 'ru_domains' | 'ru_ips', on: boolean): Promise<void>;
@@ -193,6 +196,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
   const ref = useRef(s);
   ref.current = s;
   const toastId = useRef(0);
+  const self = useRef<Store | null>(null);
 
   const toast = useCallback((title: string, text?: string, tone: Tone = 'dim', action?: Toast['action']) => {
     const id = ++toastId.current;
@@ -383,11 +387,21 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       },
       remove: async (id) => {
-        const name = ref.current.settings?.connections.find((c) => c.id === id)?.name ?? '';
+        const conn = ref.current.settings?.connections.find((c) => c.id === id);
+        const name = conn?.name ?? '';
+        // Ссылку берём заранее: по «Вернуть» подключение добавится снова.
+        const link = conn && conn.kind !== 'file' ? await transport.call<string>('connection_link', { id }).catch(() => null) : null;
         const r = await call('remove_connection', { id });
         if (r !== undefined) {
-          toast('Подключение удалено', name, 'dim');
+          toast(`«${name}» удалена`, undefined, 'bad', link ? { label: 'Вернуть', run: () => void self.current?.addLink(link, name) } : undefined);
           await reload();
+        }
+      },
+      rename: async (id, name) => {
+        const r = await call('rename_connection', { id, name });
+        if (r !== undefined) {
+          toast('Переименовали', undefined, 'ok');
+          await reloadSettings();
         }
       },
       addLink: async (source, name) => {
@@ -404,15 +418,22 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
           failed(e);
           return false;
         }
-        toast('Подключение добавлено', 'Проверьте задержку серверов', 'ok');
+        const single = !/^https?:\/\//i.test(source.trim());
+        toast(single ? 'Конфигурация добавлена' : 'Подписка добавлена', undefined, 'ok');
         await reload();
         return true;
       },
-      importFile: async (file) => {
+      importFile: async (file, name) => {
         const content = await file.text();
+        const before = new Set(ref.current.settings?.connections.map((c) => c.id) ?? []);
         const r = await call('import_file', { file_name: file.name, content });
         if (r === undefined) return false;
-        toast('Файл импортирован', file.name, 'ok');
+        if (name) {
+          const st = await transport.call<Settings>('settings').catch(() => null);
+          const added = st?.connections.find((c) => !before.has(c.id));
+          if (added) await transport.call('rename_connection', { id: added.id, name }).catch(() => undefined);
+        }
+        toast('Подписка добавлена', undefined, 'ok');
         await reload();
         return true;
       },
@@ -542,5 +563,6 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
     [s, transport, call, reload, reloadSettings, toast, failed],
   );
 
+  self.current = store;
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
