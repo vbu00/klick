@@ -37,13 +37,14 @@ function WaitUi([int]$procId, [string[]]$any, [int]$seconds = 20) {
     $t
 }
 
-# Нажать кнопку по имени (тексту или aria-label).
-function UiPress([int]$procId, [string]$name) {
+# Нажать кнопку по имени (тексту или aria-label). -Last — последнюю из одноимённых: кнопка открытого
+# листа снизу идёт в окне после кнопок экрана под ним («Добавить подписку» — и «+» на главной, и кнопка листа).
+function UiPress([int]$procId, [string]$name, [switch]$Last) {
     $cond = New-Object System.Windows.Automation.AndCondition(
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $name)),
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))
     foreach ($w in (UiWindows $procId)) {
-        $b = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        $b = if ($Last) { $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond) | Select-Object -Last 1 } else { $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond) }
         if ($b) { $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); return $true }
     }
     $false
