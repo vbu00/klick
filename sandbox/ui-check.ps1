@@ -2,7 +2,8 @@
 #   powershell -File sandbox\start.ps1 -Release -Script ui-check
 # 1. «Прежняя kl!ck 0.2–0.4»: её зашифрованные подписки в %LOCALAPPDATA%\com.vbu00.klick.
 # 2. klick-setup.exe --silent: ставит WebView2, если его нет, и переносит подписки.
-# 3. Окно и трей: снимки всего экрана и самих страниц (протокол отладки WebView2).
+# 3. Окно и трей: снимки всего экрана и самих страниц (протокол отладки WebView2); экраны и листы
+#    нового окна — щелчками по кнопкам; новые команды службы — по каналу управления.
 # 4. Окно не разворачивается: ни командой «Развернуть», ни Win+↑.
 # 5. Канал управления занят чужой программой — окно не отдаёт ей ни одной команды.
 # Отчёт — results\ui-check.txt, снимки — results\*.png.
@@ -155,7 +156,7 @@ try {
     Check 'правый щелчок по значку открывает окно трея' ($trayWin.Count -eq 1) $after
     Shot 'desk-tray'
     # Страницы окон — если WebView2 открыл порт отладки (бывает не всегда).
-    & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_" }
+    & "$root\node\node.exe" "$root\ui-check.mjs" 2>&1 | ForEach-Object { Log "$_"; if ("$_" -match '^FAIL') { $script:fails++ } }
     # Почему порта нет: с какими ключами запущены процессы WebView2 и слушает ли кто-то порт.
     Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } |
         ForEach-Object { Log ("WebView2 {0}: {1}" -f $_.ProcessId, $_.CommandLine) }
@@ -166,6 +167,107 @@ try {
     $away = WindowsOf $win.Id
     Log ("окна kl!ck после щелчка мимо: " + $away)
     Check 'окно трея прячется, когда щёлкнули мимо' (-not ($away -split '; ' | Where-Object { $_ -match '^(3[2-4]\d)x(\d+) ' -and [int]$Matches[2] -gt 100 })) $away
+
+    # 3a. Новое окно по макету: экраны и листы — как человек, щелчками по кнопкам (UI Automation
+    # видит кнопки страницы по их подписям), снимок экрана после каждого шага.
+    $main = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+    # Chromium строит дерево доступности по первому запросу: первый поиск часто пустой — ждём, пока появятся кнопки.
+    function AllNamed { $main.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name } }
+    for ($i = 0; $i -lt 20 -and @(AllNamed).Count -lt 5; $i++) { Start-Sleep -Milliseconds 500 }
+    function FindName([string]$like) {
+        for ($try = 0; $try -lt 6; $try++) {
+            $hidden = $null
+            foreach ($e in (AllNamed)) {
+                if ($e.Current.Name -notlike $like) { continue }
+                $r = $e.Current.BoundingRectangle
+                if (-not $e.Current.IsOffscreen -and $r.Width -gt 0 -and $r.Height -gt 0) { return $e }
+                if (-not $hidden) { $hidden = $e }
+            }
+            # Строка ниже видимой части окна: прокрутить к ней, как колёсиком.
+            if ($hidden) {
+                $sp = $null
+                if ($hidden.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern, [ref]$sp)) { $sp.ScrollIntoView(); Start-Sleep -Milliseconds 500; continue }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        $null
+    }
+    function ClickName([string]$like) {
+        $e = FindName $like
+        if (-not $e) { return $false }
+        $r = $e.Current.BoundingRectangle
+        [void][W]::SetForegroundWindow($h)
+        [void][W]::SetCursorPos([int]($r.X + [Math]::Min($r.Width / 2, 40)), [int]($r.Y + $r.Height / 2)); Start-Sleep -Milliseconds 150
+        [W]::mouse_event(2, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 60; [W]::mouse_event(4, 0, 0, 0, [IntPtr]::Zero)
+        Start-Sleep -Milliseconds 900
+        $true
+    }
+    function Esc { [void][W]::SetForegroundWindow($h); [W]::keybd_event(0x1B, 0, 0, [IntPtr]::Zero); [W]::keybd_event(0x1B, 0, 2, [IntPtr]::Zero); Start-Sleep -Milliseconds 700 }
+    $steps = @(
+        @('desk-speed', @('Скорость — подробнее')), @('', @('<esc>')),
+        @('desk-add', @('Добавить подписку')), @('', @('<esc>')),
+        @('desk-menu', @('Ещё')), @('desk-rename', @('Переименовать')), @('', @('<esc>')),
+        @('desk-routes', @('Маршруты')),
+        @('desk-routes-selected', @('Только выбранное*')),
+        @('desk-rules', @('Мои сайты и приложения*')), @('', @('<esc>')),
+        @('desk-routes-all', @('Всё, кроме исключений*')),
+        @('desk-diag', @('Что-то не открывается*')),
+        @('desk-settings', @('Настройки')),
+        @('desk-method', @('Способ подключения*')), @('', @('<esc>')),
+        @('desk-look', @('Оформление*')),
+        @('desk-look-dark', @('Тёмная')),
+        @('', @('Системная')),
+        @('desk-killswitch', @('Настройки', 'Kill Switch?*')),
+        @('desk-more', @('Настройки', 'Дополнительно*')),
+        @('desk-about', @('Настройки', 'О приложении*')),
+        @('', @('Главная'))
+    )
+    foreach ($s in $steps) {
+        $fine = $true
+        foreach ($c in $s[1]) {
+            if ($c -eq '<esc>') { Esc; continue }
+            if (-not (ClickName $c)) { $fine = $false; Check "окно: нашлась кнопка «$c»" $false }
+        }
+        if ($s[0]) { Shot $s[0]; if ($fine) { Log "снимок $($s[0])" } }
+    }
+
+    # 3b. Новые команды службы — напрямую по каналу управления, как их зовёт окно.
+    function PipeCall([string]$json) {
+        $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'klick', [System.IO.Pipes.PipeDirection]::InOut)
+        try {
+            $c.Connect(5000)
+            $enc = New-Object Text.UTF8Encoding $false
+            $w = New-Object IO.StreamWriter($c, $enc); $w.AutoFlush = $true
+            $r = New-Object IO.StreamReader($c, $enc)
+            $w.WriteLine($json)
+            for ($i = 0; $i -lt 50; $i++) {
+                $line = $r.ReadLine()
+                if ($null -eq $line) { break }
+                $m = $line | ConvertFrom-Json
+                if ($m.t -eq 'res') { return $m }
+            }
+        } catch { Log "канал: $($_.Exception.Message)" } finally { $c.Dispose() }
+        $null
+    }
+    $conns = @((KlickJson settings).connections)
+    $one = $conns | Where-Object { $_.kind -ne 'file' } | Select-Object -First 1
+    $file = $conns | Where-Object { $_.kind -eq 'file' } | Select-Object -First 1
+    if ($one) {
+        $r = PipeCall ('{"id":1,"cmd":"rename_connection","args":{"id":"' + $one.id + '","name":"Переименовано"}}')
+        $now = (@((KlickJson settings).connections) | Where-Object { $_.id -eq $one.id }).name
+        Check 'служба: переименование' ($r.ok -and $now -eq 'Переименовано') "было «$($one.name)», стало «$now»"
+        [void](PipeCall ('{"id":2,"cmd":"rename_connection","args":{"id":"' + $one.id + '","name":"' + $one.name + '"}}'))
+        $r = PipeCall ('{"id":3,"cmd":"rename_connection","args":{"id":"' + $one.id + '","name":"   "}}')
+        Check 'служба: пустое название не принимается' ((-not $r.ok) -and $r.error.code -eq 'input.empty_name') "$($r.error.code)"
+        $r = PipeCall ('{"id":4,"cmd":"connection_link","args":{"id":"' + $one.id + '"}}')
+        Check 'служба: «Скопировать ссылку» отдаёт ссылку' ($r.ok -and "$($r.data)" -match '^[a-z0-9]+://') ("$($r.data)" -replace '://.*', '://…')
+    } else { Check 'есть подключение-ссылка для проверки' $false }
+    if ($file) {
+        $r = PipeCall ('{"id":5,"cmd":"connection_link","args":{"id":"' + $file.id + '"}}')
+        Check 'служба: у файла ссылки нет' ((-not $r.ok) -and $r.error.code -eq 'conn.no_link') "$($r.error.code)"
+    }
+    $r = PipeCall '{"id":6,"cmd":"delay"}'
+    Check 'служба: задержка без VPN — пусто' ($r.ok -and $null -eq $r.data.delay) ($r | ConvertTo-Json -Compress -Depth 4)
 
     # Левый щелчок — главное окно, даже если его закрыли крестиком (спрятали). Закрываем как человек,
     # WM_CLOSE: окно прячет само себя. ShowWindow(SW_HIDE) в обход окна сбил бы его учёт видимости,

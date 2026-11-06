@@ -392,9 +392,9 @@ export function AddSheet() {
           <div className="sf sq20" style={{ ...css('position: relative; flex: none; transition: box-shadow .25s ease'), boxShadow: taRing, animation: fadeUp('.1s') }}>
             {from ? (
               <div style={css('height: 124px; padding: 14px 16px 48px; display: flex; flex-direction: column; gap: 4px')}>
-                <span className="cap2">Подписка со страницы</span>
-                <span style={css('font-size: 17px; line-height: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis')}>{from}</span>
-                <span style={css('font-size: 12.5px; line-height: 16px; color: var(--text2)')}>Показываем только адрес сайта: остальное в ссылке — ваш ключ.</span>
+                <span className="cap2" style={css('flex: none')}>Подписка со страницы</span>
+                <span style={css('flex: none; font-size: 17px; line-height: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis')}>{from}</span>
+                <span style={css('flex: none; font-size: 12.5px; line-height: 16px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis')}>Остальное в ссылке — ваш ключ</span>
               </div>
             ) : (
               <textarea
