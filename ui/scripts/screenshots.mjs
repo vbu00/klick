@@ -84,7 +84,9 @@ try {
       if (JSON.stringify(next) === JSON.stringify(r)) break;
       r = next;
     }
+    if (!r) throw new Error(`${name}: не нашёл ${sel}`);
     const shot = await send('Page.captureScreenshot', { format: 'png', clip: { ...r, scale: 1 } });
+    if (!shot.result) throw new Error(`${name}: ${JSON.stringify(shot.error)}`);
     writeFileSync(join(OUT, `${name}.png`), Buffer.from(shot.result.data, 'base64'));
     console.log(`${name}.png  ${Math.round(r.width)}×${Math.round(r.height)}`);
   }

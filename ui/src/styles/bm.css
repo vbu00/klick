@@ -74,7 +74,7 @@
 @media (prefers-reduced-motion:reduce){.bm *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
 /* Окно приложения: в Tauri — во всё окно, в превью — 382×797 со скруглением, как в макете. */
-.bm.bm-root{position:relative;width:382px;height:797px;overflow:hidden;border-radius:16px;background:var(--bg);color:var(--text);font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Inter Variable',Inter,'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .3s ease;user-select:none}
+.bm.bm-root{position:relative;width:382px;height:797px;overflow:hidden;border-radius:16px;background:var(--bg);color:var(--text);font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Inter Variable',Inter,'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .3s ease;user-select:none;overflow:clip}
 body.in-tauri .bm.bm-root{width:100vw;height:100vh;border-radius:0}
 .bm input,.bm textarea{user-select:text}
 .bm input::placeholder,.bm textarea::placeholder{color:var(--text3)}
