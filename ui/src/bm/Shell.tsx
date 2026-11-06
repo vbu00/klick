@@ -281,6 +281,7 @@ function ToastView({ toast, onAct }: { toast: ReturnType<typeof useStore>['toast
   return (
     <div
       role="status"
+      className="bm-toast"
       aria-live="polite"
       style={{
         ...css('position: absolute; left: 50%; bottom: 82px; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 999px; background: var(--accentToast); color: #fff; font-size: 12.5px; font-weight: 500; white-space: nowrap; box-shadow: 0 10px 24px rgba(0,0,0,.18); transition: transform .35s cubic-bezier(.32,.72,0,1), opacity .25s ease'),

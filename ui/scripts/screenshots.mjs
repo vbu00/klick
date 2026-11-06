@@ -16,13 +16,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Имя файла, страница превью, что нажать перед снимком (aria-label или текст кнопки), какой блок снять.
 const SHOTS = [
-  ['home-dark', '/?s=connected', [], '.window'],
-  ['home-light', '/?s=connected&theme=light', [], '.window'],
-  ['connection-dark', '/?s=connected', ['Соединение'], '.window'],
-  ['add-light', '/?s=connected&theme=light', ['Добавить'], '.window'],
-  ['settings-dark', '/?s=connected', ['Настройки'], '.window'],
-  ['killswitch-light', '/?s=connected&theme=light', ['Настройки', 'Kill Switch'], '.window'],
-  ['tray-dark', '/?view=tray&s=connected', [], '.tray'],
+  ['home-dark', '/?s=connected&theme=dark', [], '.bm-root'],
+  ['home-light', '/?s=connected', [], '.bm-root'],
+  ['connection-dark', '/?s=connected&theme=dark', ['Маршруты'], '.bm-root'],
+  ['add-light', '/?s=connected', ['Добавить подписку'], '.bm-root'],
+  ['settings-dark', '/?s=connected&theme=dark', ['Настройки'], '.bm-root'],
+  ['killswitch-light', '/?s=connected', ['Настройки', 'Kill Switch'], '.bm-root'],
+  ['tray-dark', '/?view=tray&s=connected&theme=dark', [], '.tray'],
   ['tray-light', '/?view=tray&s=connected&theme=light', [], '.tray'],
 ];
 
@@ -74,7 +74,7 @@ try {
       await sleep(900);
     }
     // Всплывающие сообщения превью на снимке не нужны.
-    await js(`document.querySelectorAll('.toast, .toasts').forEach((e) => e.remove())`);
+    await js(`document.querySelectorAll('.toast, .toasts, .bm-toast').forEach((e) => (e.style.visibility = 'hidden'))`);
     // Окно трея подгоняет высоту под содержимое: снимаем, когда размер перестал меняться.
     const rect = `(() => { scrollTo(0, 0); const b = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: b.x + scrollX, y: b.y + scrollY, width: b.width, height: b.height }; })()`;
     let r = await js(rect);
@@ -84,7 +84,9 @@ try {
       if (JSON.stringify(next) === JSON.stringify(r)) break;
       r = next;
     }
+    if (!r) throw new Error(`${name}: не нашёл ${sel}`);
     const shot = await send('Page.captureScreenshot', { format: 'png', clip: { ...r, scale: 1 } });
+    if (!shot.result) throw new Error(`${name}: ${JSON.stringify(shot.error)}`);
     writeFileSync(join(OUT, `${name}.png`), Buffer.from(shot.result.data, 'base64'));
     console.log(`${name}.png  ${Math.round(r.width)}×${Math.round(r.height)}`);
   }

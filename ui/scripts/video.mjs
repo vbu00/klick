@@ -14,13 +14,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..', '..');
 const WORK = path.join(os.tmpdir(), `klick-video-${MODE}`);
 const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
-const BASE = 'http://127.0.0.1:5173';
+const BASE = process.env.PREVIEW ?? 'http://127.0.0.1:5173';
 const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const LOGO = path.join(REPO, 'docs', 'logo');
 const PORT = 9352;
 const W = 1920;
 const H = 1080;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ADD = '[role=dialog][aria-label="Добавить подключение"]';
 const icon = (c) => 'data:image/png;base64,' + fs.readFileSync(path.join(LOGO, `${c}-dark.png`)).toString('base64');
 
 // ── Сценарий ──────────────────────────────────────────────────────────────
@@ -38,90 +39,99 @@ const FULL = [
     after: async (d) => { await d.click('Готово'); },
   },
   {
-    id: 's03', page: '/?s=empty', cap: ['Добавьте подписку', 'Нажмите «Добавить подключение» и вставьте ссылку от вашего VPN-провайдера — тип ссылки kl!ck определит сам.'],
-    say: 'После установки клик откроется пустым. Нажмите «Добавить подключение» и вставьте ссылку на подписку от вашего VPN-провайдера. Что это за ссылка, клик поймёт сам.',
+    id: 's03', page: '/?s=empty', cap: ['Добавьте подписку', 'Нажмите «Добавить подписку» и вставьте ссылку от вашего VPN-провайдера — тип ссылки kl!ck определит сам.'],
+    say: 'После установки клик откроется пустым. Нажмите «Добавить подписку» и вставьте ссылку от вашего VPN-провайдера. Что это за ссылка, клик поймёт сам.',
     act: async (d) => {
       await d.wait(1500);
-      await d.click('Добавить подключение');
+      await d.click('Добавить подписку', { exact: true, text: true });
       await d.wait(900);
-      await d.type('Ссылка на подписку или конфигурацию', 'https://panel.example.com/sub/demo');
-      await d.wait(600);
-      await d.click('Добавить', { exact: true });
+      await d.type('Ссылка или ключ', 'https://panel.example.com/sub/demo');
+      await d.wait(900);
+      await d.click('Добавить подписку', { exact: true, text: true, within: ADD });
       await d.wait(1500);
     },
   },
   {
     id: 's04', cap: ['Подключитесь', 'Нажмите большую кнопку — и компьютер пойдёт через VPN. Цвет кнопки и значка в трее показывает состояние.'],
-    say: 'Подписка добавлена: видны сервер, остаток трафика и срок действия. Теперь нажмите большую кнопку — и компьютер пойдёт через VPN. Цвет кнопки и значка в трее показывает состояние.',
-    act: async (d) => { await d.wait(3500); await d.click('Включить VPN'); await d.wait(1200); await d.trayIcon('green'); },
+    say: 'Подписка добавлена: видны серверы, остаток трафика и срок действия. Теперь нажмите большую кнопку — и компьютер пойдёт через VPN. Цвет кнопки и значка в трее показывает состояние.',
+    act: async (d) => { await d.wait(3500); await d.click('Подключить'); await d.wait(1200); await d.trayIcon('green'); },
   },
   {
-    id: 's05', cap: ['Серверы', 'Нажмите на карточку подписки — «Проверить задержку» покажет, какой сервер быстрее. Переключаться можно на ходу.'],
-    say: 'Нажмите на карточку подписки — откроется список серверов. «Проверить задержку» покажет, какой из них быстрее. Переключиться можно прямо на ходу, без переподключения.',
+    id: 's05', cap: ['Серверы', 'Серверы — прямо в карточке подписки. Значок пульса проверит задержку, «Авто» выберет самый быстрый.'],
+    say: 'Серверы — прямо в карточке подписки. Значок пульса проверит задержку всех серверов, а «Авто» выберет самый быстрый. Переключиться можно на ходу.',
     act: async (d) => {
       await d.wait(600);
-      await d.click('Нидерланды · Amsterdam');
-      await d.wait(1200);
       await d.click('Проверить задержку');
       await d.wait(2600);
       await d.click('Турция · Istanbul');
-    },
-  },
-  {
-    id: 's06', cap: ['Режим', 'VPN (TUN) — все программы, включая игры. Системный прокси — браузеры и программы, которые его понимают.'],
-    say: 'На вкладке «Соединение» выбирается режим. VPN, он же TUN, пускает через туннель все программы, включая игры. Системный прокси — только браузеры и программы, которые его понимают.',
-    act: async (d) => { await d.nav('Соединение'); await d.wait(1500); await d.move('VPN (TUN)'); await d.wait(3000); await d.move('Системный прокси'); },
-  },
-  {
-    id: 's07', cap: ['Куда направлять', '«VPN для всего» — через VPN всё. «VPN для выбранного» — заблокированное в РФ и ваш список, остальное напрямую.'],
-    say: 'Ниже — куда направлять трафик. «VPN для всего»: через VPN идёт всё, а российские сайты можно пустить напрямую. «VPN для выбранного»: через VPN только заблокированное в России и ваш список, остальное — напрямую.',
-    act: async (d) => { await d.wait(800); await d.click('VPN для всего'); await d.wait(5500); await d.click('VPN для выбранного'); },
-  },
-  {
-    id: 's08', cap: ['Свой список', 'Добавьте в список сервис из каталога, программу, сайт или IP-адрес.'],
-    say: 'В свой список можно добавить сервис из каталога, программу, сайт или IP-адрес.',
-    act: async (d) => {
-      await d.click('Добавить', { exact: true });
       await d.wait(900);
-      await d.click('Сайт или IP');
-      await d.wait(500);
-      await d.type('example.com или 1.2.3.4', 'youtube.com');
-      await d.wait(400);
-      await d.click('Добавить · 1', { within: '.sheet' });
-      await d.wait(1200);
+      await d.click('Сменить', { exact: true });
     },
   },
   {
-    id: 's09', cap: ['Сейчас в сети', 'Какие программы куда ходят — через VPN или напрямую. «Не открывается?» подскажет причину.'],
-    say: 'Ниже видно, какие программы сейчас в сети и куда они идут — через VPN или напрямую. А если сайт не открывается, раздел «Не открывается?» подскажет причину.',
-    act: async (d) => { await d.scrollTo('Сейчас в сети'); await d.wait(4500); await d.scrollTo('Не открывается?'); },
+    id: 's06', cap: ['Скорость', 'Нажмите на скорость — график за минуту, задержка и как вас видят сайты.'],
+    say: 'Нажмите на скорость вверху — откроется график за последнюю минуту, задержка сервера и проверка «Как вас видят сайты»: адрес, страна, провайдер и утечки DNS и IPv6.',
+    act: async (d) => {
+      await d.click('Скорость — подробнее');
+      await d.wait(2500);
+      await d.scrollTo('Как вас видят сайты');
+      await d.click('Проверить', { exact: true, text: true });
+      await d.wait(2500);
+    },
+    after: async (d) => { await d.click('Закрыть', { within: '[role=dialog][aria-label="Скорость"]' }); await d.wait(600); },
   },
   {
-    id: 's10', cap: ['Как вас видят сайты', 'IP, страна и провайдер через VPN и напрямую, утечки DNS и IPv6.'],
-    say: '«Как вас видят сайты» покажет ваш адрес, страну и провайдера — через VPN и напрямую — и проверит утечки DNS и IPv6.',
-    act: async (d) => { await d.scrollTo('Как вас видят сайты'); await d.wait(900); await d.click('Проверить', { exact: true }); await d.wait(2500); },
+    id: 's07', cap: ['Маршруты', '«Всё, кроме исключений» — через VPN всё. «Только выбранное» — заблокированное в РФ, нужные сервисы и ваш список.'],
+    say: 'На вкладке «Маршруты» решается, что пускать через VPN. «Всё, кроме исключений»: через VPN идёт всё, а российские сайты — напрямую. «Только выбранное»: через VPN только заблокированное в России, нужные сервисы и ваш список.',
+    act: async (d) => { await d.nav('Маршруты'); await d.wait(2500); await d.click('Только выбранное'); await d.wait(1500); await d.click('Instagram'); },
   },
   {
-    id: 's11', cap: ['Kill Switch', 'Отмеченные программы не выйдут в интернет мимо VPN: без VPN они остаются без сети.'],
-    say: 'Kill Switch — в настройках. Отмеченные программы не выйдут в интернет мимо VPN: если VPN выключен или оборвался, они просто остаются без сети.',
+    id: 's08', cap: ['Свой список', 'Добавьте свой сайт или программу — правило сразу начнёт работать.'],
+    say: 'Свои сайты и программы добавляются в отдельный список — правило сразу начинает работать.',
+    act: async (d) => {
+      await d.click('Мои сайты и приложения');
+      await d.wait(900);
+      await d.type('domain.com или .ru', 'notion.so');
+      await d.wait(400);
+      await d.click('Добавить', { exact: true, text: true, within: '[role=dialog][aria-label="Мои сайты и приложения"]' });
+      await d.wait(1500);
+    },
+    after: async (d) => { await d.click('Закрыть', { within: '[role=dialog][aria-label="Мои сайты и приложения"]' }); await d.wait(600); },
+  },
+  {
+    id: 's09', cap: ['Диагностика', 'Какие программы куда ходят — и проверка всех серверов, если что-то не открывается.'],
+    say: 'Ниже видно, какие программы сейчас в сети и куда они идут. А если что-то не открывается, диагностика проверит все серверы из вашей сети и покажет сайты, которые не открылись.',
+    act: async (d) => { await d.scrollTo('Что-то не открывается?'); await d.wait(1500); await d.click('Что-то не открывается?'); await d.wait(1200); await d.click('Проверить серверы'); await d.wait(2500); },
+  },
+  {
+    id: 's10', cap: ['Способ подключения', 'VPN (TUN) — все программы, включая игры. Системный прокси — браузеры и программы, которые его понимают.'],
+    say: 'В настройках выбирается способ подключения. VPN, он же TUN, пускает через туннель все программы, включая игры. Системный прокси — только браузеры и программы, которые его понимают.',
     act: async (d) => {
       await d.nav('Настройки');
       await d.wait(1200);
-      await d.click('Kill Switch', { within: '.window main' });
+      await d.click('Способ подключения');
+      await d.wait(1800);
+      await d.click('Системный прокси', { exact: true, text: true, within: '[role=dialog][aria-label="Способ подключения"]' });
+      await d.wait(3000);
+      await d.click('VPN (TUN)', { exact: true, text: true, within: '[role=dialog][aria-label="Способ подключения"]' });
       await d.wait(1500);
-      await d.click('Добавить приложение');
-      await d.wait(1200);
-      await d.click('Google Chrome');
-      await d.wait(700);
-      await d.click('Добавить · 1');
-      await d.wait(900);
-      await d.scrollTo('Google Chrome');
+    },
+    after: async (d) => { await d.click('Готово', { exact: true }); await d.wait(600); },
+  },
+  {
+    id: 's11', cap: ['Kill Switch', 'Отмеченные программы не выйдут в интернет мимо VPN: без VPN они остаются без сети.'],
+    say: 'Kill Switch — тоже в настройках. Отмеченные программы не выйдут в интернет мимо VPN: если VPN выключен или оборвался, они просто остаются без сети.',
+    act: async (d) => {
+      await d.click('Без VPN — без интернета');
+      await d.wait(2000);
+      await d.scrollTo('Запущено сейчас');
+      await d.wait(1500);
     },
   },
   {
     id: 's12', cap: ['Трей', 'Крестик не закрывает kl!ck, а сворачивает в трей — VPN продолжает работать.'],
     say: 'Крестик не закрывает клик, а сворачивает его в трей — VPN продолжает работать.',
-    act: async (d) => { await d.wait(800); await d.click('Свернуть в трей'); await d.hideWindow(true); },
+    act: async (d) => { await d.wait(800); await d.click('Закрыть в трей'); await d.hideWindow(true); },
   },
   {
     id: 's13', cap: ['Трей', 'Правый щелчок по значку — быстрое меню. Левый — главное окно.'],
@@ -146,12 +156,12 @@ const FULL = [
 
 const GIF = [
   { id: 'g1', page: '/?s=empty', cap: ['1', 'Вставьте ссылку на подписку'], hold: 800, act: async (d) => {
-    await d.wait(900); await d.click('Добавить подключение'); await d.wait(700);
-    await d.type('Ссылка на подписку или конфигурацию', 'https://panel.example.com/sub/demo'); await d.wait(300);
-    await d.click('Добавить', { exact: true }); await d.wait(1600);
+    await d.wait(900); await d.click('Добавить подписку', { exact: true, text: true }); await d.wait(900);
+    await d.type('Ссылка или ключ', 'https://panel.example.com/sub/demo'); await d.wait(500);
+    await d.click('Добавить подписку', { exact: true, text: true, within: ADD }); await d.wait(1600);
   } },
-  { id: 'g2', cap: ['2', 'Нажмите кнопку'], hold: 2200, act: async (d) => { await d.wait(500); await d.click('Включить VPN'); await d.wait(1200); await d.trayIcon('green'); } },
-  { id: 'g3', cap: ['3', 'Правый щелчок по значку — быстрое меню'], hold: 3200, act: async (d) => { await d.hideWindow(true); await d.wait(500); await d.tray('right'); await d.showTray(true); } },
+  { id: 'g2', cap: ['2', 'Нажмите кнопку'], hold: 2200, act: async (d) => { await d.wait(500); await d.click('Подключить'); await d.wait(1200); await d.trayIcon('green'); } },
+  { id: 'g3', cap: ['3', 'Выберите, что пускать через VPN'], hold: 2600, act: async (d) => { await d.nav('Маршруты'); await d.wait(1600); await d.click('Только выбранное'); } },
 ];
 
 // ── Сцена в браузере ──────────────────────────────────────────────────────
@@ -164,8 +174,8 @@ function stage(o) {
     body { background: radial-gradient(1100px 760px at 72% 26%, #1f3f78 0%, transparent 62%), radial-gradient(900px 700px at 18% 86%, #3b2a70 0%, transparent 60%), #0a0d16 !important; }
     .preview { background: transparent !important; min-height: 100vh !important; padding: 0 !important; justify-content: center !important; ${o.side ? 'padding-left: 560px !important;' : 'padding-bottom: 170px !important;'} }
     .preview-bar { display: none !important; }
-    .preview .window, #root > .installer { transform: scale(${o.scale}); transform-origin: center center; transition: opacity .35s, transform .35s; }
-    .demo-hidden .preview .window { opacity: 0; transform: scale(${o.scale * 0.94}); }
+    .preview .bm-root, #root > .installer { transform: scale(${o.scale}); transform-origin: center center; transition: opacity .35s, transform .35s; }
+    .demo-hidden .preview .bm-root { opacity: 0; transform: scale(${o.scale * 0.94}); }
     #root > .installer { margin: 0 auto; }
     #demo-cap { position: fixed; z-index: 50; color: #fff; font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif; transition: opacity .35s; }
     #demo-cap.side { left: 110px; top: 50%; transform: translateY(-50%); width: 600px; }
@@ -243,7 +253,7 @@ function stage(o) {
       const scope = opt.within ? document.querySelector(opt.within) : document;
       if (!scope) return null;
       const all = [...scope.querySelectorAll('button, [role=tab], [role=switch], a, textarea, input, .row, .pick, [role=button], h1, h2, h3, h4, .caps, .sec-title, span, div, b')]
-        .filter((e) => !e.closest('#demo-root') && (opt.nav || !e.closest('nav')) && visible(e));
+        .filter((e) => !e.closest('#demo-root') && !e.closest('[aria-hidden="true"]') && (opt.nav || !e.closest('nav')) && visible(e));
       const label = (e) => (e.getAttribute('aria-label') || e.getAttribute('placeholder') || '').toLowerCase();
       // textContent, а не innerText: подписи в верхнем регистре сделаны стилем.
       const text = (e) => (e.textContent || e.value || '').trim().toLowerCase();
@@ -251,7 +261,7 @@ function stage(o) {
       const clickable = (e) => e.closest('button, [role=tab], [role=switch], a, .row, .pick, [role=button], textarea, input') || e;
       // Из нескольких совпадений — самое глубокое: у контейнера с одной кнопкой тот же текст, что у кнопки.
       const last = (f) => all.filter(f).pop();
-      let hit = all.find((e) => label(e) === q) || last((e) => text(e) === q);
+      let hit = (opt.text ? null : all.find((e) => label(e) === q)) || last((e) => text(e) === q);
       if (!hit && !opt.exact) hit = last((e) => text(e).startsWith(q));
       return hit ? (opt.raw ? hit : clickable(hit)) : null;
     },
@@ -370,7 +380,7 @@ async function open(pagePath, first) {
   await send('Page.navigate', { url: BASE + pagePath });
   await sleep(2200);
   const setup = pagePath.startsWith('/setup');
-  await js(`(${stage.toString()})(${JSON.stringify({ scale: setup ? 1.25 : 1.3, side: !setup, icon: currentIcon, withTray: !setup, fade: true })})`);
+  await js(`(${stage.toString()})(${JSON.stringify({ scale: setup ? 1.25 : 1.2, side: !setup, icon: currentIcon, withTray: !setup, fade: true })})`);
   await sleep(900);
   if (!first) paused += Date.now() / 1000 - pauseStart;
   recording = true;
