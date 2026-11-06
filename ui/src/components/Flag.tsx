@@ -39,7 +39,7 @@ function star(cx: number, cy: number, r: number, fill: string): string {
 const sun = (x: number, y: number, r: number, c: string) =>
   `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}"/><circle cx="${x}" cy="${y}" r="${r + 2.2}" fill="none" stroke="${c}" stroke-width="1.8" stroke-dasharray="1.3 1.4"/>`;
 
-const FLAGS: Record<string, string> = {
+export const FLAGS: Record<string, string> = {
   RU: h('#fff', '#0039a6', '#d52b1e'),
   BY:
     bands('h', ['#c8313e', '#4aa657'], [2, 1]) +

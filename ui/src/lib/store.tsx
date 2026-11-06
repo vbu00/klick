@@ -218,8 +218,11 @@ export interface Store extends S {
   probeShare(enabled: boolean): Promise<void>;
   refresh(id: string): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Своё название подключения: видно только в kl!ck. */
+  rename(id: string, name: string): Promise<void>;
   addLink(source: string, name?: string): Promise<boolean>;
-  importFile(file: File): Promise<boolean>;
+  /** `name` — название вместо имени файла. */
+  importFile(file: File, name?: string): Promise<boolean>;
   /** Несколько ссылок или конфигурация, вставленные текстом: служба разбирает их как файл. */
   importText(name: string, content: string): Promise<boolean>;
   setMode(mode: Mode): Promise<void>;
@@ -278,6 +281,7 @@ export function useStore(): Store {
 export function StoreProvider({ transport, children }: { transport: Transport; children: ReactNode }) {
   const [s, dispatch] = useReducer(reducer, initial);
   const [traffic, pushTraffic] = useReducer(trafficReducer, undefined, emptyTraffic);
+  const self = useRef<Store | null>(null);
   const ref = useRef(s);
   ref.current = s;
   const toastId = useRef(0);
@@ -618,12 +622,20 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         }
       },
       remove: async (id) => {
-        const name = ref.current.settings?.connections.find((c) => c.id === id)?.name ?? '';
+        const conn = ref.current.settings?.connections.find((c) => c.id === id);
+        const name = conn?.name ?? '';
+        // Ссылку берём заранее: по «Вернуть» подключение добавится снова. У файла ссылки нет.
+        const link = conn && conn.kind !== 'file' ? await transport.call<string>('connection_link', { id }).catch(() => null) : null;
         const r = await call('remove_connection', { id });
         if (r !== undefined) {
-          toast('Подключение удалено', name, 'dim');
+          toast(`«${name}» удалена`, undefined, 'bad', link ? { label: 'Вернуть', run: () => void self.current?.addLink(link, name) } : undefined);
           await reload();
         }
+      },
+      rename: async (id, name) => {
+        if ((await call('rename_connection', { id, name })) === undefined) return;
+        toast('Переименовали', undefined, 'ok');
+        await reloadSettings();
       },
       addLink: async (source, name) => {
         try {
@@ -639,15 +651,21 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
           failed(e);
           return false;
         }
-        toast('Подключение добавлено', 'Проверьте задержку серверов', 'ok');
+        toast(detect(source).kind === 'link' ? 'Конфигурация добавлена' : 'Подписка добавлена', undefined, 'ok');
         await reload();
         return true;
       },
-      importFile: async (file) => {
+      importFile: async (file, name) => {
         const content = await file.text();
+        const before = new Set(ref.current.settings?.connections.map((c) => c.id) ?? []);
         const r = await call('import_file', { file_name: file.name, content });
         if (r === undefined) return false;
-        toast('Файл импортирован', file.name, 'ok');
+        if (name) {
+          const st = await transport.call<Settings>('settings').catch(() => null);
+          const added = st?.connections.find((c) => !before.has(c.id));
+          if (added) await transport.call('rename_connection', { id: added.id, name }).catch(() => undefined);
+        }
+        toast('Подписка добавлена', undefined, 'ok');
         await reload();
         return true;
       },
@@ -655,7 +673,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
         // Расширение — чтобы точка в названии не съела его хвост: служба берёт имя файла без расширения.
         const r = await call('import_file', { file_name: `${name}.txt`, content });
         if (r === undefined) return false;
-        toast('Подключение добавлено', name, 'ok');
+        toast('Подписка добавлена', undefined, 'ok');
         await reload();
         return true;
       },
@@ -802,7 +820,7 @@ export function StoreProvider({ transport, children }: { transport: Transport; c
   );
 
   return (
-    <Ctx.Provider value={store}>
+    <Ctx.Provider value={(self.current = store)}>
       <TrafficCtx.Provider value={traffic}>{children}</TrafficCtx.Provider>
     </Ctx.Provider>
   );

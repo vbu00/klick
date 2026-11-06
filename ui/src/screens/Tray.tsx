@@ -19,7 +19,7 @@ import { useStore, useTraffic } from '../lib/store';
 import { detect } from '../lib/source';
 
 import type { AboutView, Connection, ExitAction, ServerView, VpnState } from '../lib/types';
-import { Elapsed } from './Home';
+import { Elapsed } from '../components/Elapsed';
 
 const STATUS: Record<VpnState, [string, string]> = {
   off: ['Отключено', 'var(--dim)'],

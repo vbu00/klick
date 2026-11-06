@@ -52,6 +52,10 @@ pub enum Command {
     ImportFile { file_name: String, content: String },
     RefreshConnection { id: String },
     RemoveConnection { id: String },
+    /// Своё название подключения: видно только в kl!ck.
+    RenameConnection { id: String, name: String },
+    /// Ссылка подписки или одиночная ссылка — для «Скопировать ссылку». У файла ссылки нет.
+    ConnectionLink { id: String },
     SelectConnection { id: String },
     /// Серверы активного подключения.
     Servers,
@@ -66,6 +70,8 @@ pub enum Command {
     Probe,
     /// Разрешить или запретить отправку результата панели подписки.
     ProbeShare { id: String, enabled: bool },
+    /// Задержка текущего сервера, пока VPN работает: `{ "delay": мс | null }`.
+    Delay,
     ListAdd { position: Routing, rule: Rule },
     ListRemove { position: Routing, index: usize },
     ListSetRoute { position: Routing, index: usize, route: Route },

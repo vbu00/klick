@@ -1,0 +1,106 @@
+/* Главное окно — стили из макета «kl!ck — интерактивный прототип» без изменений.
+   Ниже блока из макета — только то, что нужно окну приложения: размер, шрифт, превью. */
+@import '@fontsource-variable/inter/opsz.css';
+
+.bm{--bg:#f5f5f7;--surface:#ffffff;--frame:#d4d4d4;--line:#e4e4e4;--hair:rgba(220,220,224,.9);--fill:#e4e4e4;--fill2:#eaeaea;--text:#202020;--text2:#767676;--text3:#a3a3a8;--icon:#919191;--navIcon:#8e8e93;--accent:#34c759;--onAccent:#ffffff;--ok:#1fa64a;--okTint:rgba(31,166,74,.12);--warn:#d97a00;--bad:#e5372b;--shadow:0 1px 2px rgba(0,0,0,.03);--pop:0 12px 32px rgba(0,0,0,.12),inset 0 0 0 .4px #e4e4e4;--fade:#f5f5f7}
+.bm,.bm *{box-sizing:border-box}
+.bm button{font-family:inherit}
+.bm button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ksc{scrollbar-width:none}.ksc::-webkit-scrollbar{width:0}
+.sf{background:var(--surface);box-shadow:inset 0 0 0 .4px var(--line)}
+.sq28{border-radius:28px}.sq24{border-radius:24px}.sq20{border-radius:20px}.sq12{border-radius:12px}
+@supports (corner-shape: superellipse(1.4)){.sq28{border-radius:35px;corner-shape:superellipse(1.4)}.sq24{border-radius:30px;corner-shape:superellipse(1.4)}.sq20{border-radius:25px;corner-shape:superellipse(1.4)}.sq12{border-radius:15px;corner-shape:superellipse(1.4)}}
+.cap2{font-size:13px;line-height:16px;letter-spacing:.4px;text-transform:uppercase;color:var(--text2)}
+.note{font-size:12.5px;line-height:17px;color:var(--text3)}
+.tp{transition:transform .14s cubic-bezier(.2,.7,.2,1),background-color .2s ease,color .2s ease,box-shadow .25s ease,opacity .2s ease}
+.tp:active{transform:scale(.96)}
+.cap{width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.cap:hover{background:var(--fill2)}.cap.x:hover{background:#e5372b;color:#fff}
+.ib{width:32px;height:32px;border:0;border-radius:10px;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.ib:hover{background:var(--fill2)}
+.act{flex:none;width:28px;height:28px;border:0;padding:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.act svg{transition:transform .45s cubic-bezier(.34,1.56,.64,1)}
+.act.pl:hover svg{transform:scale(1.15)}
+.act.pl:hover .ecg{animation:trace .75s cubic-bezier(.4,0,.2,1)}
+.act.rf:hover svg{transform:rotate(70deg)}
+.act.dt:hover svg{transform:scale(1.15)}
+.act:active svg{transform:scale(.82)!important;transition-duration:.12s}
+.srow{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;margin:0;border:0;border-radius:16px;background:transparent;color:var(--text);text-align:left;cursor:pointer;transition:background-color .15s ease}
+.srow:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}
+.srow.on{background:color-mix(in srgb,var(--text) 6%,transparent)}
+.rdo{flex:none;position:relative;width:20px;height:20px;border-radius:50%;transition:box-shadow .25s ease}
+.rdo i{position:absolute;left:5px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--accent);transition:transform .35s cubic-bezier(.34,1.56,.64,1)}
+.skel{display:inline-block;width:42px;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--fill) 0%,color-mix(in srgb,var(--fill) 35%,var(--surface)) 50%,var(--fill) 100%);background-size:200% 100%;animation:skel 1.1s linear infinite}
+@keyframes skel{from{background-position:150% 0}to{background-position:-50% 0}}
+@keyframes powerOff{0%{transform:scale(1)}35%{transform:scale(.92)}100%{transform:scale(1)}}
+.ldots{display:inline-flex;gap:3px;align-items:center;height:16px}.ldots i{width:4px;height:4px;border-radius:50%;background:var(--text2);animation:dotBounce 1s ease-in-out infinite}.ldots i:nth-child(2){animation-delay:.15s}.ldots i:nth-child(3){animation-delay:.3s}
+.spd{cursor:pointer;transition:transform .2s cubic-bezier(.2,.7,.2,1),box-shadow .2s ease}.spd:hover{box-shadow:inset 0 0 0 .4px var(--line),0 4px 14px rgba(0,0,0,.06)}.spd:active{transform:scale(.97)}
+.st{background:var(--surface);box-shadow:inset 0 0 0 .4px var(--line)}
+.trb{background:transparent;color:var(--bad);transition:background-color .2s ease,transform .14s cubic-bezier(.2,.7,.2,1)}
+.trb:hover{background:color-mix(in srgb,var(--bad) 10%,transparent)}
+.swt{flex:none;position:relative;width:50px;height:24px;border:0;padding:0;border-radius:999px;cursor:pointer;transition:background-color .25s ease}
+.swt i{position:absolute;top:2px;left:2px;width:30px;height:20px;border-radius:10px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.18),0 0 0 .4px rgba(0,0,0,.06);transition:transform .32s cubic-bezier(.34,1.3,.64,1)}
+.rrow{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:10px 0;border:0;background:transparent;color:var(--text);text-align:left;font-family:inherit}
+.rcard{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;border:0;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;transition:box-shadow .25s ease,transform .14s cubic-bezier(.2,.7,.2,1)}
+.rcard:active{transform:scale(.985)}
+.tagc{flex:none;display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:500}
+.dotsb{flex:none;width:24px;height:24px;border:0;padding:0;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.lab{font-size:13px;line-height:16px;color:var(--text2)}
+.val{font-size:13px;line-height:16px;font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+.mi{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border:0;border-radius:10px;background:transparent;font-size:13.5px;text-align:left;cursor:pointer}
+.mi:hover{background:var(--bg)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes halo{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 28%,transparent)}100%{box-shadow:0 0 0 18px color-mix(in srgb,var(--accent) 0%,transparent)}}
+@keyframes livedot{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}100%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ok) 0%,transparent)}}
+@keyframes expandin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes popin{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}
+@keyframes tabin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes flow{to{stroke-dashoffset:-22}}
+@keyframes pushin{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes cfIn{from{opacity:0}to{opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes areaIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes valPop{0%{opacity:0;filter:blur(4px);transform:translateY(6px) scale(.9)}100%{opacity:1;filter:blur(0);transform:none}}
+@keyframes dotBounce{0%,80%,100%{transform:translateY(0);opacity:.35}40%{transform:translateY(-3px);opacity:1}}
+@keyframes rowScan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@keyframes ringPulse{0%{r:4;opacity:.6}100%{r:12;opacity:0}}
+@keyframes trace{from{stroke-dashoffset:100}to{stroke-dashoffset:0}}
+@keyframes run{from{stroke-dashoffset:124}to{stroke-dashoffset:0}}
+@keyframes spin1{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+@keyframes growbar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes sheen{0%{transform:translateX(-120%)}60%,100%{transform:translateX(220%)}}
+@media (prefers-reduced-motion:reduce){.bm *{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* Окно приложения: в Tauri — во всё окно, в превью — 382×797 со скруглением, как в макете. */
+.bm.bm-root{position:relative;width:382px;height:797px;overflow:hidden;border-radius:16px;background:var(--bg);color:var(--text);font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Inter Variable',Inter,'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased;transition:background-color .3s ease;user-select:none;overflow:clip}
+body.in-tauri .bm.bm-root{width:100vw;height:100vh;border-radius:0}
+.bm input,.bm textarea{user-select:text}
+.bm input::placeholder,.bm textarea::placeholder{color:var(--text3)}
+.bm-win{border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.06)}
+body.in-tauri .bm-win{border-radius:0;box-shadow:none}
+.preview .bm-root{box-shadow:0 30px 80px rgba(0,0,0,.22),0 0 0 1px rgba(0,0,0,.06)}
+
+/* macOS: кнопки окна — системные «светофоры» слева (заголовок прозрачный), своих не рисуем. */
+.os-mac .bm .bm-title{padding-left:84px!important}
+
+/* iOS: окно во весь экран, на iPad — колонка до 560px; вырез сверху и полоска «домой» снизу.
+   Поля ввода — 16px: иначе iOS увеличивает страницу при фокусе. */
+body.os-ios.in-tauri .bm.bm-root{position:fixed;inset:env(safe-area-inset-top) 0 0 0;width:auto;height:auto;max-width:560px;margin:0 auto;border-radius:0}
+body.os-ios .preview .bm-root{width:min(390px,calc(100vw - 32px));height:min(844px,calc(100dvh - 120px))}
+.os-ios .bm .bm-nav{bottom:calc(16px + env(safe-area-inset-bottom))!important}
+.os-ios .bm .bm-fade{height:calc(85px + env(safe-area-inset-bottom))!important}
+.os-ios .bm .bm-scroll>div{padding-bottom:calc(110px + env(safe-area-inset-bottom))!important}
+.os-ios .bm [role=dialog]>.ksc{padding-bottom:calc(24px + env(safe-area-inset-bottom))!important}
+.os-ios .bm input,.os-ios .bm textarea{font-size:16px!important}
+
+/* «Стекло» (Оформление → Стекло): полупрозрачные поверхности с размытием поверх перелива фона.
+   Кромки и блики — переменные --glass* темы (lib/theme.ts), как у прежнего окна. */
+:root[data-glass] .bm.bm-root{background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 86%,var(--glassLift)) 0%,var(--bg) 60%)}
+:root[data-glass] .bm :is(.sf,.st){background-color:color-mix(in srgb,var(--surface) 62%,transparent);-webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);background-image:linear-gradient(160deg,var(--glassSheen),transparent 46%);box-shadow:inset 0 0 0 1px var(--glassEdge),inset 0 1px 0 var(--glassHi),0 10px 30px var(--glassShadow)}
+:root[data-glass] .bm .bm-fade{display:none}
+:root[data-glass] .bm .bm-nav{background:var(--glassBar);-webkit-backdrop-filter:blur(28px) saturate(180%);backdrop-filter:blur(28px) saturate(180%)}
+:root[data-glass] .bm [role=dialog].sq24{background:var(--glassSheet);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%)}
+:root[data-glass] .bm .bm-title{background:transparent!important}
+@media (prefers-reduced-transparency:reduce){:root[data-glass] .bm :is(.sf,.st,.bm-nav){-webkit-backdrop-filter:none;backdrop-filter:none;background-color:var(--surface)}}

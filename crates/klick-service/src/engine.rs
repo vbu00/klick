@@ -766,6 +766,15 @@ impl Engine {
             Command::ImportFile { file_name, content } => self.import_file(file_name, content).await,
             Command::RefreshConnection { id } => self.refresh(&id).await,
             Command::RemoveConnection { id } => self.remove(&id).await,
+            Command::RenameConnection { id, name } => self.rename(&id, name),
+            Command::ConnectionLink { id } => {
+                let c = self.settings.connections.iter().find(|c| c.id == id).ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+                if c.kind == ConnectionKind::File {
+                    return Err(ErrorInfo::new("conn.no_link"));
+                }
+                let link = self.secrets.0.get(&id).cloned().ok_or_else(|| ErrorInfo::new("conn.secret_missing"))?;
+                Ok(Value::String(link))
+            }
             Command::SelectConnection { id } => self.select_connection(&id).await,
             Command::Servers => self.list_servers().await,
             Command::ConnectionServers { id } => self.connection_servers(&id).await,
@@ -773,6 +782,12 @@ impl Engine {
             Command::TestLatency => self.list_servers().await,
             Command::Probe => Err(ErrorInfo::new("probe.unexpected")),
             Command::ProbeShare { id, enabled } => self.set_probe_share(&id, enabled),
+            Command::Delay => {
+                let Some(api) = self.api() else { return Ok(json!({ "delay": null })) };
+                let Some(name) = api.selected(VPN_GROUP).await.ok().flatten() else { return Ok(json!({ "delay": null })) };
+                let delay = api.proxy_delay(&name, PROBE_URL, PROBE_TIMEOUT_MS).await.ok().flatten();
+                Ok(json!({ "delay": delay }))
+            }
             Command::SelectServer { name } => self.select_server(name).await,
             Command::ListAdd { position, rule } => {
                 let rule = self.validate_rule(rule)?;
@@ -2571,6 +2586,19 @@ impl Engine {
         self.emit_state();
         let c = self.settings.connections.iter().find(|c| c.id == id).ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
         serde_json::to_value(self.connection_view(c)).map_err(internal)
+    }
+
+    /// Своё название: пустое не принимаем, длиннее 64 символов — обрезаем.
+    fn rename(&mut self, id: &str, name: String) -> Result<Value, ErrorInfo> {
+        let name: String = name.trim().chars().filter(|c| !c.is_control()).take(64).collect();
+        if name.is_empty() {
+            return Err(ErrorInfo::new("input.empty_name"));
+        }
+        let c = self.settings.connections.iter_mut().find(|c| c.id == id).ok_or_else(|| ErrorInfo::new("conn.not_found"))?;
+        c.name = name;
+        self.save()?;
+        self.emit_state();
+        Ok(self.view_json())
     }
 
     async fn remove(&mut self, id: &str) -> Result<Value, ErrorInfo> {

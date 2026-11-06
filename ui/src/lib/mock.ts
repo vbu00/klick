@@ -27,7 +27,7 @@ import type {
   UpdateView,
 } from './types';
 
-export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'neighbors' | 'browser' | 'noproxy';
+export type Scenario = 'off' | 'empty' | 'connected' | 'reconnecting' | 'down' | 'error' | 'expired' | 'traffic' | 'neighbors' | 'browser' | 'noproxy';
 
 const GB = 1024 ** 3;
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -81,55 +81,63 @@ function mockProbe(s: ServerView, direct: boolean): ServerProbe {
 }
 
 function seed(): { connections: Connection[]; servers: Record<string, ServerView[]> } {
+  // Данные из макета «kl!ck — интерактивный прототип»: так превью удобно сверять с ним.
+  // ?flag=1 — название с флагом-эмодзи, как его присылает 3x-ui; ?unlimited=1 — подписка без лимита и срока;
+  // ?announce=1 — объявление панели; ?many=1 — много серверов разных панелей.
   const sub: Connection = {
-    id: 'alex',
-    // ?flag=1 — название с флагом-эмодзи, как его присылает 3x-ui.
-    name: PARAMS.get('flag') ? '🇩🇪 Германия' : 'Mistgate · Alex',
+    id: 'p1',
+    name: PARAMS.get('flag') ? '🇩🇪 Германия' : 'Моя подписка',
     kind: 'subscription',
-    info: { upload: 3.1 * GB, download: 39.5 * GB, total: 200 * GB, expire: nowS() + 49 * 86400, announce: 'Продлить подписку можно на странице подписки', support_url: 'https://t.me/support', page_url: 'https://panel.example.com/sub/alex', probe_report: 1, ...(PARAMS.get('unlimited') ? { total: 0, expire: null } : {}) },
+    info: {
+      upload: 2.1 * GB,
+      download: 33.1 * GB,
+      total: 100 * GB,
+      expire: nowS() + 24 * 86400 + 3600,
+      support_url: 'https://t.me/example_support',
+      page_url: 'https://panel.example.com/',
+      probe_report: 1,
+      ...(PARAMS.get('announce') ? { announce: 'Продлить подписку можно на странице подписки' } : {}),
+      ...(PARAMS.get('unlimited') ? { total: 0, expire: null } : {}),
+    },
     updated_at: nowS() - 3600,
     update_interval_hours: 12,
-    selected_server: 'Нидерланды · Amsterdam',
+    selected_server: 'Финляндия · Helsinki',
     probe_share: false,
   };
-  const link: Connection = {
-    id: 'grpc',
-    name: 'grpc',
-    kind: 'link',
-    info: null,
-    updated_at: nowS(),
-    update_interval_hours: null,
-    selected_server: 'grpc',
+  const work: Connection = {
+    id: 'p2',
+    name: 'Рабочая',
+    kind: 'subscription',
+    info: { upload: 1.6 * GB, download: 42 * GB, total: 50 * GB, expire: nowS() + 2 * 86400 + 3600 },
+    updated_at: nowS() - 7200,
+    update_interval_hours: 12,
+    selected_server: 'Нидерланды · Rotterdam',
   };
+  const link: Connection = { id: 'p3', name: 'grpc', kind: 'link', info: null, updated_at: nowS(), update_interval_hours: null, selected_server: '🇳🇱 Нидерланды · 203.0.113.81' };
   return {
-    connections: [sub, link],
+    connections: [sub, work, link],
     servers: {
-      // Имена — как у разных панелей: Remnawave («Страна · Город»), Mistgate (флаг, код, протокол),
-      // код в скобках и серверы без страны (попадут в «Другие» в списке по странам).
-      alex: [
-        { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: true },
+      p1: [
+        { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: true },
+        { name: 'Нидерланды · Amsterdam', kind: 'vless', delay: 48, selected: false },
         { name: 'Германия · Frankfurt', kind: 'vless', delay: 61, selected: false },
-        { name: 'Финляндия · Helsinki', kind: 'hysteria2', delay: 39, selected: false },
         { name: 'США · New York', kind: 'trojan', delay: 142, selected: false },
-        { name: 'Турция · Istanbul', kind: 'vless', delay: null, selected: false },
-        ...(PARAMS.get('many') === '1' ? mistgate() : []),
-        { name: '🇧🇾 BY · HY2', kind: 'hysteria2', delay: 56, selected: false },
-        { name: '🇧🇾 BY · VLESS · TCP', kind: 'vless', delay: null, selected: false },
-        { name: '🇧🇾 BY · VLESS · XHTTP', kind: 'vless', delay: 71, selected: false },
-        { name: '🇧🇾 BY · AWG2', kind: 'wireguard', delay: 44, selected: false },
-        { name: '🇧🇾 BY · AWG3.1', kind: 'wireguard', delay: 47, selected: false },
-        { name: '🇩🇪 DE · HY2', kind: 'hysteria2', delay: 63, selected: false },
-        { name: '🇩🇪 DE · HY2 · WARP', kind: 'hysteria2', delay: 62, selected: false },
-        { name: '🇩🇪 DE · VLESS · XHTTP', kind: 'vless', delay: 88, selected: false },
-        { name: '🇩🇪 DE · AWG2', kind: 'wireguard', delay: null, selected: false },
-        { name: '🇳🇱 NL · HY2', kind: 'hysteria2', delay: 52, selected: false },
-        { name: '🇳🇱 NL · HY2 · WARP', kind: 'hysteria2', delay: 58, selected: false },
-        { name: '🇳🇱 NL · AWG3.1', kind: 'wireguard', delay: 49, selected: false },
-        { name: '[FI] Helsinki-2', kind: 'vless', delay: 41, selected: false },
-        { name: 'AWG2', kind: 'wireguard', delay: 95, selected: false },
-        { name: 'AWG3.1', kind: 'wireguard', delay: null, selected: false },
+        { name: 'Германия · Berlin', kind: 'hysteria2', delay: null, selected: false },
+        ...(PARAMS.get('many') === '1'
+          ? [
+              ...mistgate(),
+              { name: '🇧🇾 BY · HY2', kind: 'hysteria2', delay: 56, selected: false },
+              { name: '🇧🇾 BY · AWG2', kind: 'wireguard', delay: 44, selected: false },
+              { name: '[FI] Helsinki-2', kind: 'vless', delay: 41, selected: false },
+              { name: 'AWG3.1', kind: 'wireguard', delay: null, selected: false },
+            ]
+          : []),
       ].filter((s, i, all) => all.findIndex((x) => x.name === s.name) === i),
-      grpc: [{ name: 'grpc', kind: 'vless', delay: 57, selected: true }],
+      p2: [
+        { name: 'Нидерланды · Rotterdam', kind: 'vless', delay: 52, selected: true },
+        { name: 'Финляндия · Espoo', kind: 'hysteria2', delay: 44, selected: false },
+      ],
+      p3: [{ name: '🇳🇱 Нидерланды · 203.0.113.81', kind: 'vless', delay: 73, selected: true }],
     },
   };
 }
@@ -137,20 +145,22 @@ function seed(): { connections: Connection[]; servers: Record<string, ServerView
 const USER = 'C:\\Users\\user\\AppData';
 
 function seedLists(): Record<Routing, Rule[]> {
+  // Как в макете.
   return {
     selected: [
-      { target: { kind: 'service', value: 'claude' }, route: 'vpn' },
       { target: { kind: 'service', value: 'youtube' }, route: 'vpn' },
-      { target: { kind: 'program', value: `${USER}\\Local\\Discord` }, route: 'vpn' },
-      { target: { kind: 'program', value: `${USER}\\Local\\Roblox` }, route: 'vpn' },
+      { target: { kind: 'service', value: 'telegram' }, route: 'vpn' },
+      { target: { kind: 'service', value: 'discord' }, route: 'vpn' },
+      { target: { kind: 'service', value: 'instagram' }, route: 'vpn', enabled: false },
+      { target: { kind: 'service', value: 'chatgpt' }, route: 'vpn' },
       { target: { kind: 'domain', value: 'notion.so' }, route: 'vpn' },
-      { target: { kind: 'ip', value: '149.154.160.0/20' }, route: 'vpn' },
-      { target: { kind: 'domain', value: 'ads.example.com' }, route: 'block' },
+      { target: { kind: 'domain', value: 'medium.com' }, route: 'vpn' },
     ],
     all_vpn: [
+      { target: { kind: 'domain', value: 'gosuslugi.ru' }, route: 'direct' },
+      { target: { kind: 'domain', value: 'sberbank.ru' }, route: 'direct' },
+      { target: { kind: 'domain', value: 'ozon.ru' }, route: 'direct' },
       { target: { kind: 'program', value: 'C:\\Program Files (x86)\\Steam' }, route: 'direct' },
-      { target: { kind: 'domain', value: 'sber.ru' }, route: 'direct' },
-      { target: { kind: 'domain', value: 'kinopoisk.ru' }, route: 'vpn' },
     ],
   };
 }
@@ -268,13 +278,13 @@ class MockService {
     const { connections, servers } = seed();
     this.servers = servers;
     const empty = sc === 'empty';
-    this.sources = empty ? {} : { alex: 'https://panel.example.com/sub/alex', grpc: 'vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc#grpc' };
+    this.sources = empty ? {} : { p1: 'https://panel.example.com/sub/a1b2c3d4e5f6', p2: 'https://vpn.company.example/sub/77', p3: 'vless://00000000-0000-0000-0000-000000000000@203.0.113.81:443?type=grpc#grpc' };
     this.settings = {
       mode: sc === 'browser' || sc === 'noproxy' ? 'sys_proxy' : 'tun',
-      routing: 'selected',
+      routing: 'all_vpn',
       lists: seedLists(),
       connections: empty ? [] : connections,
-      active_connection: empty ? null : 'alex',
+      active_connection: empty ? null : 'p1',
       kill_switch: {
         enabled: true,
         programs: [
@@ -294,7 +304,8 @@ class MockService {
       // `?countries=1` — список серверов сразу по странам.
       servers_by_country: new URLSearchParams(location.search).get('countries') !== '0',
       // `?theme=light` — посмотреть превью в светлой теме.
-      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', base: 'graphite', accent: '#30d158', glass: PARAMS.get('glass') === '1' },
+      // Как в макете — своя светлая тема; `?theme=dark` — тёмная.
+      appearance: { theme: new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'custom', base: 'light', accent: '#30d158', glass: PARAMS.get('glass') === '1' },
       on_exit: 'ask',
       language: 'ru',
     };
@@ -309,13 +320,20 @@ class MockService {
       [-120, 'error', 'ядро: соединение через VPN не удалось (адрес скрыт)'],
     ].map(([d, level, text]) => ({ at: Date.now() + (d as number) * 1000, level: level as LogLine['level'], text: text as string }));
     const vpn: StateView['vpn'] = (
-      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', neighbors: 'connected', browser: 'connected', noproxy: 'connected' } as const
+      { off: 'off', empty: 'off', connected: 'connected', reconnecting: 'reconnecting', down: 'server_down', error: 'error', expired: 'off', traffic: 'off', neighbors: 'connected', browser: 'connected', noproxy: 'connected' } as const
     )[sc];
     const running = vpn === 'connected' || vpn === 'reconnecting' || vpn === 'server_down';
+    const first = this.settings.connections[0];
+    if (sc === 'expired' && first?.info) first.info.expire = nowS() - 9 * 86400;
+    if (sc === 'traffic' && first?.info) first.info.download = first.info.total - first.info.upload;
+    if (sc === 'down' && first) {
+      this.servers.p1.forEach((x) => (x.selected = x.name === 'Германия · Berlin'));
+      first.selected_server = 'Германия · Berlin';
+    }
     this.st = {
       vpn,
       mode: sc === 'browser' || sc === 'noproxy' ? 'sys_proxy' : 'tun',
-      routing: 'selected',
+      routing: 'all_vpn',
       kill_switch: true,
       connection: this.view(),
       server: this.active()?.selected_server ?? null,
@@ -545,6 +563,27 @@ class MockService {
         c.updated_at = nowS();
         this.emitState();
         return { id: c.id, name: c.name, info: c.info };
+      }
+      case 'rename_connection': {
+        const c = this.settings.connections.find((x) => x.id === args.id);
+        if (!c) return fail('conn.not_found');
+        const name = String(args.name ?? '').trim().slice(0, 64);
+        if (!name) return fail('input.empty_name');
+        c.name = name;
+        this.emitState();
+        this.emit({ ev: 'settings' });
+        return this.settings;
+      }
+      case 'connection_link': {
+        const c = this.settings.connections.find((x) => x.id === args.id);
+        if (!c) return fail('conn.not_found');
+        if (c.kind === 'file') return fail('conn.no_link');
+        return this.sources[args.id] ?? fail('conn.secret_missing');
+      }
+      case 'delay': {
+        if (!this.running()) return { delay: null };
+        const s = (this.servers[this.settings.active_connection ?? ''] ?? []).find((x) => x.selected);
+        return { delay: s?.delay != null ? Math.max(18, Math.round(s.delay * (0.85 + Math.random() * 0.3) + (Math.random() < 0.1 ? 30 : 0))) : null };
       }
       case 'remove_connection': {
         const wasActive = this.settings.active_connection === args.id;
